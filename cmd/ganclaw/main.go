@@ -47,6 +47,8 @@ func main() {
 		err = cmdRunAgent(ctx, os.Args[2:])
 	case "status":
 		err = cmdStatus(ctx, os.Args[2:])
+	case "check":
+		err = cmdCheck(ctx, os.Args[2:])
 	case "mcp":
 		err = cmdMCP(ctx, os.Args[2:])
 	case "openclaw-compat":
@@ -84,6 +86,7 @@ func usage() {
 gateway:
   serve             run the gateway: telegram bots, agents and the local API
   health            check each provider's login and limits directly
+  check             check a running gateway and alert the monitor contact (for a timer)
 
 client (talks to a running gateway over its socket):
   send              send a message:      ganclaw send --to alex "text"

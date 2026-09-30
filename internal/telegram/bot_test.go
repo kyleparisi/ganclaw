@@ -342,6 +342,30 @@ func TestBotRun(t *testing.T) {
 		assert.Equal(t, []time.Duration{time.Second, 2 * time.Second, 7 * time.Second}, waits)
 	})
 
+	t.Run("Health tracks successful polls and errors", func(t *testing.T) {
+		polls := make(chan int64, 8)
+		tg := &fakeTelegram{
+			PollErrs: []error{errors.New("network down")},
+			Polls:    [][]Update{{}},
+			OnPoll:   func(o int64) { polls <- o },
+		}
+		subject := &Bot{Name: "support", Client: tg.Client(), AllowUsers: []int64{111}, Store: store.NewTestStore(t),
+			Submit: func(router.Message) bool { return true },
+			Sleep:  func(context.Context, time.Duration) {}}
+		assert.Equal(t, Health{}, subject.Health())
+		stop := runBot(subject)
+
+		<-polls // fails
+		<-polls // succeeds
+		<-polls // third poll started: second's result recorded
+		h := subject.Health()
+		assert.True(t, h.Running)
+		assert.False(t, h.LastPoll.IsZero())
+		assert.Empty(t, h.LastErr, "a successful poll clears the error")
+		require.NoError(t, stop())
+		assert.False(t, subject.Health().Running)
+	})
+
 	t.Run("Invalid token fails at startup", func(t *testing.T) {
 		tg := &fakeTelegram{GetMeErr: errors.New("401 Unauthorized")}
 		subject := &Bot{Name: "assistant", Client: tg.Client(), AllowUsers: []int64{111}, Store: store.NewTestStore(t),

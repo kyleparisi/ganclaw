@@ -39,6 +39,8 @@ type Config struct {
 
 	OpenClawCompat OpenClawCompat `toml:"openclaw_compat"`
 
+	Monitor Monitor `toml:"monitor"`
+
 	// DisableAgentTools stops ganclaw registering its own MCP server
 	// ("ganclaw": send_message, ask_agent, hand_off, list_agents) with
 	// every agent.
@@ -53,6 +55,31 @@ type Contact struct {
 	TelegramChat int64 `toml:"telegram_chat"`
 	// DefaultBot is used when a request doesn't pick one with --via.
 	DefaultBot string `toml:"default_bot"`
+}
+
+// Monitor configures `ganclaw check`.
+type Monitor struct {
+	// Notify is the contact that receives alerts. Required for check.
+	Notify string `toml:"notify"`
+	// Via is the bot alerts are sent through; default the contact's
+	// default_bot. Its token is also used to alert directly when ganclaw
+	// itself is down.
+	Via string `toml:"via"`
+	// BotStaleAfter: a bot that hasn't reached Telegram for this long is a
+	// problem; default 5m.
+	BotStaleAfter Duration `toml:"bot_stale_after"`
+	// RemindEvery repeats alerts for ongoing problems; default 6h.
+	RemindEvery Duration       `toml:"remind_every"`
+	Probes      []MonitorProbe `toml:"probes"`
+}
+
+// MonitorProbe is an HTTP URL the gateway fetches (as its service user)
+// for health checks, e.g. a tunnel endpoint.
+type MonitorProbe struct {
+	Name string `toml:"name"`
+	URL  string `toml:"url"`
+	// DownAfter is how long it may fail before an alert; default 0.
+	DownAfter Duration `toml:"down_after"`
 }
 
 // OpenClawCompat configures `ganclaw openclaw-compat`.
@@ -183,6 +210,12 @@ func (c *Config) applyDefaults() {
 	if c.AttachmentRetention.Duration == 0 {
 		c.AttachmentRetention.Duration = 7 * 24 * time.Hour
 	}
+	if c.Monitor.BotStaleAfter.Duration == 0 {
+		c.Monitor.BotStaleAfter.Duration = 5 * time.Minute
+	}
+	if c.Monitor.RemindEvery.Duration == 0 {
+		c.Monitor.RemindEvery.Duration = 6 * time.Hour
+	}
 	if c.OpenClawCompat.DefaultAgent == "" {
 		c.OpenClawCompat.DefaultAgent = "main"
 	}
@@ -285,6 +318,17 @@ func (c *Config) Validate() error {
 		servers[m.Name] = true
 		if m.Command == "" {
 			errs = append(errs, fmt.Errorf("mcp server %q: command is required", m.Name))
+		}
+	}
+	if n := c.Monitor.Notify; n != "" && !contacts[n] {
+		errs = append(errs, fmt.Errorf("monitor: notify contact %q is not defined", n))
+	}
+	if v := c.Monitor.Via; v != "" && !bots[v] {
+		errs = append(errs, fmt.Errorf("monitor: unknown via bot %q", v))
+	}
+	for i, p := range c.Monitor.Probes {
+		if p.Name == "" || p.URL == "" {
+			errs = append(errs, fmt.Errorf("monitor.probes[%d]: name and url are required", i))
 		}
 	}
 	if n := c.OpenClawCompat.Notify; n != "" && !contacts[n] {

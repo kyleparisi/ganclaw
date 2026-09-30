@@ -1,0 +1,19 @@
+# Runs `ganclaw check` (a health check that uses no AI). Started every 5
+# minutes by ganclaw-check.timer and immediately if ganclaw.service fails.
+# Runs as root so it can read bot tokens from the EnvironmentFile and alert
+# Telegram directly when the gateway itself is down.
+
+[Unit]
+Description=ganclaw health check and alerts
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/ganclaw/ganclaw check -config /etc/ganclaw/ganclaw.toml -env /etc/ganclaw/ganclaw.env -state /var/lib/ganclaw/check-state.json
+StateDirectory=ganclaw
+StateDirectoryMode=0700
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+TimeoutStartSec=120

@@ -44,3 +44,15 @@ token_env = "GANCLAW_TELEGRAM_ASSISTANT_TOKEN"
 # Telegram user IDs allowed to talk to this bot. Required: agents can run
 # commands in their workspace, so open bots are refused.
 allow_users = [123456789]
+
+# Health alerts from `ganclaw check` (see deploy/ganclaw-check.timer).
+# Uses no AI: provider status, bot polling and HTTP probes only.
+# [monitor]
+# notify = "alex"               # contact to alert
+# via = "assistant"             # bot to alert through (also used if ganclaw is down)
+# bot_stale_after = "5m"
+# remind_every = "6h"
+# [[monitor.probes]]
+# name = "Mac Chrome tunnel"
+# url = "http://127.0.0.1:9223/json/version"
+# down_after = "30m"

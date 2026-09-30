@@ -152,6 +152,7 @@ func cmdServe(ctx context.Context, args []string) error {
 		Status:   chain.Status,
 		AgentBot: gw.AgentBot,
 		Agents:   gw.ListAgents(contactNames(cfg.Contacts)),
+		Health:   gw.Health(version, chain.Status, monitorProbes(cfg), nil),
 		Store:    st,
 		Logger:   log,
 	}

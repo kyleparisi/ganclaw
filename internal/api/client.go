@@ -39,6 +39,12 @@ func (c *Client) Run(ctx context.Context, req RunRequest) (RunResponse, error) {
 	return resp, err
 }
 
+func (c *Client) Health(ctx context.Context) (HealthResponse, error) {
+	var resp HealthResponse
+	err := c.do(ctx, http.MethodGet, "/v1/health", nil, &resp)
+	return resp, err
+}
+
 func (c *Client) Agents(ctx context.Context) (AgentsResponse, error) {
 	var resp AgentsResponse
 	err := c.do(ctx, http.MethodGet, "/v1/agents", nil, &resp)

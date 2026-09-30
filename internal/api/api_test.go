@@ -337,6 +337,21 @@ func TestServerAgents(t *testing.T) {
 	})
 }
 
+func TestServerHealth(t *testing.T) {
+	t.Run("Returns the health snapshot", func(t *testing.T) {
+		client := serve(t, &Server{Health: func(context.Context) HealthResponse {
+			return HealthResponse{Version: "v1", Bots: []BotHealth{{Name: "support", Running: true}}, Probes: []ProbeResult{{Name: "tunnel", OK: true}}}
+		}})
+
+		got, err := client.Health(context.Background())
+
+		require.NoError(t, err)
+		assert.Equal(t, "v1", got.Version)
+		assert.Equal(t, "support", got.Bots[0].Name)
+		assert.True(t, got.Probes[0].OK)
+	})
+}
+
 func TestServerStatus(t *testing.T) {
 	t.Run("Returns provider statuses", func(t *testing.T) {
 		client := serve(t, &Server{Status: func(context.Context) []provider.Status {

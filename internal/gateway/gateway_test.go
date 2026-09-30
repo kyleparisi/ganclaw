@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -291,6 +292,36 @@ func TestListAgents(t *testing.T) {
 			Agents:   []api.AgentInfo{{Name: "assistant", Bot: "assistant"}, {Name: "support"}},
 			Contacts: []string{"alex"},
 		}, got)
+	})
+}
+
+func TestHealth(t *testing.T) {
+	t.Run("Bots, providers and probes", func(t *testing.T) {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("{}")) }))
+		defer up.Close()
+		notFound := httptest.NewServer(http.NotFoundHandler())
+		defer notFound.Close()
+		subject, _ := newGateway(t, &sentMessages{}, nil)
+		status := func(context.Context) []provider.Status {
+			return []provider.Status{{Provider: "claude", Available: true}}
+		}
+
+		got := subject.Health("v1", status, []Probe{
+			{Name: "up", URL: up.URL},
+			{Name: "404", URL: notFound.URL},
+			{Name: "down", URL: "http://127.0.0.1:1/"},
+		}, nil)(context.Background())
+
+		assert.Equal(t, "v1", got.Version)
+		assert.Equal(t, []provider.Status{{Provider: "claude", Available: true}}, got.Providers)
+		require.Len(t, got.Bots, 1)
+		assert.Equal(t, "assistant", got.Bots[0].Name)
+		assert.False(t, got.Bots[0].Running, "the test bot was never started")
+		require.Len(t, got.Probes, 3)
+		assert.Equal(t, api.ProbeResult{Name: "up", OK: true}, got.Probes[0])
+		assert.Equal(t, api.ProbeResult{Name: "404", Error: "HTTP 404"}, got.Probes[1])
+		assert.False(t, got.Probes[2].OK)
+		assert.Contains(t, got.Probes[2].Error, "connection refused")
 	})
 }
 

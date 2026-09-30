@@ -209,6 +209,18 @@ command = "b"
 		}
 	})
 
+	t.Run("Monitor defaults and validation", func(t *testing.T) {
+		cfg, err := subject(writeConfig(t, validConfig))
+		require.NoError(t, err)
+		assert.Equal(t, 5*time.Minute, cfg.Monitor.BotStaleAfter.Duration)
+		assert.Equal(t, 6*time.Hour, cfg.Monitor.RemindEvery.Duration)
+
+		_, err = subject(writeConfig(t, validConfig+"\n[monitor]\nnotify = \"nobody\"\nvia = \"ghost\"\n[[monitor.probes]]\nname = \"tunnel\"\n"))
+		assert.ErrorContains(t, err, `monitor: notify contact "nobody" is not defined`)
+		assert.ErrorContains(t, err, `monitor: unknown via bot "ghost"`)
+		assert.ErrorContains(t, err, "monitor.probes[0]: name and url are required")
+	})
+
 	t.Run("Contacts are validated", func(t *testing.T) {
 		_, err := subject(writeConfig(t, validConfig+`
 [[contacts]]

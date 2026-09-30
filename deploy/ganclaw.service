@@ -10,6 +10,8 @@
 Description=ganclaw chat gateway
 After=network-online.target
 Wants=network-online.target
+# Alert straight away if the service gives up (see ganclaw-check.service).
+OnFailure=ganclaw-check.service
 
 [Service]
 Type=simple

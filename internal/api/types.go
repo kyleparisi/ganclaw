@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/kyleparisi/ganclaw/internal/provider"
 )
 
 // SendRequest delivers a plain message, no agent involved.
@@ -69,6 +72,29 @@ type AgentsResponse struct {
 type AgentInfo struct {
 	Name string `json:"name"`
 	Bot  string `json:"bot,omitempty"` // bot that delivers this agent's replies
+}
+
+// HealthResponse is GET /v1/health: everything a monitor needs.
+type HealthResponse struct {
+	Version   string            `json:"version"`
+	Providers []provider.Status `json:"providers"`
+	Bots      []BotHealth       `json:"bots"`
+	Probes    []ProbeResult     `json:"probes"`
+}
+
+type BotHealth struct {
+	Name     string    `json:"name"`
+	Running  bool      `json:"running"`
+	LastPoll time.Time `json:"last_poll"`
+	LastErr  string    `json:"last_error,omitempty"`
+}
+
+// ProbeResult is one configured HTTP check, made by the gateway (as its
+// service user) when health is requested.
+type ProbeResult struct {
+	Name  string `json:"name"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
 }
 
 // Error is an API error. Code is stable and machine-readable.

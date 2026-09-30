@@ -43,6 +43,28 @@ type Bot struct {
 	mu     sync.Mutex
 	runCtx context.Context
 	groups map[string]*pendingGroup
+
+	health Health
+}
+
+// Health is a bot's polling state.
+type Health struct {
+	Running  bool      `json:"running"`
+	LastPoll time.Time `json:"last_poll"` // last successful getUpdates
+	LastErr  string    `json:"last_error,omitempty"`
+}
+
+// Health reports whether the bot is polling successfully.
+func (b *Bot) Health() Health {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.health
+}
+
+func (b *Bot) setHealth(f func(h *Health)) {
+	b.mu.Lock()
+	f(&b.health)
+	b.mu.Unlock()
 }
 
 // setup applies defaults once, before Run or Message use them.
@@ -81,6 +103,7 @@ func (b *Bot) Run(ctx context.Context) error {
 	b.mu.Lock()
 	b.runCtx = ctx
 	b.mu.Unlock()
+	defer b.setHealth(func(h *Health) { h.Running = false })
 
 	me, err := b.Client.GetMe(ctx)
 	if err != nil {
@@ -109,11 +132,13 @@ func (b *Bot) Run(ctx context.Context) error {
 
 	backoff := time.Second
 	for ctx.Err() == nil {
+		b.setHealth(func(h *Health) { h.Running = true })
 		ups, err := b.Client.GetUpdates(ctx, offset, b.PollTimeout)
 		if err != nil {
 			if ctx.Err() != nil {
 				break
 			}
+			b.setHealth(func(h *Health) { h.LastErr = err.Error() })
 			wait := backoff
 			var apiErr *APIError
 			if errors.As(err, &apiErr) && apiErr.RetryAfter > 0 {
@@ -125,6 +150,7 @@ func (b *Bot) Run(ctx context.Context) error {
 			continue
 		}
 		backoff = time.Second
+		b.setHealth(func(h *Health) { h.LastPoll = time.Now(); h.LastErr = "" })
 		if len(ups) == 0 {
 			continue
 		}

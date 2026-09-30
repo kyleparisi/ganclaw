@@ -34,6 +34,9 @@ type Server struct {
 	AgentBot func(agent string) string
 	// Agents lists agents and contacts for GET /v1/agents. Optional.
 	Agents func(ctx context.Context) AgentsResponse
+	// Health reports providers, bots and probes for GET /v1/health.
+	// Optional.
+	Health func(ctx context.Context) HealthResponse
 	// Store holds idempotency keys. Optional; without it keys are ignored.
 	Store  *store.Store
 	Logger *slog.Logger
@@ -47,6 +50,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/run", s.handleRun)
 	mux.HandleFunc("GET /v1/status", s.handleStatus)
 	mux.HandleFunc("GET /v1/agents", s.handleAgents)
+	mux.HandleFunc("GET /v1/health", s.handleHealth)
 	return mux
 }
 
@@ -188,6 +192,14 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.Agents(r.Context()))
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if s.Health == nil {
+		writeJSON(w, http.StatusOK, HealthResponse{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.Health(r.Context()))
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {

@@ -6,15 +6,19 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kyleparisi/ganclaw/internal/agent"
 	"github.com/kyleparisi/ganclaw/internal/api"
 	"github.com/kyleparisi/ganclaw/internal/logx"
+	"github.com/kyleparisi/ganclaw/internal/provider"
 	"github.com/kyleparisi/ganclaw/internal/router"
 	"github.com/kyleparisi/ganclaw/internal/telegram"
 )
@@ -27,6 +31,59 @@ type Gateway struct {
 	Agents map[string]agent.Agent
 	Bots   map[string]*telegram.Bot
 	Logger *slog.Logger
+}
+
+// Probe is an HTTP check reported by Health.
+type Probe struct {
+	Name string
+	URL  string
+}
+
+// Health collects bot state, provider status and probe results.
+func (g *Gateway) Health(version string, status func(context.Context) []provider.Status, probes []Probe, httpc *http.Client) func(context.Context) api.HealthResponse {
+	if httpc == nil {
+		httpc = &http.Client{Timeout: 5 * time.Second}
+	}
+	return func(ctx context.Context) api.HealthResponse {
+		resp := api.HealthResponse{Version: version, Bots: []api.BotHealth{}, Probes: []api.ProbeResult{}}
+		if status != nil {
+			resp.Providers = status(ctx)
+		}
+		names := make([]string, 0, len(g.Bots))
+		for n := range g.Bots {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			h := g.Bots[n].Health()
+			resp.Bots = append(resp.Bots, api.BotHealth{Name: n, Running: h.Running, LastPoll: h.LastPoll, LastErr: h.LastErr})
+		}
+		for _, p := range probes {
+			resp.Probes = append(resp.Probes, probe(ctx, httpc, p))
+		}
+		return resp
+	}
+}
+
+func probe(ctx context.Context, httpc *http.Client, p Probe) api.ProbeResult {
+	r := api.ProbeResult{Name: p.Name}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.URL, nil)
+	if err != nil {
+		r.Error = err.Error()
+		return r
+	}
+	resp, err := httpc.Do(req)
+	if err != nil {
+		r.Error = err.Error()
+		return r
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		r.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
+		return r
+	}
+	r.OK = true
+	return r
 }
 
 // ListAgents describes the agents (with their bots) and contacts.
