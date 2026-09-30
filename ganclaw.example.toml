@@ -1,0 +1,46 @@
+# ganclaw example configuration. Copy to ganclaw.toml (gitignored) and edit.
+# Secrets never go in this file: bots name an environment variable that
+# holds their token.
+
+log_level = "info"                 # debug | info | warn | error
+state_dir = "/var/lib/ganclaw"     # SQLite database lives here
+providers = ["codex", "claude"]    # fallback order
+turn_timeout = "20m"
+attachment_retention = "168h"      # files users send, kept in <workspace>/.ganclaw/attachments
+
+[codex]
+bin = "codex"
+# Log in once with: CODEX_HOME=<home> codex login --device-auth
+home = "/var/lib/ganclaw/codex"
+sandbox = "workspace-write"        # read-only | workspace-write | danger-full-access
+# model = ""
+
+[claude]
+bin = "claude"
+# Keeps the bot's Claude login, settings and sessions separate from yours.
+# Log in once with: CLAUDE_CONFIG_DIR=<dir> claude  (then /login)
+config_dir = "/var/lib/ganclaw/claude"
+permission_mode = "acceptEdits"
+# extra_args = ["--strict-mcp-config"]
+
+# Optional: transcribe voice notes locally with whisper.cpp.
+# [transcribe]
+# whisper_bin = "/usr/local/lib/ganclaw/whisper-cli"
+# model = "/usr/local/lib/ganclaw/models/ggml-small.en.bin"
+# language = "en"
+# threads = 2   # keep <= CPUQuota/100 in the systemd unit, or whisper gets throttled
+
+[[agents]]
+name = "assistant"
+workspace = "/srv/agents/assistant"
+# Files read from the workspace to build the system prompt (missing ones
+# are skipped). Default:
+# instruction_files = ["IDENTITY.md", "SOUL.md", "USER.md", "AGENTS.md", "TOOLS.md", "MEMORY.md"]
+
+[[telegram]]
+name = "assistant"
+agent = "assistant"
+token_env = "GANCLAW_TELEGRAM_ASSISTANT_TOKEN"
+# Telegram user IDs allowed to talk to this bot. Required: agents can run
+# commands in their workspace, so open bots are refused.
+allow_users = [123456789]

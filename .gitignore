@@ -1,0 +1,28 @@
+# Local config and secrets — never commit these.
+/config.toml
+/ganclaw.toml
+*.local.toml
+.env
+.env.*
+!.env.example
+
+# Runtime state
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+/data/
+/state/
+
+# Build output
+/bin/
+/dist/
+/ganclaw
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/

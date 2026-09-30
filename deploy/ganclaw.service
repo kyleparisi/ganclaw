@@ -1,0 +1,46 @@
+# systemd unit for ganclaw. Install to /etc/systemd/system/ganclaw.service
+# and adjust User/Group and paths to your setup.
+#
+# Secrets (bot tokens, CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`)
+# go in /etc/ganclaw/ganclaw.env, mode 600 owned by root: systemd reads it
+# before dropping privileges, and ganclaw strips GANCLAW_* variables before
+# starting providers so agents never see bot tokens.
+
+[Unit]
+Description=ganclaw chat gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ganclaw
+Group=ganclaw
+EnvironmentFile=/etc/ganclaw/ganclaw.env
+Environment=PATH=/usr/local/lib/ganclaw:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/lib/ganclaw/ganclaw serve -config /etc/ganclaw/ganclaw.toml
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=60
+
+# Hardening. Agents can write only inside the service user's home.
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/ganclaw
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# Resource limits: ganclaw itself is ~20 MB; the headroom is for the
+# agents' own commands.
+MemoryHigh=3G
+MemoryMax=4G
+CPUQuota=200%
+TasksMax=512
+IOWeight=50
+
+[Install]
+WantedBy=multi-user.target
