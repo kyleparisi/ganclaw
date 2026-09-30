@@ -217,6 +217,7 @@ OpenClaw, restart both.
 
 ```sh
 go test -race ./...
+git config core.hooksPath .githooks   # optional: scan commits for secrets with gitleaks
 ```
 
 Tests don't call real services: providers run against in-memory fakes, and

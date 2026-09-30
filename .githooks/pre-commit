@@ -1,0 +1,9 @@
+#!/bin/sh
+# Blocks commits that add secrets. Enable with:
+#   git config core.hooksPath .githooks
+# Needs gitleaks: https://github.com/gitleaks/gitleaks#installing
+if ! command -v gitleaks >/dev/null 2>&1; then
+	echo "pre-commit: gitleaks not found; install it or commit with --no-verify" >&2
+	exit 1
+fi
+exec gitleaks git --pre-commit --staged --redact --no-banner --verbose
