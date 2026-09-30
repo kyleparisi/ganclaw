@@ -110,6 +110,9 @@ func (b *Bot) Run(ctx context.Context) error {
 		return fmt.Errorf("telegram bot %q: %w", b.Name, err)
 	}
 	log = log.With("username", me.Username)
+	// getMe reached Telegram: count it, so health is good before the
+	// first long poll (up to PollTimeout) completes.
+	b.setHealth(func(h *Health) { h.Running = true; h.LastPoll = time.Now(); h.LastErr = "" })
 	if len(b.Commands) > 0 {
 		cmds := make([]BotCommand, len(b.Commands))
 		for i, c := range b.Commands {

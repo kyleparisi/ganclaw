@@ -366,6 +366,20 @@ func TestBotRun(t *testing.T) {
 		assert.False(t, subject.Health().Running)
 	})
 
+	t.Run("Health is good as soon as getMe succeeds", func(t *testing.T) {
+		polls := make(chan int64, 1)
+		tg := &fakeTelegram{OnPoll: func(o int64) { polls <- o }} // first poll blocks
+		subject := &Bot{Name: "support", Client: tg.Client(), AllowUsers: []int64{111}, Store: store.NewTestStore(t),
+			Submit: func(router.Message) bool { return true }}
+		stop := runBot(subject)
+
+		<-polls
+		h := subject.Health()
+		assert.True(t, h.Running)
+		assert.False(t, h.LastPoll.IsZero(), "startup counts as contact before the long poll returns")
+		require.NoError(t, stop())
+	})
+
 	t.Run("Invalid token fails at startup", func(t *testing.T) {
 		tg := &fakeTelegram{GetMeErr: errors.New("401 Unauthorized")}
 		subject := &Bot{Name: "assistant", Client: tg.Client(), AllowUsers: []int64{111}, Store: store.NewTestStore(t),
