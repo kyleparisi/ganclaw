@@ -134,28 +134,30 @@ func TestRouterSubmit(t *testing.T) {
 		assert.Equal(t, "welcome back", out.next(t))
 	})
 
-	t.Run("/new resets the conversation without running the agent", func(t *testing.T) {
-		db := store.NewTestStore(t)
-		require.NoError(t, db.SaveSessions(ctx, "telegram:bot:1", provider.Sessions{"codex": "c-1"}))
-		require.NoError(t, db.SaveSessions(ctx, "telegram:bot:2", provider.Sessions{"codex": "c-2"}))
-		out := newReplies()
-		subject := newRouter(t, Config{
-			Agents: testAgents(),
-			Store:  db,
-			Run: func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
-				t.Error("agent must not run for /new")
-				return "", provider.Result{}, nil
-			},
+	for _, cmd := range []string{" /new ", "/reset"} {
+		t.Run(cmd+" resets the conversation without running the agent", func(t *testing.T) {
+			db := store.NewTestStore(t)
+			require.NoError(t, db.SaveSessions(ctx, "telegram:bot:1", provider.Sessions{"codex": "c-1", "claude": "cl-1"}))
+			require.NoError(t, db.SaveSessions(ctx, "telegram:bot:2", provider.Sessions{"codex": "c-2"}))
+			out := newReplies()
+			subject := newRouter(t, Config{
+				Agents: testAgents(),
+				Store:  db,
+				Run: func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+					t.Error("agent must not run for " + cmd)
+					return "", provider.Result{}, nil
+				},
+			})
+
+			subject.Submit(out.msg("telegram:bot:1", cmd))
+
+			assert.Equal(t, "Started a new conversation.", out.next(t))
+			s1, _ := db.Sessions(ctx, "telegram:bot:1")
+			s2, _ := db.Sessions(ctx, "telegram:bot:2")
+			assert.Empty(t, s1)
+			assert.Equal(t, provider.Sessions{"codex": "c-2"}, s2)
 		})
-
-		subject.Submit(out.msg("telegram:bot:1", " /new "))
-
-		assert.Equal(t, "Started a new conversation.", out.next(t))
-		s1, _ := db.Sessions(ctx, "telegram:bot:1")
-		s2, _ := db.Sessions(ctx, "telegram:bot:2")
-		assert.Empty(t, s1)
-		assert.Equal(t, provider.Sessions{"codex": "c-2"}, s2)
-	})
+	}
 
 	t.Run("Messages in one chat run one at a time, in order", func(t *testing.T) {
 		db := store.NewTestStore(t)
@@ -522,6 +524,7 @@ func TestRouterSubmit(t *testing.T) {
 
 		help := out.next(t)
 		assert.Contains(t, help, "/new — Start a new conversation")
+		assert.Contains(t, help, "/reset — Clear the conversation (same as /new)")
 		assert.Contains(t, help, "/stop — Stop the reply in progress")
 		assert.Equal(t, help, out.next(t))
 	})

@@ -67,6 +67,7 @@ type Command struct {
 // Commands lists the commands the router understands.
 var Commands = []Command{
 	{Name: "new", Description: "Start a new conversation"},
+	{Name: "reset", Description: "Clear the conversation (same as /new)"},
 	{Name: "stop", Description: "Stop the reply in progress"},
 	{Name: "status", Description: "Show model availability and limits"},
 	{Name: "help", Description: "List commands"},
