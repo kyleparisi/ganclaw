@@ -151,3 +151,10 @@ func toolsAppendix(cfg *config.Config) string {
 	}
 	return "# Tool servers (provided by ganclaw)\n\n" + strings.Join(lines, "\n")
 }
+
+// mediaAppendix tells agents how to send files in chat replies; it follows
+// toolsAppendix in every agent's instructions.
+const mediaAppendix = "# Sending files\n\n" +
+	"To send an image or file to the person you're chatting with, put `MEDIA: /absolute/path/to/file` on its own line in your reply, one line per file. " +
+	"ganclaw uploads each file after your message and removes the line. Images are shown as photos; up to 50 MB per file. " +
+	"Write your reply text as usual; Markdown is rendered."

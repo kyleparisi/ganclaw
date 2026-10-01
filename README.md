@@ -16,9 +16,11 @@ every agent. Idle, it uses about 20 MB.
   provider hits a usage or rate limit, ganclaw skips it until the limit
   resets (it reads the exact reset time) and uses the next one.
 - **Telegram bots**, each bound to an agent and restricted to an allowlist of
-  users. Replies stream into the chat. Photos, documents, albums and voice
-  notes are passed to the agent; voice notes can be transcribed locally with
-  [whisper.cpp](https://github.com/ggml-org/whisper.cpp).
+  users. Replies stream into the chat, with the agents' Markdown rendered.
+  Photos, documents, albums and voice notes are passed to the agent; voice
+  notes can be transcribed locally with
+  [whisper.cpp](https://github.com/ggml-org/whisper.cpp). Agents send files
+  back by putting `MEDIA: /path/to/file` on a line of their reply.
 - **Commands:** `/new` (or `/reset`) to clear the conversation, `/stop`, `/status`, `/help`, shown in Telegram's
   command menu.
 - **Conversations** persist per chat (the CLIs keep the history; ganclaw maps

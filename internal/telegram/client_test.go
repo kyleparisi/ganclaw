@@ -7,6 +7,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -203,5 +205,122 @@ func TestSplitText(t *testing.T) {
 		parts := subject(strings.Repeat("é", 10), 4)
 
 		assert.Equal(t, []string{"éééé", "éééé", "éé"}, parts)
+	})
+}
+
+func TestClientFormatting(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Messages are sent as HTML rendered from Markdown", func(t *testing.T) {
+		var body map[string]any
+		subject := &Client{Token: testToken, HTTP: HTTPClient{Do: func(req *http.Request) (*http.Response, error) {
+			assert.NoError(t, json.NewDecoder(req.Body).Decode(&body))
+			return okResponse(map[string]any{"message_id": 1}), nil
+		}}}
+
+		_, err := subject.SendOne(ctx, 1, "**hi** `x`")
+
+		require.NoError(t, err)
+		assert.Equal(t, "<b>hi</b> <code>x</code>", body["text"])
+		assert.Equal(t, "HTML", body["parse_mode"])
+	})
+
+	t.Run("If Telegram can't parse the HTML, the text is resent as written", func(t *testing.T) {
+		var bodies []map[string]any
+		subject := &Client{Token: testToken, HTTP: HTTPClient{Do: func(req *http.Request) (*http.Response, error) {
+			var body map[string]any
+			assert.NoError(t, json.NewDecoder(req.Body).Decode(&body))
+			bodies = append(bodies, body)
+			if len(bodies) == 1 {
+				return &http.Response{StatusCode: http.StatusBadRequest, Body: jsonBody(map[string]any{
+					"ok": false, "error_code": 400, "description": "Bad Request: can't parse entities: unclosed tag",
+				})}, nil
+			}
+			return okResponse(true), nil
+		}}}
+
+		err := subject.EditMessageText(ctx, 1, 9, "**hi**")
+
+		require.NoError(t, err)
+		require.Len(t, bodies, 2)
+		assert.Equal(t, "**hi**", bodies[1]["text"])
+		assert.NotContains(t, bodies[1], "parse_mode")
+	})
+}
+
+func TestSendFile(t *testing.T) {
+	ctx := context.Background()
+
+	upload := func(t *testing.T, req *http.Request) (method, field, name, chatID, content string) {
+		t.Helper()
+		method = req.URL.Path[strings.LastIndex(req.URL.Path, "/")+1:]
+		require.NoError(t, req.ParseMultipartForm(1<<20))
+		for f, hs := range req.MultipartForm.File {
+			field, name = f, hs[0].Filename
+			r, err := hs[0].Open()
+			require.NoError(t, err)
+			b, _ := io.ReadAll(r)
+			content = string(b)
+		}
+		return method, field, name, req.FormValue("chat_id"), content
+	}
+
+	t.Run("Images are uploaded as photos", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "shot.PNG")
+		require.NoError(t, os.WriteFile(path, []byte("png-bytes"), 0o600))
+		subject := &Client{Token: testToken, HTTP: HTTPClient{Do: func(req *http.Request) (*http.Response, error) {
+			method, field, name, chatID, content := upload(t, req)
+			assert.Equal(t, "sendPhoto", method)
+			assert.Equal(t, "photo", field)
+			assert.Equal(t, "shot.PNG", name)
+			assert.Equal(t, "42", chatID)
+			assert.Equal(t, "png-bytes", content)
+			return okResponse(map[string]any{"message_id": 1}), nil
+		}}}
+
+		require.NoError(t, subject.SendFile(ctx, 42, path))
+	})
+
+	t.Run("Other files are uploaded as documents", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "report.pdf")
+		require.NoError(t, os.WriteFile(path, []byte("%PDF"), 0o600))
+		subject := &Client{Token: testToken, HTTP: HTTPClient{Do: func(req *http.Request) (*http.Response, error) {
+			method, field, _, _, _ := upload(t, req)
+			assert.Equal(t, "sendDocument", method)
+			assert.Equal(t, "document", field)
+			return okResponse(map[string]any{"message_id": 1}), nil
+		}}}
+
+		require.NoError(t, subject.SendFile(ctx, 1, path))
+	})
+
+	t.Run("A photo Telegram rejects is resent as a document", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "wide.jpg")
+		require.NoError(t, os.WriteFile(path, []byte("jpg"), 0o600))
+		var methods []string
+		subject := &Client{Token: testToken, HTTP: HTTPClient{Do: func(req *http.Request) (*http.Response, error) {
+			method, _, _, _, content := upload(t, req)
+			assert.Equal(t, "jpg", content)
+			methods = append(methods, method)
+			if method == "sendPhoto" {
+				return &http.Response{StatusCode: http.StatusBadRequest, Body: jsonBody(map[string]any{
+					"ok": false, "error_code": 400, "description": "Bad Request: PHOTO_INVALID_DIMENSIONS",
+				})}, nil
+			}
+			return okResponse(map[string]any{"message_id": 1}), nil
+		}}}
+
+		require.NoError(t, subject.SendFile(ctx, 1, path))
+		assert.Equal(t, []string{"sendPhoto", "sendDocument"}, methods)
+	})
+
+	t.Run("Missing files and directories are errors without a request", func(t *testing.T) {
+		subject := &Client{Token: testToken, HTTP: HTTPClient{Do: func(req *http.Request) (*http.Response, error) {
+			t.Error("no request expected")
+			return nil, errors.New("unreachable")
+		}}}
+
+		assert.Error(t, subject.SendFile(ctx, 1, filepath.Join(t.TempDir(), "missing.png")))
+		assert.ErrorContains(t, subject.SendFile(ctx, 1, t.TempDir()), "not a regular file")
 	})
 }

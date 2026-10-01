@@ -68,7 +68,10 @@ func cmdServe(ctx context.Context, args []string) error {
 	}
 	defer closeChain()
 
-	appendix := toolsAppendix(cfg)
+	appendix := mediaAppendix
+	if tools := toolsAppendix(cfg); tools != "" {
+		appendix = tools + "\n\n" + mediaAppendix
+	}
 	agents := map[string]agent.Agent{}
 	for _, a := range cfg.Agents {
 		if fi, err := os.Stat(a.Workspace); err != nil || !fi.IsDir() {

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +36,9 @@ type Message struct {
 	// Fetch downloads the message's attachments into dir. Optional. It
 	// runs in the chat's worker, so attachments stay in message order.
 	Fetch func(ctx context.Context, dir string) ([]provider.Attachment, error)
+	// SendFile uploads a file to the chat. Optional; with it, "MEDIA: path"
+	// lines in a reply are sent as files instead of shown.
+	SendFile func(ctx context.Context, path string) error
 	// Ctx, if set, cancels the turn when done (e.g. an API caller gave up).
 	Ctx context.Context
 	// OnDone, if set, is called once the message has been handled.
@@ -379,11 +384,63 @@ func (r *Router) process(m Message) {
 	}
 	log.Info("turn answered", "provider", used, "reply_len", len(res.Text), "duration", time.Since(start))
 	text := res.Text
+	var media []string
+	if m.SendFile != nil {
+		text, media = ExtractMedia(text)
+		if strings.TrimSpace(text) == "" && len(media) > 0 {
+			text = "📎"
+		}
+	}
 	if text == "" {
 		text = "(no reply)"
 	}
 	reply(text)
 	result.Provider = used
+	r.sendMedia(ctx, log, m, a.Workspace, media)
+}
+
+// sendMedia uploads the files a reply named, resolving relative paths
+// against the agent's workspace. Failures are reported in the chat.
+func (r *Router) sendMedia(ctx context.Context, log *slog.Logger, m Message, workspace string, paths []string) {
+	for _, p := range paths {
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(workspace, p)
+		}
+		fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		err := m.SendFile(fctx, p)
+		cancel()
+		if err != nil {
+			log.Warn("send file", "path", p, "err", err)
+			if rerr := m.Reply(context.WithoutCancel(ctx), "Couldn't send "+filepath.Base(p)+": "+truncate(err.Error(), 300)); rerr != nil {
+				log.Error("reply failed", "err", rerr)
+			}
+			continue
+		}
+		log.Info("file sent", "path", p)
+	}
+}
+
+var mediaLineRe = regexp.MustCompile("^\\s*MEDIA:\\s*[`'\"]?(.+?)[`'\"]?\\s*$")
+
+// ExtractMedia removes "MEDIA: path" lines (outside code blocks) from a
+// reply and returns the paths they named.
+func ExtractMedia(text string) (string, []string) {
+	var kept, paths []string
+	inCode := false
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inCode = !inCode
+		}
+		if m := mediaLineRe.FindStringSubmatch(line); m != nil && !inCode {
+			paths = append(paths, m[1])
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if len(paths) == 0 {
+		return text, nil
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n")), paths
 }
 
 // transcribe fills in transcripts for audio attachments. Failures are

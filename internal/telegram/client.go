@@ -117,10 +117,9 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64, timeoutSec int) (
 	return ups, err
 }
 
-// SendMessage sends text as plain text, split into as many messages as
-// needed.
+// SendMessage sends Markdown text, split into as many messages as needed.
 func (c *Client) SendMessage(ctx context.Context, chatID int64, text string) error {
-	for _, part := range SplitText(text, MaxMessageLen) {
+	for _, part := range SplitMarkdown(text, MaxMessageLen) {
 		if _, err := c.SendOne(ctx, chatID, part); err != nil {
 			return err
 		}
@@ -128,18 +127,18 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string) err
 	return nil
 }
 
-// SendOne sends a single message (at most MaxMessageLen characters) and
-// returns its ID.
+// SendOne sends a single Markdown message (at most MaxMessageLen
+// characters) and returns its ID.
 func (c *Client) SendOne(ctx context.Context, chatID int64, text string) (int64, error) {
 	var m Message
-	err := c.call(ctx, "sendMessage", map[string]any{"chat_id": chatID, "text": text}, &m)
+	err := c.callFormatted(ctx, "sendMessage", map[string]any{"chat_id": chatID}, text, &m)
 	return m.MessageID, err
 }
 
-// EditMessageText replaces a message's text. Editing to identical text is
-// not an error.
+// EditMessageText replaces a message's text with Markdown text. Editing to
+// identical text is not an error.
 func (c *Client) EditMessageText(ctx context.Context, chatID, messageID int64, text string) error {
-	err := c.call(ctx, "editMessageText", map[string]any{"chat_id": chatID, "message_id": messageID, "text": text}, nil)
+	err := c.callFormatted(ctx, "editMessageText", map[string]any{"chat_id": chatID, "message_id": messageID}, text, nil)
 	var apiErr *APIError
 	if errors.As(err, &apiErr) && strings.Contains(apiErr.Description, "message is not modified") {
 		return nil
@@ -191,16 +190,35 @@ func (c *Client) SendChatAction(ctx context.Context, chatID int64, action string
 	return c.call(ctx, "sendChatAction", map[string]any{"chat_id": chatID, "action": action}, nil)
 }
 
+// callFormatted sends text rendered from Markdown to HTML. If Telegram
+// can't parse the result, it sends the text as written instead.
+func (c *Client) callFormatted(ctx context.Context, method string, params map[string]any, text string, result any) error {
+	params["text"] = RenderMarkdown(text)
+	params["parse_mode"] = "HTML"
+	err := c.call(ctx, method, params, result)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || !strings.Contains(apiErr.Description, "can't parse entities") {
+		return err
+	}
+	params["text"] = text
+	delete(params, "parse_mode")
+	return c.call(ctx, method, params, result)
+}
+
 func (c *Client) call(ctx context.Context, method string, params, result any) error {
 	body, err := json.Marshal(params)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base()+"/bot"+c.Token+"/"+method, bytes.NewReader(body))
+	return c.post(ctx, method, "application/json", bytes.NewReader(body), result)
+}
+
+func (c *Client) post(ctx context.Context, method, contentType string, body io.Reader, result any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base()+"/bot"+c.Token+"/"+method, body)
 	if err != nil {
 		return c.redact(err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return c.redact(err)

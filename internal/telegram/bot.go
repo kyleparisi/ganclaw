@@ -268,6 +268,9 @@ func (b *Bot) Message(chatID int64, agent, text string) router.Message {
 		Typing: func(ctx context.Context) error {
 			return b.Client.SendChatAction(ctx, chatID, "typing")
 		},
+		SendFile: func(ctx context.Context, path string) error {
+			return b.Client.SendFile(ctx, chatID, path)
+		},
 		Stream: func(ctx context.Context) *router.ReplyStream {
 			return newStream(ctx, b.Client, chatID, b.StreamInterval, b.log).replyStream()
 		},

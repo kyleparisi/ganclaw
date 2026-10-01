@@ -129,12 +129,12 @@ func (s *stream) flush(ctx context.Context, final bool) error {
 
 	limit := MaxMessageLen
 	if !final {
+		// The cursor goes in before splitting so it lands inside any open
+		// code block; the reserve keeps interim splits where final ones go.
+		text += streamCursor
 		limit -= len([]rune(streamCursor))
 	}
-	parts := SplitText(text, limit)
-	if !final {
-		parts[len(parts)-1] += streamCursor
-	}
+	parts := SplitMarkdown(text, limit)
 
 	var firstErr error
 	for i, part := range parts {

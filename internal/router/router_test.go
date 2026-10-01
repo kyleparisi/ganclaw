@@ -767,3 +767,91 @@ func TestBuildPrompt(t *testing.T) {
 			"- file: /a/notes (notes, 12 bytes)", got)
 	})
 }
+
+func TestRouterMedia(t *testing.T) {
+	run := func(reply string) func(context.Context, provider.Sessions, provider.Request) (string, provider.Result, error) {
+		return func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+			return "codex", provider.Result{Text: reply}, nil
+		}
+	}
+
+	t.Run("MEDIA lines are sent as files after the text", func(t *testing.T) {
+		out := newReplies()
+		files := make(chan string, 4)
+		subject := newRouter(t, Config{
+			Agents: testAgents(),
+			Store:  store.NewTestStore(t),
+			Run:    run("Here it is.\nMEDIA: /srv/shots/a.png\nMEDIA: `reports/b.pdf`"),
+		})
+		m := out.msg("chat", "screenshot please")
+		m.SendFile = func(ctx context.Context, path string) error {
+			files <- path
+			return nil
+		}
+
+		subject.Submit(m)
+
+		assert.Equal(t, "Here it is.", out.next(t))
+		assert.Equal(t, "/srv/shots/a.png", <-files)
+		assert.Equal(t, "/ws/assistant/reports/b.pdf", <-files, "relative paths are in the workspace")
+	})
+
+	t.Run("A reply that is only files still says something", func(t *testing.T) {
+		out := newReplies()
+		subject := newRouter(t, Config{Agents: testAgents(), Store: store.NewTestStore(t), Run: run("MEDIA: /srv/a.png")})
+		m := out.msg("chat", "x")
+		m.SendFile = func(ctx context.Context, path string) error { return nil }
+
+		subject.Submit(m)
+
+		assert.Equal(t, "📎", out.next(t))
+	})
+
+	t.Run("A file that can't be sent is reported in the chat", func(t *testing.T) {
+		out := newReplies()
+		subject := newRouter(t, Config{Agents: testAgents(), Store: store.NewTestStore(t), Run: run("Done.\nMEDIA: /srv/missing.png")})
+		m := out.msg("chat", "x")
+		m.SendFile = func(ctx context.Context, path string) error { return errors.New("no such file") }
+
+		subject.Submit(m)
+
+		assert.Equal(t, "Done.", out.next(t))
+		assert.Equal(t, "Couldn't send missing.png: no such file", out.next(t))
+	})
+
+	t.Run("Channels that can't send files show the reply as written", func(t *testing.T) {
+		out := newReplies()
+		subject := newRouter(t, Config{Agents: testAgents(), Store: store.NewTestStore(t), Run: run("Done.\nMEDIA: /srv/a.png")})
+
+		subject.Submit(out.msg("chat", "x"))
+
+		assert.Equal(t, "Done.\nMEDIA: /srv/a.png", out.next(t))
+	})
+}
+
+func TestExtractMedia(t *testing.T) {
+	subject := ExtractMedia
+
+	t.Run("Text without MEDIA lines is unchanged", func(t *testing.T) {
+		text, paths := subject("just text\nwith lines")
+
+		assert.Equal(t, "just text\nwith lines", text)
+		assert.Empty(t, paths)
+	})
+
+	t.Run("MEDIA lines inside code blocks are left alone", func(t *testing.T) {
+		in := "Use it like this:\n```\nMEDIA: /path/to/file\n```"
+
+		text, paths := subject(in)
+
+		assert.Equal(t, in, text)
+		assert.Empty(t, paths)
+	})
+
+	t.Run("Quoted paths and surrounding blank lines are cleaned up", func(t *testing.T) {
+		text, paths := subject("Report attached.\n\nMEDIA: \"/srv/my report.pdf\"\n")
+
+		assert.Equal(t, "Report attached.", text)
+		assert.Equal(t, []string{"/srv/my report.pdf"}, paths)
+	})
+}
