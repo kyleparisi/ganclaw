@@ -95,7 +95,7 @@ func TestProviderRun(t *testing.T) {
 			"API keys and inherited Claude env must be stripped")
 	})
 
-	t.Run("Resume passes --resume and skips instructions", func(t *testing.T) {
+	t.Run("Resume passes --resume and the current instructions", func(t *testing.T) {
 		var cmd procexec.Cmd
 		subject := New(Config{
 			Model:          "claude-opus-5-5",
@@ -105,7 +105,7 @@ func TestProviderRun(t *testing.T) {
 			Exec:           fakeExec(&cmd, nil, jsonl(lineInit, lineSuccess), "", nil),
 		})
 
-		res, err := subject.Run(context.Background(), provider.Request{Session: "sess-1", Instructions: "ignored", Prompt: "again"})
+		res, err := subject.Run(context.Background(), provider.Request{Session: "sess-1", Instructions: "Be terse.", Prompt: "again"})
 
 		require.NoError(t, err)
 		assert.Equal(t, "sess-1", res.Session)
@@ -113,7 +113,7 @@ func TestProviderRun(t *testing.T) {
 		assert.Contains(t, args, "--resume sess-1")
 		assert.Contains(t, args, "--model claude-opus-5-5")
 		assert.Contains(t, args, "--permission-mode bypassPermissions")
-		assert.NotContains(t, args, "--append-system-prompt")
+		assert.Contains(t, args, "--append-system-prompt Be terse.")
 		assert.Equal(t, "--strict-mcp-config", cmd.Args[len(cmd.Args)-1])
 		assert.Empty(t, cmd.Env, "no CLAUDE_CONFIG_DIR when ConfigDir is unset")
 	})

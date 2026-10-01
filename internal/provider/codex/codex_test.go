@@ -258,7 +258,7 @@ func TestProviderRun(t *testing.T) {
 					assert.NoError(t, json.Unmarshal(params, &p))
 					assert.Equal(t, "thread-9", p.ThreadID)
 					assert.True(t, p.ExcludeTurns)
-					assert.Empty(t, p.DeveloperInstructions, "instructions only apply to new threads")
+					assert.Equal(t, "Be terse.", p.DeveloperInstructions, "current instructions reach resumed threads")
 					return threadResult("thread-9"), nil
 				case "turn/start":
 					s.NotifyAfterReply("turn/completed", completed("thread-9", "turn-x", "completed", nil))
@@ -270,7 +270,7 @@ func TestProviderRun(t *testing.T) {
 		subject := newTestProvider(t, server)
 
 		for i := 0; i < 2; i++ {
-			res, err := subject.Run(context.Background(), provider.Request{Session: "thread-9", Instructions: "ignored", Prompt: "again"})
+			res, err := subject.Run(context.Background(), provider.Request{Session: "thread-9", Instructions: "Be terse.", Prompt: "again"})
 			require.NoError(t, err)
 			assert.Equal(t, "thread-9", res.Session)
 		}

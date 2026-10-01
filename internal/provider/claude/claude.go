@@ -158,7 +158,10 @@ func (p *Provider) args(req provider.Request) []string {
 	}
 	if req.Session != "" {
 		args = append(args, "--resume", req.Session)
-	} else if req.Instructions != "" {
+	}
+	// The system prompt isn't stored with a session, so it's passed every
+	// time; changes to an agent's files reach existing conversations.
+	if req.Instructions != "" {
 		args = append(args, "--append-system-prompt", req.Instructions)
 	}
 	return append(args, p.cfg.ExtraArgs...)

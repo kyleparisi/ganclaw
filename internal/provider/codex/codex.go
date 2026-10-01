@@ -222,15 +222,17 @@ func (p *Provider) Run(ctx context.Context, req provider.Request) (provider.Resu
 // ensureThread starts a new thread or resumes an existing one into this
 // process, returning its ID.
 func (p *Provider) ensureThread(ctx context.Context, req provider.Request) (string, error) {
+	// Instructions go with resumes too, so changes to an agent's files
+	// reach existing conversations.
 	params := threadParams{
-		Cwd:            req.Cwd,
-		Model:          firstNonEmpty(req.Settings.CodexModel, p.cfg.Model),
-		ApprovalPolicy: "never",
-		Sandbox:        firstNonEmpty(req.Settings.CodexSandbox, p.cfg.Sandbox),
+		Cwd:                   req.Cwd,
+		Model:                 firstNonEmpty(req.Settings.CodexModel, p.cfg.Model),
+		ApprovalPolicy:        "never",
+		Sandbox:               firstNonEmpty(req.Settings.CodexSandbox, p.cfg.Sandbox),
+		DeveloperInstructions: req.Instructions,
 	}
 	var resp threadResponse
 	if req.Session == "" {
-		params.DeveloperInstructions = req.Instructions
 		params.ServiceName = "ganclaw"
 		if err := p.rpc.call(ctx, "thread/start", params, &resp); err != nil {
 			return "", p.wrapCallErr("thread/start", err)
