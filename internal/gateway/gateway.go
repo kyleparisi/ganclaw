@@ -61,6 +61,9 @@ func (g *Gateway) Health(version string, status func(context.Context) []provider
 		for _, p := range probes {
 			resp.Probes = append(resp.Probes, probe(ctx, httpc, p))
 		}
+		if g.Router != nil {
+			resp.ActiveTurns = g.Router.Active()
+		}
 		return resp
 	}
 }

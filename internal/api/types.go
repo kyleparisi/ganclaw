@@ -80,6 +80,9 @@ type HealthResponse struct {
 	Providers []provider.Status `json:"providers"`
 	Bots      []BotHealth       `json:"bots"`
 	Probes    []ProbeResult     `json:"probes"`
+	// ActiveTurns is how many agent turns are running, so maintenance can
+	// wait for a quiet moment.
+	ActiveTurns int `json:"active_turns"`
 }
 
 type BotHealth struct {

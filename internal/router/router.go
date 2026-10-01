@@ -443,6 +443,13 @@ func ExtractMedia(text string) (string, []string) {
 	return strings.TrimSpace(strings.Join(kept, "\n")), paths
 }
 
+// Active reports how many turns are running now.
+func (r *Router) Active() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.active)
+}
+
 // transcribe fills in transcripts for audio attachments. Failures are
 // recorded on the attachment rather than failing the turn.
 func (r *Router) transcribe(ctx context.Context, log *slog.Logger, atts []provider.Attachment) {

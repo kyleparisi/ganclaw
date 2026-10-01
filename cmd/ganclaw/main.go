@@ -49,6 +49,8 @@ func main() {
 		err = cmdStatus(ctx, os.Args[2:])
 	case "check":
 		err = cmdCheck(ctx, os.Args[2:])
+	case "update-clis":
+		err = cmdUpdateCLIs(ctx, os.Args[2:])
 	case "mcp":
 		err = cmdMCP(ctx, os.Args[2:])
 	case "openclaw-compat":
@@ -87,6 +89,7 @@ gateway:
   serve             run the gateway: telegram bots, agents and the local API
   health            check each provider's login and limits directly
   check             check a running gateway and alert the monitor contact (for a timer)
+  update-clis       update the codex and claude CLIs to their latest releases (as root)
 
 client (talks to a running gateway over its socket):
   send              send a message:      ganclaw send --to alex "text"

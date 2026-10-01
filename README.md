@@ -116,6 +116,7 @@ that holds its token.
 ganclaw serve   -config ganclaw.toml          run the gateway
 ganclaw health  -config ganclaw.toml          check provider logins and limits directly
 ganclaw check   -config ganclaw.toml          check a running gateway and alert (for a timer)
+sudo ganclaw update-clis                      update the codex and claude CLIs (see below)
 
 ganclaw send --to alex "Disk is 90% full"                     plain message, no AI
 ganclaw run  --agent support "Summarise today's tickets"      run an agent, print its reply
@@ -187,6 +188,25 @@ profile on a Mac and reaches it over a restricted SSH reverse tunnel.
   root, and when the gateway fails. Alerts go through the gateway, or straight
   to Telegram if the gateway is down: once when a problem starts, a reminder
   every few hours, and once when it clears.
+
+## Updating the CLIs
+
+New models and defaults arrive with new versions of the `codex` and `claude`
+CLIs; ganclaw itself has no model list. Keep the CLIs as root-owned files
+the service user can't write (so agents can't replace them), and update them
+by hand:
+
+```sh
+ganclaw update-clis -check          # show installed and available versions
+sudo ganclaw update-clis            # update both
+sudo ganclaw update-clis -channel latest
+```
+
+Each download is checked against its published SHA-256 and must report the
+expected version before it replaces the old binary, which is kept as
+`<bin>.prev`. A new `claude` is used from the next turn. A new `codex` needs
+a gateway restart, which happens once no turn is running (`-wait`, default
+30m); if the gateway doesn't come back, both binaries are restored.
 
 ## Security model
 
