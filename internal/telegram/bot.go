@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -195,11 +196,42 @@ func (b *Bot) handle(ctx context.Context, log *slog.Logger, u Update) {
 		log.Info("ignoring non-private chat", "chat_id", m.Chat.ID, "chat_type", m.Chat.Type)
 		return
 	}
+	text = withReply(m, text)
 	if m.MediaGroupID != "" {
 		b.addToGroup(m.Chat.ID, m.MediaGroupID, text, refs)
 		return
 	}
 	b.submit(ctx, m.Chat.ID, text, refs)
+}
+
+// maxReplyContext caps how much of a replied-to message is included.
+const maxReplyContext = 2000
+
+// withReply puts the message being replied to in front of text, so the
+// agent knows what "approve" or "yes" answers. Commands are left alone.
+func withReply(m *Message, text string) string {
+	r := m.ReplyToMessage
+	if r == nil || strings.HasPrefix(strings.TrimSpace(text), "/") {
+		return text
+	}
+	who := "the user's earlier message"
+	if r.From != nil && r.From.IsBot {
+		who = "your earlier message"
+	}
+	quoted := r.Text
+	if quoted == "" {
+		quoted = r.Caption
+	}
+	if m.Quote != nil && m.Quote.Text != "" {
+		quoted, who = m.Quote.Text, "this part of "+who
+	}
+	if quoted == "" {
+		quoted = "(a message without text)"
+	}
+	if runes := []rune(quoted); len(runes) > maxReplyContext {
+		quoted = string(runes[:maxReplyContext]) + " …"
+	}
+	return "[Replying to " + who + ":]\n> " + strings.ReplaceAll(quoted, "\n", "\n> ") + "\n\n" + text
 }
 
 // addToGroup buffers an album's messages and submits them as one message

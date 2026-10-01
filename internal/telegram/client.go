@@ -52,6 +52,14 @@ type Message struct {
 	Voice        *FileRef    `json:"voice"`
 	Audio        *FileRef    `json:"audio"`
 	Video        *FileRef    `json:"video"`
+	// ReplyToMessage is the message this one answers, without its own
+	// reply; Quote is the part of it the user highlighted, if any.
+	ReplyToMessage *Message `json:"reply_to_message"`
+	Quote          *Quote   `json:"quote"`
+}
+
+type Quote struct {
+	Text string `json:"text"`
 }
 
 type PhotoSize struct {

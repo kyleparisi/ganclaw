@@ -283,6 +283,25 @@ func TestBotRun(t *testing.T) {
 		require.NoError(t, stop())
 	})
 
+	t.Run("Replies include the message being replied to", func(t *testing.T) {
+		submitted := make(chan router.Message, 3)
+		botMsg := &Message{From: &User{ID: 999, IsBot: true}, Text: "Shall I:\n1. sign out\n2. replace the PAT"}
+		ups := []Update{
+			{UpdateID: 1, Message: &Message{From: &User{ID: 111}, Chat: Chat{ID: 111, Type: "private"}, Text: "Approve", ReplyToMessage: botMsg}},
+			{UpdateID: 2, Message: &Message{From: &User{ID: 111}, Chat: Chat{ID: 111, Type: "private"}, Text: "yes", ReplyToMessage: botMsg, Quote: &Quote{Text: "sign out"}}},
+			{UpdateID: 3, Message: &Message{From: &User{ID: 111}, Chat: Chat{ID: 111, Type: "private"}, Text: "/stop", ReplyToMessage: botMsg}},
+		}
+		tg := &fakeTelegram{Polls: [][]Update{ups}}
+		subject := &Bot{Name: "assistant", Client: tg.Client(), AllowUsers: []int64{111}, Store: store.NewTestStore(t),
+			Submit: func(m router.Message) bool { submitted <- m; return true }}
+		stop := runBot(subject)
+
+		assert.Equal(t, "[Replying to your earlier message:]\n> Shall I:\n> 1. sign out\n> 2. replace the PAT\n\nApprove", (<-submitted).Text)
+		assert.Equal(t, "[Replying to this part of your earlier message:]\n> sign out\n\nyes", (<-submitted).Text)
+		assert.Equal(t, "/stop", (<-submitted).Text, "commands are not wrapped")
+		require.NoError(t, stop())
+	})
+
 	t.Run("Albums are combined into one message", func(t *testing.T) {
 		submitted := make(chan router.Message, 2)
 		album := func(id int64, caption, fileID string) Update {
