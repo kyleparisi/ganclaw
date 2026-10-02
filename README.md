@@ -50,7 +50,9 @@ local API ┘        │                             └─ claude -p (per turn)
 
 Each agent is a working directory (its *workspace*) plus instruction files
 from that directory (`IDENTITY.md`, `SOUL.md`, `USER.md`, `AGENTS.md`,
-`TOOLS.md`, `MEMORY.md` by default) that become its system prompt.
+`TOOLS.md`, `MEMORY.md` by default) that become its system prompt. See
+[Creating an agent](#creating-an-agent) to set one up from the starter
+templates.
 
 ## Requirements
 
@@ -89,6 +91,81 @@ export CLAUDE_CODE_OAUTH_TOKEN=...
 
 Message your bot. If you're not in `allow_users` yet, ganclaw logs your
 Telegram user ID when it ignores you.
+
+## Creating an agent
+
+An agent is a workspace directory plus two config entries. ganclaw has no
+command that creates one; everything below is files and a restart, so a person
+or an AI assistant with shell access can do it. Only two things need a human:
+creating the bot token with [@BotFather](https://t.me/BotFather), and logging
+the `codex` / `claude` CLIs in.
+
+**1. Create the workspace from the templates.** [`templates/workspace/`](templates/workspace/)
+has a starter version of each default instruction file. Under the shipped
+systemd unit, agents can only write inside `/home/ganclaw` (`ReadWritePaths`),
+so put workspaces there:
+
+```sh
+sudo install -d -o ganclaw -g ganclaw /home/ganclaw/agents/support
+sudo cp -r templates/workspace/. /home/ganclaw/agents/support/
+sudo chown -R ganclaw:ganclaw /home/ganclaw/agents/support
+```
+
+Running ganclaw by hand, any directory your user can write works:
+`cp -r templates/workspace/. ~/agents/support/`.
+
+**2. Edit the files.** At minimum, fill in `IDENTITY.md` and replace the
+purpose in `AGENTS.md`. When a message arrives, ganclaw reads the files named
+in `instruction_files` from the workspace, in order, and sends them as the
+system prompt, each under a `# FILE.md` heading. Missing or empty files are
+skipped. ganclaw then appends a description of its own tools (`send_message`,
+`ask_agent`, …), any `[[mcp_servers]]` that have a `description`, and how to
+send files, so the files don't need to explain those. The files are read again
+for each message, so edits apply without a restart.
+
+**3. Give the bot's token to ganclaw.** Create the bot with @BotFather and
+put its token in the environment, under a name of your choosing. With the
+systemd unit that is `/etc/ganclaw/ganclaw.env` (mode 600, owned by root):
+
+```
+GANCLAW_TELEGRAM_SUPPORT_TOKEN=...
+```
+
+**4. Add the agent and its bot to the config.** The names must be unique, and
+the bot's `agent` must name an existing `[[agents]]` entry:
+
+```toml
+[[agents]]
+name = "support"
+workspace = "/home/ganclaw/agents/support"
+# Optional per-agent overrides: codex_model, claude_model, sandbox, permission_mode.
+
+[[telegram]]
+name = "support"
+agent = "support"
+token_env = "GANCLAW_TELEGRAM_SUPPORT_TOKEN"
+allow_users = [123456789]       # Telegram user IDs; required, open bots are refused
+```
+
+If you don't know your Telegram user ID, start with a placeholder ID, message
+the bot, and read your real ID from the log line where ganclaw ignores you.
+Config is read at startup and unknown keys are rejected, so a typo fails
+immediately with the key's name.
+
+**5. Restart and check.**
+
+```sh
+sudo systemctl restart ganclaw            # or restart `ganclaw serve`
+ganclaw health -config /etc/ganclaw/ganclaw.toml    # provider logins and limits
+ganclaw run --agent support "Introduce yourself and say what your job is"
+```
+
+`ganclaw run` goes through the running gateway, so it also proves the agent is
+loaded; `GET /v1/agents` lists agents and bots too. Then message the bot.
+
+To change an agent, edit its workspace files (no restart) or its config
+entries (restart). To remove one, delete its `[[agents]]` and `[[telegram]]`
+entries and restart; ganclaw leaves the workspace directory in place.
 
 ## Configuration
 
