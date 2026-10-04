@@ -84,7 +84,7 @@ func TestProviderStatus(t *testing.T) {
 		server := &fakeAppServer{}
 		subject := newTestProvider(t, server)
 		server.Crash(errors.New("exit status 1"))
-		<-subject.done
+		<-subject.server().done
 
 		st, err := subject.Status(ctx)
 

@@ -37,9 +37,9 @@ RestrictSUIDSGID=true
 LockPersonality=true
 
 # Resource limits: ganclaw itself is ~20 MB; the headroom is for the
-# agents' own commands.
-MemoryHigh=3G
-MemoryMax=4G
+# agents' own commands and codex's per-thread MCP servers (~400 MB each).
+MemoryHigh=6G
+MemoryMax=8G
 CPUQuota=200%
 TasksMax=512
 IOWeight=50
