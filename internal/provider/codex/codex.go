@@ -1,6 +1,12 @@
-// Package codex runs a single long-lived `codex app-server` subprocess and
-// drives it over JSON-RPC. Codex owns the ChatGPT login (in CODEX_HOME) and
-// all conversation state; each ganclaw session maps to one codex thread.
+// Package codex runs a long-lived `codex app-server` subprocess and drives
+// it over JSON-RPC. Codex owns the ChatGPT login (in CODEX_HOME) and all
+// conversation state; each ganclaw session maps to one codex thread.
+//
+// The app-server keeps every thread it has loaded in memory, each with its
+// own set of MCP server processes, and turn/interrupt leaves the turn's
+// shell commands running. So the provider restarts the app-server whenever
+// no turn is running and it has been idle, has too many threads loaded, or
+// had a turn cancelled. Threads are persisted, so they resume afterwards.
 package codex
 
 import (
@@ -42,20 +48,49 @@ type Config struct {
 	Exec procexec.Exec
 	// Logger receives provider events and app-server stderr (at debug).
 	Logger *slog.Logger
+	// MaxLoadedThreads is how many threads may stay loaded before the
+	// app-server is restarted at the next idle moment. Default 4.
+	MaxLoadedThreads int
+	// IdleRestart restarts the app-server after this long without a turn,
+	// unloading every thread. Default 10 minutes.
+	IdleRestart time.Duration
 }
 
 type Provider struct {
-	cfg  Config
-	log  *slog.Logger
-	proc *procexec.Proc
-	rpc  *conn
-	done chan struct{} // closed when the process exits
+	cfg Config
+	log *slog.Logger
+
+	// gate is held shared by each Run and exclusively while the app-server
+	// is replaced. Restarts only ever TryLock it, so they never cut a turn
+	// short or make new turns wait.
+	gate sync.RWMutex
 
 	mu     sync.Mutex
+	srv    *server
 	turns  map[string]*turnState // active turn per thread ID
-	loaded map[string]bool       // threads loaded in this process
-	exit   error
-	closed bool // Close was called; exit is expected
+	stale  bool                  // a turn was cancelled; its commands may still run
+	idle   *time.Timer
+	closed bool // Close was called
+}
+
+// server is one app-server process. Its loaded, exit and stopped fields
+// are guarded by Provider.mu.
+type server struct {
+	proc    *procexec.Proc
+	rpc     *conn
+	done    chan struct{}   // closed when the process exits
+	loaded  map[string]bool // threads loaded in this process
+	exit    error
+	stopped bool // stop was called; exit is expected
+}
+
+func (s *server) exited() bool {
+	select {
+	case <-s.done:
+		return true
+	default:
+		return false
+	}
 }
 
 // turnState collects notifications for the one active turn on a thread.
@@ -82,15 +117,35 @@ func New(ctx context.Context, cfg Config) (*Provider, error) {
 	if cfg.Environ == nil {
 		cfg.Environ = os.Environ
 	}
-	log := logx.OrDiscard(cfg.Logger).With("provider", "codex")
-
-	env := procexec.FilterEnv(cfg.Environ(), func(k string) bool { return k == "CODEX_HOME" })
-	if cfg.CodexHome != "" {
-		env = append(env, "CODEX_HOME="+cfg.CodexHome)
+	if cfg.MaxLoadedThreads <= 0 {
+		cfg.MaxLoadedThreads = 4
 	}
-	proc, err := cfg.Exec.Start(context.Background(), procexec.Cmd{
-		Bin:    cfg.Bin,
-		Args:   appServerArgs(cfg.Overrides),
+	if cfg.IdleRestart <= 0 {
+		cfg.IdleRestart = 10 * time.Minute
+	}
+	p := &Provider{
+		cfg:   cfg,
+		log:   logx.OrDiscard(cfg.Logger).With("provider", "codex"),
+		turns: map[string]*turnState{},
+	}
+	srv, err := p.start(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p.srv = srv
+	return p, nil
+}
+
+// start launches an app-server and completes the initialize handshake.
+func (p *Provider) start(ctx context.Context) (*server, error) {
+	log := p.log
+	env := procexec.FilterEnv(p.cfg.Environ(), func(k string) bool { return k == "CODEX_HOME" })
+	if p.cfg.CodexHome != "" {
+		env = append(env, "CODEX_HOME="+p.cfg.CodexHome)
+	}
+	proc, err := p.cfg.Exec.Start(context.Background(), procexec.Cmd{
+		Bin:    p.cfg.Bin,
+		Args:   appServerArgs(p.cfg.Overrides),
 		Env:    env,
 		Stderr: logx.LineWriter(log, slog.LevelDebug, "codex stderr"),
 	})
@@ -98,23 +153,20 @@ func New(ctx context.Context, cfg Config) (*Provider, error) {
 		return nil, fmt.Errorf("start codex app-server: %w", err)
 	}
 
-	p := &Provider{
-		cfg:    cfg,
-		log:    log,
+	srv := &server{
 		proc:   proc,
 		done:   make(chan struct{}),
-		turns:  map[string]*turnState{},
 		loaded: map[string]bool{},
 	}
-	p.rpc = newConn(proc.Stdin, p.handleNotification, p.handleRequest)
+	srv.rpc = newConn(proc.Stdin, p.handleNotification, p.handleRequest)
 	go func() {
-		_ = p.rpc.readLoop(proc.Stdout)
+		_ = srv.rpc.readLoop(proc.Stdout)
 		err := proc.Wait()
 		p.mu.Lock()
-		p.exit = err
-		expected := p.closed
+		srv.exit = err
+		expected := srv.stopped
 		p.mu.Unlock()
-		close(p.done)
+		close(srv.done)
 		if expected {
 			log.Info("codex app-server stopped")
 		} else {
@@ -123,32 +175,38 @@ func New(ctx context.Context, cfg Config) (*Provider, error) {
 	}()
 
 	var init initializeResponse
-	if err := p.rpc.call(ctx, "initialize", initializeParams{
-		ClientInfo: clientInfo{Name: "ganclaw", Title: "ganclaw", Version: cfg.ClientVersion},
+	if err := srv.rpc.call(ctx, "initialize", initializeParams{
+		ClientInfo: clientInfo{Name: "ganclaw", Title: "ganclaw", Version: p.cfg.ClientVersion},
 	}, &init); err != nil {
-		p.Close()
+		p.stop(srv)
 		return nil, fmt.Errorf("codex initialize: %w", err)
 	}
-	if err := p.rpc.notify("initialized", nil); err != nil {
-		p.Close()
+	if err := srv.rpc.notify("initialized", nil); err != nil {
+		p.stop(srv)
 		return nil, err
 	}
 	log.Info("codex app-server ready", "user_agent", init.UserAgent)
-	return p, nil
+	return srv, nil
 }
 
 func (p *Provider) Name() string { return "codex" }
 
 // Run sends one user turn and waits for it to finish.
 func (p *Provider) Run(ctx context.Context, req provider.Request) (provider.Result, error) {
-	select {
-	case <-p.done:
-		return provider.Result{}, fmt.Errorf("%w: codex app-server exited: %v", provider.ErrUnavailable, p.exitErr())
-	default:
+	p.gate.RLock()
+	res, err := p.run(ctx, p.server(), req)
+	p.gate.RUnlock()
+	p.afterRun()
+	return res, err
+}
+
+func (p *Provider) run(ctx context.Context, srv *server, req provider.Request) (provider.Result, error) {
+	if srv.exited() {
+		return provider.Result{}, fmt.Errorf("%w: codex app-server exited: %v", provider.ErrUnavailable, p.exitErr(srv))
 	}
 	start := time.Now()
 
-	threadID, err := p.ensureThread(ctx, req)
+	threadID, err := p.ensureThread(ctx, srv, req)
 	if err != nil {
 		return provider.Result{}, err
 	}
@@ -175,7 +233,7 @@ func (p *Provider) Run(ctx context.Context, req provider.Request) (provider.Resu
 		}
 	}
 	var started turnStartResponse
-	if err := p.rpc.call(ctx, "turn/start", turnStartParams{
+	if err := srv.rpc.call(ctx, "turn/start", turnStartParams{
 		ThreadID: threadID,
 		Input:    input,
 	}, &started); err != nil {
@@ -190,11 +248,15 @@ func (p *Provider) Run(ctx context.Context, req provider.Request) (provider.Resu
 	case <-ctx.Done():
 		ictx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		ierr := p.rpc.call(ictx, "turn/interrupt", turnInterruptParams{ThreadID: threadID, TurnID: started.Turn.ID}, nil)
+		ierr := srv.rpc.call(ictx, "turn/interrupt", turnInterruptParams{ThreadID: threadID, TurnID: started.Turn.ID}, nil)
 		log.Info("turn cancelled", "interrupt_err", ierr)
+		// The interrupt doesn't stop commands the turn started.
+		p.mu.Lock()
+		p.stale = true
+		p.mu.Unlock()
 		return provider.Result{Session: threadID}, ctx.Err()
-	case <-p.done:
-		return provider.Result{Session: threadID}, fmt.Errorf("%w: codex app-server exited mid-turn: %v", provider.ErrUnavailable, p.exitErr())
+	case <-srv.done:
+		return provider.Result{Session: threadID}, fmt.Errorf("%w: codex app-server exited mid-turn: %v", provider.ErrUnavailable, p.exitErr(srv))
 	}
 
 	switch t.Status {
@@ -221,7 +283,7 @@ func (p *Provider) Run(ctx context.Context, req provider.Request) (provider.Resu
 
 // ensureThread starts a new thread or resumes an existing one into this
 // process, returning its ID.
-func (p *Provider) ensureThread(ctx context.Context, req provider.Request) (string, error) {
+func (p *Provider) ensureThread(ctx context.Context, srv *server, req provider.Request) (string, error) {
 	// Instructions go with resumes too, so changes to an agent's files
 	// reach existing conversations.
 	params := threadParams{
@@ -234,26 +296,26 @@ func (p *Provider) ensureThread(ctx context.Context, req provider.Request) (stri
 	var resp threadResponse
 	if req.Session == "" {
 		params.ServiceName = "ganclaw"
-		if err := p.rpc.call(ctx, "thread/start", params, &resp); err != nil {
+		if err := srv.rpc.call(ctx, "thread/start", params, &resp); err != nil {
 			return "", p.wrapCallErr("thread/start", err)
 		}
 		p.log.Info("thread started", "thread", resp.Thread.ID, "model", resp.Model, "cwd", req.Cwd)
 	} else {
 		p.mu.Lock()
-		loaded := p.loaded[req.Session]
+		loaded := srv.loaded[req.Session]
 		p.mu.Unlock()
 		if loaded {
 			return req.Session, nil
 		}
 		params.ThreadID = req.Session
 		params.ExcludeTurns = true
-		if err := p.rpc.call(ctx, "thread/resume", params, &resp); err != nil {
+		if err := srv.rpc.call(ctx, "thread/resume", params, &resp); err != nil {
 			return "", p.wrapCallErr("thread/resume", err)
 		}
 		p.log.Info("thread resumed", "thread", resp.Thread.ID, "model", resp.Model)
 	}
 	p.mu.Lock()
-	p.loaded[resp.Thread.ID] = true
+	srv.loaded[resp.Thread.ID] = true
 	p.mu.Unlock()
 	return resp.Thread.ID, nil
 }
@@ -323,10 +385,16 @@ func (p *Provider) turn(threadID string) *turnState {
 	return p.turns[threadID]
 }
 
-func (p *Provider) exitErr() error {
+func (p *Provider) server() *server {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.exit
+	return p.srv
+}
+
+func (p *Provider) exitErr(srv *server) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return srv.exit
 }
 
 func (p *Provider) wrapCallErr(method string, err error) error {
@@ -341,18 +409,103 @@ func (p *Provider) wrapCallErr(method string, err error) error {
 	return fmt.Errorf("%w: codex %s: %v", provider.ErrUnavailable, method, err)
 }
 
-// Close stops the app-server, killing it if it doesn't exit promptly.
+// afterRun schedules the idle restart and restarts right away if the
+// app-server needs it and no other turn is running.
+func (p *Provider) afterRun() {
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return
+	}
+	if p.idle != nil {
+		p.idle.Stop()
+	}
+	p.idle = time.AfterFunc(p.cfg.IdleRestart, func() { p.restart("idle") })
+	var reason string
+	switch {
+	case p.srv.exited():
+		reason = "app-server exited"
+	case p.stale:
+		reason = "turn cancelled"
+	case len(p.srv.loaded) > p.cfg.MaxLoadedThreads:
+		reason = "too many loaded threads"
+	}
+	p.mu.Unlock()
+	if reason != "" {
+		p.restart(reason)
+	}
+}
+
+// restart replaces the app-server if no turn is running. Otherwise it does
+// nothing: the running turns call afterRun when they finish.
+func (p *Provider) restart(reason string) {
+	if !p.gate.TryLock() {
+		return
+	}
+	defer p.gate.Unlock()
+
+	p.mu.Lock()
+	old := p.srv
+	loaded := len(old.loaded)
+	skip := p.closed || (reason == "idle" && loaded == 0 && !old.exited())
+	p.mu.Unlock()
+	if skip {
+		return
+	}
+
+	p.log.Info("restarting codex app-server", "reason", reason, "loaded_threads", loaded)
+	p.stop(old)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	srv, err := p.start(ctx)
+	if err != nil {
+		// Keep a dead server so turns fail over; the next Run retries.
+		p.log.Warn("codex app-server restart failed", "err", err)
+		srv = &server{done: make(chan struct{}), loaded: map[string]bool{}, exit: err}
+		close(srv.done)
+	}
+
+	p.mu.Lock()
+	closed := p.closed
+	if !closed {
+		p.srv = srv
+		p.stale = false
+	}
+	p.mu.Unlock()
+	if closed {
+		p.stop(srv)
+	}
+}
+
+// stop closes the app-server's stdin, which makes codex exit and kill its
+// MCP servers and running commands, and kills it if it doesn't exit
+// promptly.
+func (p *Provider) stop(srv *server) {
+	if srv.proc == nil {
+		return
+	}
+	p.mu.Lock()
+	srv.stopped = true
+	p.mu.Unlock()
+	_ = srv.proc.Stdin.Close()
+	select {
+	case <-srv.done:
+	case <-time.After(5 * time.Second):
+		_ = srv.proc.Kill()
+		<-srv.done
+	}
+}
+
+// Close stops the app-server.
 func (p *Provider) Close() error {
 	p.mu.Lock()
 	p.closed = true
-	p.mu.Unlock()
-	_ = p.proc.Stdin.Close()
-	select {
-	case <-p.done:
-	case <-time.After(5 * time.Second):
-		_ = p.proc.Kill()
-		<-p.done
+	if p.idle != nil {
+		p.idle.Stop()
 	}
+	srv := p.srv
+	p.mu.Unlock()
+	p.stop(srv)
 	return nil
 }
 

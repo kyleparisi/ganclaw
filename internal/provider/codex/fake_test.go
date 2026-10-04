@@ -29,25 +29,28 @@ type fakeAppServer struct {
 	mu            sync.Mutex
 	out           *io.PipeWriter
 	in            *io.PipeReader
+	starts        int
 	calls         []string
 	notifications []string
 	queued        []message
-	done          chan struct{}
 }
 
 func (s *fakeAppServer) Exec() procexec.Exec {
 	return procexec.Exec{Start: func(ctx context.Context, cmd procexec.Cmd) (*procexec.Proc, error) {
-		s.Cmd = cmd
 		inR, inW := io.Pipe()
 		outR, outW := io.Pipe()
+		done := make(chan struct{})
+		s.mu.Lock()
+		s.Cmd = cmd
+		s.starts++
 		s.in, s.out = inR, outW
-		s.done = make(chan struct{})
-		go s.serve(inR)
+		s.mu.Unlock()
+		go s.serve(inR, outW, done)
 		return &procexec.Proc{
 			Stdin:  inW,
 			Stdout: outR,
 			Wait: func() error {
-				<-s.done
+				<-done
 				s.mu.Lock()
 				defer s.mu.Unlock()
 				return s.ExitErr
@@ -57,9 +60,9 @@ func (s *fakeAppServer) Exec() procexec.Exec {
 	}}
 }
 
-func (s *fakeAppServer) serve(r io.Reader) {
-	defer close(s.done)
-	defer s.out.Close()
+func (s *fakeAppServer) serve(r io.Reader, out *io.PipeWriter, done chan struct{}) {
+	defer close(done)
+	defer out.Close()
 	dec := json.NewDecoder(r)
 	for {
 		var m message
@@ -141,13 +144,22 @@ func (s *fakeAppServer) Request(id int, method string, params any) {
 	s.send(message{ID: idb, Method: method, Params: p})
 }
 
-// Crash simulates the process dying: stdout closes, Wait returns ExitErr.
+// Crash simulates the current process dying: stdout closes, Wait returns
+// ExitErr.
 func (s *fakeAppServer) Crash(err error) {
 	s.mu.Lock()
 	s.ExitErr = err
+	out, in := s.out, s.in
 	s.mu.Unlock()
-	s.out.CloseWithError(io.EOF)
-	s.in.CloseWithError(io.EOF)
+	out.CloseWithError(io.EOF)
+	in.CloseWithError(io.EOF)
+}
+
+// Starts counts app-server processes started, including restarts.
+func (s *fakeAppServer) Starts() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.starts
 }
 
 func (s *fakeAppServer) Calls() []string {

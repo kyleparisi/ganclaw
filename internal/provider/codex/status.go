@@ -13,15 +13,14 @@ import (
 // and doesn't consume usage.
 func (p *Provider) Status(ctx context.Context) (provider.Status, error) {
 	st := provider.Status{Provider: "codex", Known: true}
-	select {
-	case <-p.done:
-		st.Reason = fmt.Sprintf("app-server exited: %v", p.exitErr())
+	srv := p.server()
+	if srv.exited() {
+		st.Reason = fmt.Sprintf("app-server exited: %v", p.exitErr(srv))
 		return st, nil
-	default:
 	}
 
 	var r rateLimitsResponse
-	if err := p.rpc.call(ctx, "account/rateLimits/read", struct{}{}, &r); err != nil {
+	if err := srv.rpc.call(ctx, "account/rateLimits/read", struct{}{}, &r); err != nil {
 		return st, p.wrapCallErr("account/rateLimits/read", err)
 	}
 	rl := r.RateLimits

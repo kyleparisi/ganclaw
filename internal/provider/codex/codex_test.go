@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -391,12 +392,27 @@ func TestProviderRun(t *testing.T) {
 		server := &fakeAppServer{}
 		subject := newTestProvider(t, server)
 		server.Crash(errors.New("exit status 1"))
-		<-subject.done
+		<-subject.server().done
 
 		_, err := subject.Run(context.Background(), provider.Request{Prompt: "hi"})
 
 		assert.True(t, errors.Is(err, provider.ErrUnavailable))
 		assert.ErrorContains(t, err, "exit status 1")
+	})
+
+	t.Run("App-server is restarted after it exits", func(t *testing.T) {
+		server := &fakeAppServer{Handle: answerTurns}
+		subject := newTestProvider(t, server)
+		server.Crash(errors.New("exit status 1"))
+		<-subject.server().done
+
+		_, err := subject.Run(context.Background(), provider.Request{Prompt: "hi"})
+		require.Error(t, err)
+		res, err := subject.Run(context.Background(), provider.Request{Prompt: "hi again"})
+
+		require.NoError(t, err)
+		assert.Equal(t, "done", res.Text)
+		assert.Equal(t, 2, server.Starts())
 	})
 
 	t.Run("Cancelling interrupts the turn", func(t *testing.T) {
@@ -454,6 +470,127 @@ func TestProviderRun(t *testing.T) {
 		reply := <-replies
 		assert.JSONEq(t, `77`, string(reply.ID))
 		assert.JSONEq(t, `{"decision":"decline"}`, string(reply.Result))
+	})
+}
+
+// answerTurns starts or resumes any thread and completes every turn with
+// "done".
+func answerTurns(s *fakeAppServer, method string, params json.RawMessage) (any, *rpcError) {
+	switch method {
+	case "thread/start", "thread/resume":
+		var p threadParams
+		_ = json.Unmarshal(params, &p)
+		if p.ThreadID == "" {
+			p.ThreadID = "thread-new"
+		}
+		return threadResult(p.ThreadID), nil
+	case "turn/start":
+		var p turnStartParams
+		_ = json.Unmarshal(params, &p)
+		s.NotifyAfterReply("item/completed", itemEvent(p.ThreadID, "turn-1", agentItem("m1", "final_answer", "done")))
+		s.NotifyAfterReply("turn/completed", completed(p.ThreadID, "turn-1", "completed", nil))
+		return turnResult("turn-1"), nil
+	}
+	return nil, &rpcError{Code: -32601, Message: method}
+}
+
+func TestProviderRestart(t *testing.T) {
+	newProvider := func(t *testing.T, server *fakeAppServer, cfg Config) *Provider {
+		t.Helper()
+		cfg.Exec = server.Exec()
+		p, err := New(context.Background(), cfg)
+		require.NoError(t, err)
+		t.Cleanup(func() { p.Close() })
+		return p
+	}
+
+	t.Run("Cancelled turn restarts the app-server and the thread resumes", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		server := &fakeAppServer{
+			Handle: func(s *fakeAppServer, method string, params json.RawMessage) (any, *rpcError) {
+				if method == "turn/start" && s.Starts() == 1 {
+					s.NotifyAfterReply("item/agentMessage/delta", delta("thread-1", "turn-1", "m1", "working"))
+					return turnResult("turn-1"), nil
+				}
+				if method == "turn/interrupt" {
+					return map[string]any{}, nil
+				}
+				return answerTurns(s, method, params)
+			},
+		}
+		subject := newProvider(t, server, Config{})
+
+		res, err := subject.Run(ctx, provider.Request{Session: "thread-1", Prompt: "long task", OnDelta: func(string) { cancel() }})
+		require.ErrorIs(t, err, context.Canceled)
+		assert.Equal(t, 2, server.Starts(), "restarted as soon as no turn was running")
+
+		res, err = subject.Run(context.Background(), provider.Request{Session: res.Session, Prompt: "again"})
+
+		require.NoError(t, err)
+		assert.Equal(t, "done", res.Text)
+		assert.Equal(t, []string{"initialize", "thread/resume", "turn/start", "turn/interrupt",
+			"initialize", "thread/resume", "turn/start"}, server.Calls())
+	})
+
+	t.Run("Too many loaded threads restarts the app-server", func(t *testing.T) {
+		server := &fakeAppServer{Handle: answerTurns}
+		subject := newProvider(t, server, Config{MaxLoadedThreads: 2})
+
+		for _, session := range []string{"a", "b"} {
+			_, err := subject.Run(context.Background(), provider.Request{Session: session, Prompt: "hi"})
+			require.NoError(t, err)
+		}
+		assert.Equal(t, 1, server.Starts())
+
+		_, err := subject.Run(context.Background(), provider.Request{Session: "c", Prompt: "hi"})
+
+		require.NoError(t, err)
+		assert.Equal(t, 2, server.Starts())
+	})
+
+	t.Run("Idle app-server is restarted", func(t *testing.T) {
+		server := &fakeAppServer{Handle: answerTurns}
+		subject := newProvider(t, server, Config{IdleRestart: 20 * time.Millisecond})
+
+		_, err := subject.Run(context.Background(), provider.Request{Session: "a", Prompt: "hi"})
+
+		require.NoError(t, err)
+		assert.Eventually(t, func() bool { return server.Starts() == 2 }, eventually, tick)
+		time.Sleep(100 * time.Millisecond)
+		assert.Equal(t, 2, server.Starts(), "no restart while nothing is loaded")
+	})
+
+	t.Run("No restart while another turn is running", func(t *testing.T) {
+		release := make(chan struct{})
+		server := &fakeAppServer{
+			Handle: func(s *fakeAppServer, method string, params json.RawMessage) (any, *rpcError) {
+				var p turnStartParams
+				_ = json.Unmarshal(params, &p)
+				if method == "turn/start" && p.ThreadID == "slow" {
+					go func() {
+						<-release
+						s.Notify("turn/completed", completed("slow", "turn-1", "completed", nil))
+					}()
+					return turnResult("turn-1"), nil
+				}
+				return answerTurns(s, method, params)
+			},
+		}
+		subject := newProvider(t, server, Config{MaxLoadedThreads: 1})
+		slow := make(chan error, 1)
+		go func() {
+			_, err := subject.Run(context.Background(), provider.Request{Session: "slow", Prompt: "hi"})
+			slow <- err
+		}()
+		assert.Eventually(t, func() bool { return subject.turn("slow") != nil }, eventually, tick)
+
+		_, err := subject.Run(context.Background(), provider.Request{Session: "fast", Prompt: "hi"})
+		require.NoError(t, err)
+		assert.Equal(t, 1, server.Starts(), "the slow turn is still running")
+
+		close(release)
+		require.NoError(t, <-slow)
+		assert.Equal(t, 2, server.Starts(), "restarted once the last turn finished")
 	})
 }
 
