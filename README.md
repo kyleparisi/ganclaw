@@ -262,3 +262,12 @@ The Codex app-server protocol schema is vendored in
 ## License
 
 [MIT](LICENSE)
+
+### Remote build/test worker exploration
+
+An isolated `ganclaw-worker` proof of concept supports a named Mac worker
+polling an authoritative Linux queue over HTTPS. It runs approved local
+build/test profiles and returns status, logs and checksummed artifact bundles
+without starting another chat gateway. See [setup, recovery guarantees and
+native UI-test integration](docs/remote-worker.md). It is opt-in and does not
+change `ganclaw serve`; live Mac/native-app acceptance is still required.
