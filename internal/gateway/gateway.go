@@ -220,9 +220,10 @@ func IsQuiet(text string) bool {
 	return false
 }
 
-// quiet turns off streaming and drops quiet replies.
+// quiet turns off streaming and typing, and drops quiet replies.
 func quiet(m *router.Message) {
 	m.Stream = nil
+	m.Typing = nil
 	reply := m.Reply
 	m.Reply = func(ctx context.Context, text string) error {
 		if IsQuiet(text) {

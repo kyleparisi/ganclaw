@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,8 +27,9 @@ import (
 
 // sentMessages fakes the Telegram API and records sendMessage texts.
 type sentMessages struct {
-	mu   sync.Mutex
-	msgs []string
+	mu      sync.Mutex
+	msgs    []string
+	actions int
 }
 
 func (s *sentMessages) client() *telegram.Client {
@@ -37,6 +39,11 @@ func (s *sentMessages) client() *telegram.Client {
 			Text   string `json:"text"`
 		}
 		_ = json.NewDecoder(req.Body).Decode(&body)
+		if strings.HasSuffix(req.URL.Path, "/sendChatAction") {
+			s.mu.Lock()
+			s.actions++
+			s.mu.Unlock()
+		}
 		if strings.HasSuffix(req.URL.Path, "/sendMessage") {
 			s.mu.Lock()
 			s.msgs = append(s.msgs, body.Text)
@@ -50,6 +57,12 @@ func (s *sentMessages) all() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.msgs...)
+}
+
+func (s *sentMessages) actionCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.actions
 }
 
 type runFunc func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error)
@@ -335,3 +348,138 @@ func TestJobKey(t *testing.T) {
 }
 
 var _ = time.Second
+
+func TestGatewayQuietTyping(t *testing.T) {
+	subject := (*Gateway).Run
+
+	t.Run("Quiet background heartbeat sends no chat actions", func(t *testing.T) {
+		sent := &sentMessages{}
+		started := make(chan struct{})
+		release := make(chan struct{})
+		g, _ := newGateway(t, sent, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+			assert.Nil(t, req.OnDelta)
+			close(started)
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+			return "claude", provider.Result{Text: "HEARTBEAT_OK"}, nil
+		})
+		_, err := subject(g, context.Background(), api.RunRequest{Agent: "assistant", Prompt: "background", Session: "heartbeat", Quiet: true, Heartbeat: true, Async: true}, &api.Target{Bot: "assistant", Chat: 111})
+		require.NoError(t, err)
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("background job did not start")
+		}
+		close(release)
+		require.Eventually(t, func() bool { return g.Router.Active() == 0 }, 2*time.Second, 5*time.Millisecond)
+		assert.Zero(t, sent.actionCount(), "quiet jobs must never call sendChatAction")
+		assert.Empty(t, sent.all(), "heartbeat reply stays suppressed")
+	})
+
+	t.Run("Quiet job adds no chat actions while an interactive conversation overlaps", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		db := store.NewTestStore(t)
+		agents := map[string]agent.Agent{"support": {Name: "support", Workspace: t.TempDir()}}
+		interactiveStarted := make(chan struct{})
+		quietStarted := make(chan struct{})
+		interactiveRelease := make(chan struct{})
+		quietRelease := make(chan struct{})
+		interactiveDone := make(chan router.TurnResult, 1)
+		quietDone := make(chan error, 1)
+		typed := make(chan struct{})
+		var firstTyping sync.Once
+		var interactiveActions, quietActions atomic.Int32
+		type interactiveTypingKey struct{}
+		client := &telegram.Client{Token: "1:t", HTTP: telegram.HTTPClient{Do: func(req *http.Request) (*http.Response, error) {
+			if strings.HasSuffix(req.URL.Path, "/sendChatAction") {
+				var body struct {
+					ChatID int64  `json:"chat_id"`
+					Action string `json:"action"`
+				}
+				assert.NoError(t, json.NewDecoder(req.Body).Decode(&body))
+				assert.Equal(t, int64(111), body.ChatID)
+				assert.Equal(t, "typing", body.Action)
+				if req.Context().Value(interactiveTypingKey{}) == true {
+					interactiveActions.Add(1)
+					firstTyping.Do(func() { close(typed) })
+				} else {
+					quietActions.Add(1)
+				}
+			}
+			return &http.Response{StatusCode: 200, Body: jsonBody(`{"ok":true,"result":{"message_id":1}}`)}, nil
+		}}}
+		bot := &telegram.Bot{Name: "support", Agent: "support", Client: client}
+		r := router.New(ctx, router.Config{Agents: agents, Store: db, TypingInterval: 5 * time.Millisecond, Run: func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+			switch req.Prompt {
+			case "interactive":
+				assert.NotNil(t, req.OnDelta)
+				close(interactiveStarted)
+				select {
+				case <-interactiveRelease:
+				case <-ctx.Done():
+				}
+				return "claude", provider.Result{Text: "Interactive answer."}, nil
+			case "background":
+				assert.Nil(t, req.OnDelta)
+				close(quietStarted)
+				select {
+				case <-quietRelease:
+				case <-ctx.Done():
+				}
+				return "claude", provider.Result{Text: "HEARTBEAT_OK"}, nil
+			default:
+				t.Errorf("unexpected prompt %q", req.Prompt)
+				return "", provider.Result{}, nil
+			}
+		}})
+		t.Cleanup(func() { cancel(); r.Wait() })
+		g := &Gateway{Ctx: ctx, Router: r, Agents: agents, Bots: map[string]*telegram.Bot{"support": bot}}
+		interactive := bot.Message(111, "support", "interactive")
+		// Tag interactive typing requests so same-chat quiet requests can be identified.
+		typing := interactive.Typing
+		interactive.Typing = func(ctx context.Context) error { return typing(context.WithValue(ctx, interactiveTypingKey{}, true)) }
+		interactive.OnDone = func(res router.TurnResult) { interactiveDone <- res }
+		require.True(t, r.Submit(interactive))
+		select {
+		case <-interactiveStarted:
+		case <-time.After(2 * time.Second):
+			t.Fatal("interactive conversation did not start")
+		}
+		select {
+		case <-typed:
+		case <-time.After(2 * time.Second):
+			t.Fatal("interactive typing did not start")
+		}
+		go func() {
+			_, err := subject(g, ctx, api.RunRequest{Agent: "support", Prompt: "background", Session: "heartbeat", Quiet: true}, &api.Target{Bot: "support", Chat: 111})
+			quietDone <- err
+		}()
+		select {
+		case <-quietStarted:
+		case <-time.After(2 * time.Second):
+			t.Fatal("quiet job did not overlap interactive conversation")
+		}
+		assert.Equal(t, 2, r.Active(), "both conversations are running for the same Telegram chat")
+		close(interactiveRelease)
+		select {
+		case res := <-interactiveDone:
+			assert.NoError(t, res.Err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("interactive conversation did not finish")
+		}
+		count := interactiveActions.Load()
+		close(quietRelease)
+		select {
+		case err := <-quietDone:
+			require.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("quiet job did not finish")
+		}
+		assert.Positive(t, count, "interactive typing remains enabled")
+		assert.Equal(t, count, interactiveActions.Load(), "interactive typing stops when that conversation finishes")
+		assert.Zero(t, quietActions.Load(), "quiet job sends no chat actions during overlap or after the interactive reply")
+	})
+}
