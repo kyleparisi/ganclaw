@@ -67,8 +67,17 @@ func TestResolver(t *testing.T) {
 		assert.Equal(t, Target{Channel: "telegram", Bot: "support", Chat: -100}, got)
 	})
 
+	t.Run("App addresses name an agent's thread", func(t *testing.T) {
+		got, err := subject("app:infra", "ignored")
+		require.NoError(t, err)
+		assert.Equal(t, Target{Channel: "app", Bot: "infra"}, got)
+		assert.Equal(t, "app:infra", got.String())
+	})
+
 	t.Run("Errors carry stable codes", func(t *testing.T) {
 		cases := map[string][2]string{
+			"empty app agent": {"app:", CodeUnknownContact},
+			"bad app address": {"app:a:b", CodeUnknownContact},
 			"missing to":      {"", CodeBadRequest},
 			"unknown contact": {"stranger", CodeUnknownContact},
 			"no default bot":  {"nobot", CodeBadRequest},
@@ -334,6 +343,44 @@ func TestServerAgents(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, AgentsResponse{Agents: []AgentInfo{{Name: "support", Bot: "support"}}, Contacts: []string{"alex"}}, got)
+	})
+}
+
+func TestServerAppPairing(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Off without the app channel", func(t *testing.T) {
+		client := serve(t, &Server{})
+		_, err := client.Pair(ctx, "phone")
+		var e *Error
+		require.ErrorAs(t, err, &e)
+		assert.Equal(t, CodeBadRequest, e.Code)
+		assert.Contains(t, e.Message, "[app] listen")
+	})
+
+	t.Run("Pair, list and unpair", func(t *testing.T) {
+		devices := []DeviceInfo{{ID: "d1", Name: "phone"}}
+		client := serve(t, &Server{
+			Pair: func(_ context.Context, name string) (PairResponse, error) {
+				return PairResponse{Code: "ABCD-EFGH", URL: "https://g.example"}, nil
+			},
+			Devices: func(context.Context) ([]DeviceInfo, error) { return devices, nil },
+			Unpair: func(_ context.Context, id string) error {
+				devices = nil
+				return nil
+			},
+		})
+
+		p, err := client.Pair(ctx, "phone")
+		require.NoError(t, err)
+		assert.Equal(t, "ABCD-EFGH", p.Code)
+		ds, err := client.Devices(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "d1", ds[0].ID)
+		require.NoError(t, client.Unpair(ctx, "d1"))
+		ds, err = client.Devices(ctx)
+		require.NoError(t, err)
+		assert.Empty(t, ds)
 	})
 }
 

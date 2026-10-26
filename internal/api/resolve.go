@@ -14,6 +14,9 @@ func (r Resolver) Resolve(to, via string) (Target, error) {
 		return Target{}, Errorf(CodeBadRequest, "to is required")
 	}
 	t, raw := ParseAddress(to)
+	if raw && t.Channel == "app" {
+		return t, nil // the gateway checks the agent
+	}
 	if !raw {
 		var found bool
 		for _, c := range r.Contacts {

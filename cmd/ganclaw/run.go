@@ -14,6 +14,7 @@ import (
 
 	"github.com/kyleparisi/ganclaw/internal/agent"
 	"github.com/kyleparisi/ganclaw/internal/api"
+	"github.com/kyleparisi/ganclaw/internal/appchannel"
 	"github.com/kyleparisi/ganclaw/internal/attachments"
 	"github.com/kyleparisi/ganclaw/internal/config"
 	"github.com/kyleparisi/ganclaw/internal/gateway"
@@ -42,8 +43,8 @@ func cmdServe(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(cfg.Telegram) == 0 {
-		return errors.New("no bots configured")
+	if len(cfg.Telegram) == 0 && !cfg.App.Enabled() {
+		return errors.New("no channels configured: add a [[telegram]] bot or [app] listen")
 	}
 
 	// Resolve every token before starting anything.
@@ -119,7 +120,7 @@ func cmdServe(ctx context.Context, args []string) error {
 		housekeeping(ctx, log, st, agents, cfg.AttachmentRetention.Duration)
 	}()
 
-	errc := make(chan error, len(cfg.Telegram)+1)
+	errc := make(chan error, len(cfg.Telegram)+2)
 	bots := map[string]*telegram.Bot{}
 	botNames := make([]string, 0, len(cfg.Telegram))
 	for _, t := range cfg.Telegram {
@@ -147,7 +148,29 @@ func cmdServe(ctx context.Context, args []string) error {
 		}()
 	}
 
-	gw := &gateway.Gateway{Ctx: ctx, Router: r, Agents: agents, Bots: bots, Logger: log}
+	var app *appchannel.Channel
+	if cfg.App.Enabled() {
+		app = &appchannel.Channel{
+			Agents:   agents,
+			Store:    st,
+			Submit:   r.Submit,
+			FilesDir: filepath.Join(cfg.StateDir, "app-files"),
+			Logger:   log,
+		}
+		if err := app.Start(ctx); err != nil {
+			return err
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := serveApp(ctx, cfg.App, app.Handler(version), log); err != nil {
+				errc <- err
+				cancel()
+			}
+		}()
+	}
+
+	gw := &gateway.Gateway{Ctx: ctx, Router: r, Agents: agents, Bots: bots, App: app, Logger: log}
 	apiSrv := &api.Server{
 		Resolve:  api.Resolver{Contacts: cfg.Contacts, Bots: botNames}.Resolve,
 		Send:     gw.Send,
@@ -159,6 +182,27 @@ func cmdServe(ctx context.Context, args []string) error {
 		Store:    st,
 		Logger:   log,
 	}
+	if app != nil {
+		apiSrv.Pair = func(_ context.Context, name string) (api.PairResponse, error) {
+			code, exp := app.NewPairCode(name)
+			return pairResponse(cfg.App.PublicURL, code, exp), nil
+		}
+		apiSrv.Devices = func(ctx context.Context) ([]api.DeviceInfo, error) {
+			ds, err := st.AppDevices(ctx)
+			out := make([]api.DeviceInfo, len(ds))
+			for i, d := range ds {
+				out[i] = api.DeviceInfo{ID: d.ID, Name: d.Name, Created: d.Created, LastSeen: d.LastSeen}
+			}
+			return out, err
+		}
+		apiSrv.Unpair = func(ctx context.Context, id string) error {
+			ok, err := st.RemoveAppDevice(ctx, id)
+			if err == nil && !ok {
+				return api.Errorf(api.CodeBadRequest, "no paired device %q", id)
+			}
+			return err
+		}
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -168,7 +212,7 @@ func cmdServe(ctx context.Context, args []string) error {
 		}
 	}()
 
-	log.Info("ganclaw running", "version", version, "bots", len(cfg.Telegram), "agents", len(agents), "providers", cfg.Providers)
+	log.Info("ganclaw running", "version", version, "bots", len(cfg.Telegram), "app", cfg.App.Enabled(), "agents", len(agents), "providers", cfg.Providers)
 	<-ctx.Done()
 	log.Info("shutting down")
 	wg.Wait()

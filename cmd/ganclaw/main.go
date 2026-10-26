@@ -1,4 +1,4 @@
-// Command ganclaw is a chat gateway that routes Telegram and Slack messages
+// Command ganclaw is a chat gateway that routes Telegram and app messages
 // to coding-agent CLIs (codex, claude) running as subprocesses.
 package main
 
@@ -55,6 +55,8 @@ func main() {
 		err = cmdMCP(ctx, os.Args[2:])
 	case "openclaw-compat":
 		err = cmdOpenClawCompat(ctx, os.Args[2:])
+	case "app":
+		err = cmdApp(ctx, os.Args[2:])
 	case "ask":
 		err = cmdAsk(ctx, os.Args[2:])
 	case "version":
@@ -86,7 +88,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `usage: ganclaw <command> [flags]
 
 gateway:
-  serve             run the gateway: telegram bots, agents and the local API
+  serve             run the gateway: telegram bots, the app channel, agents and the local API
   health            check each provider's login and limits directly
   check             check a running gateway and alert the monitor contact (for a timer)
   update-clis       update the codex and claude CLIs to their latest releases (as root)
@@ -97,6 +99,7 @@ client (talks to a running gateway over its socket):
   status            provider availability from the gateway
   openclaw-compat   openclaw-style "message send" / "agent" (also when invoked as "openclaw")
   mcp               MCP server with agent tools (started by codex/claude)
+  app               pair and manage phones for the app channel: ganclaw app pair --name iphone
 
 other:
   ask               send one prompt straight to a provider (debugging)

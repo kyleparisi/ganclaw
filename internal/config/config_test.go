@@ -269,3 +269,41 @@ func TestTelegramToken(t *testing.T) {
 		assert.ErrorContains(t, err, "GANCLAW_TEST_TOKEN is empty")
 	})
 }
+
+func TestAppConfig(t *testing.T) {
+	load := func(app string) (*Config, error) {
+		return Load(writeConfig(t, validConfig+"\n"+app))
+	}
+
+	t.Run("Off by default", func(t *testing.T) {
+		c, err := load("")
+		require.NoError(t, err)
+		assert.False(t, c.App.Enabled())
+	})
+
+	t.Run("Loopback without TLS, behind a proxy", func(t *testing.T) {
+		c, err := load("[app]\nlisten = \"127.0.0.1:8443\"\npublic_url = \"https://g.example.com\"")
+		require.NoError(t, err)
+		assert.True(t, c.App.Enabled())
+		assert.Equal(t, "https://g.example.com", c.App.PublicURL)
+	})
+
+	t.Run("Public address with TLS", func(t *testing.T) {
+		_, err := load("[app]\nlisten = \"0.0.0.0:8443\"\ntls_cert = \"/c.pem\"\ntls_key = \"/k.pem\"")
+		require.NoError(t, err)
+	})
+
+	for name, tc := range map[string]struct{ app, want string }{
+		"public without TLS":  {"[app]\nlisten = \"0.0.0.0:8443\"", "not a loopback address"},
+		"half TLS":            {"[app]\nlisten = \"127.0.0.1:1\"\ntls_cert = \"/c.pem\"", "both tls_cert and tls_key"},
+		"bad listen":          {"[app]\nlisten = \"nope\"", "listen \"nope\""},
+		"bad public_url":      {"[app]\nlisten = \"127.0.0.1:1\"\npublic_url = \"g.example\"", "public_url"},
+		"keys without listen": {"[app]\npublic_url = \"https://g.example\"", "listen is required"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := load(tc.app)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}

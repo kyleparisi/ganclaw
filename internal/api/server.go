@@ -37,6 +37,11 @@ type Server struct {
 	// Health reports providers, bots and probes for GET /v1/health.
 	// Optional.
 	Health func(ctx context.Context) HealthResponse
+	// Pair, Devices and Unpair manage phones paired with the app channel.
+	// Optional; without them those routes report the channel is off.
+	Pair    func(ctx context.Context, name string) (PairResponse, error)
+	Devices func(ctx context.Context) ([]DeviceInfo, error)
+	Unpair  func(ctx context.Context, id string) error
 	// Store holds idempotency keys. Optional; without it keys are ignored.
 	Store  *store.Store
 	Logger *slog.Logger
@@ -51,6 +56,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/status", s.handleStatus)
 	mux.HandleFunc("GET /v1/agents", s.handleAgents)
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
+	mux.HandleFunc("POST /v1/app/pair", s.handlePair)
+	mux.HandleFunc("GET /v1/app/devices", s.handleDevices)
+	mux.HandleFunc("DELETE /v1/app/devices/{id}", s.handleUnpair)
 	return mux
 }
 
@@ -200,6 +208,47 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.Health(r.Context()))
+}
+
+func (s *Server) appOff(w http.ResponseWriter) bool {
+	if s.Pair == nil || s.Devices == nil || s.Unpair == nil {
+		writeErr(w, Errorf(CodeBadRequest, "the app channel is off; set [app] listen in the config"))
+		return true
+	}
+	return false
+}
+
+func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
+	if s.appOff(w) {
+		return
+	}
+	var req PairRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	respond(w, func() (any, error) { return s.Pair(r.Context(), req.Name) })
+}
+
+func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
+	if s.appOff(w) {
+		return
+	}
+	respond(w, func() (any, error) {
+		d, err := s.Devices(r.Context())
+		if d == nil {
+			d = []DeviceInfo{}
+		}
+		return map[string]any{"devices": d}, err
+	})
+}
+
+func (s *Server) handleUnpair(w http.ResponseWriter, r *http.Request) {
+	if s.appOff(w) {
+		return
+	}
+	respond(w, func() (any, error) {
+		return map[string]any{"ok": true}, s.Unpair(r.Context(), r.PathValue("id"))
+	})
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
