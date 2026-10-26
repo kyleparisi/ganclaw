@@ -78,7 +78,14 @@ jobs:
         run: |
           APP=build/mac/Build/Products/Release-maccatalyst/Ganclaw.app
           lipo -info "$APP/Contents/MacOS/Ganclaw"
-          codesign --verify --deep --strict "$APP" && codesign -dv "$APP" 2>&1 | grep -E "Identifier|Signature"
+          codesign --verify --deep --strict "$APP" && codesign -dv "$APP" 2>&1 | grep -E "Identifier|Signature|flags"
+          # Without these the hardened runtime kills the app when it opens
+          # the mic or camera (the bug the first Mac build shipped with).
+          ENT=$(codesign -d --entitlements - --xml "$APP" 2>/dev/null)
+          for e in com.apple.security.device.audio-input com.apple.security.device.camera; do
+            echo "$ENT" | grep -q "$e" || { echo "missing entitlement $e"; exit 1; }
+          done
+          echo "entitlements ok"
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" -c "Print :LSMinimumSystemVersion" "$APP/Contents/Info.plist"
           mkdir -p dist && ditto -c -k --keepParent "$APP" dist/Ganclaw-mac.zip
           ls -la dist
