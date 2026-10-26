@@ -41,6 +41,7 @@ jobs:
             CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= build 2>&1 | grep -E "error:|\*\* BUILD " || true
           test -d build/mac/Build/Products/Debug-maccatalyst/Ganclaw.app
       - name: Launch, pair, tap the mics
+        shell: bash {0}
         run: |
           set -x
           mkdir -p out
@@ -52,9 +53,11 @@ jobs:
           H="Authorization: Bearer k"; U=http://127.0.0.1:19911
           for i in $(seq 1 30); do curl -sf -H "$H" $U/state >/dev/null && break; sleep 1; done
           CODE=$(curl -s -XPOST 127.0.0.1:18601/admin/pair | python3 -c 'import json,sys; print(json.load(sys.stdin)["code"])')
+          check() { if kill -0 $PID 2>/dev/null; then echo "ALIVE after $1"; else echo "CRASHED after $1"; fi; }
+          check launch
           curl -s -m 20 -H "$H" -XPOST $U/pair -d "{\"server\":\"http://127.0.0.1:18600\",\"code\":\"$CODE\"}"; echo
           sleep 3
-          check() { if kill -0 $PID 2>/dev/null; then echo "ALIVE after $1"; else echo "CRASHED after $1"; fi; }
+          check pair
           # Composer mic in a thread (voice note).
           curl -s -m 10 -H "$H" -XPOST $U/navigate -d '{"route":"thread","agent":"infra"}'; echo
           curl -s -m 15 -H "$H" -XPOST $U/tap -d '{"id":"composer.mic"}'; echo
@@ -67,8 +70,12 @@ jobs:
             sleep 8; check inbox.talk
             curl -s -m 5 -H "$H" $U/state | python3 -c 'import json,sys; d=json.load(sys.stdin)["drive"]; print("drive", d)' || true
           fi
+          check end
           kill $PID 2>/dev/null || true
+          sleep 5
+          ls -la ~/Library/Logs/DiagnosticReports/ | tail -5
           cp ~/Library/Logs/DiagnosticReports/Ganclaw*.ips out/ 2>/dev/null || true
+          log show --last 3m --style compact --predicate 'process == "Ganclaw" AND (messageType == error OR messageType == fault)' 2>/dev/null | tail -40 > out/oslog.txt
           ls -la out
           for f in out/*.ips; do [ -f "$f" ] && python3 - "$f" <<'PY'
           import json, sys
