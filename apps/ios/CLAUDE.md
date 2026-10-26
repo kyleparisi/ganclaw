@@ -121,6 +121,14 @@ To use a new device API: add a `Capability` case, add or extend a client in
 `tools/gencap/run.sh`. Callbacks from Apple frameworks arrive off the main
 thread: make them `@Sendable` and hop with `Task { @MainActor in … }`.
 
+Drive mode's live speech (`Platform/Live/SpeechLive.swift`) starts the mic
+once per session and swaps only the recognition task per utterance (restarting
+the engine flickers the system mic indicator). Callbacks from a replaced task
+are dropped by a generation check, and quick failures back off
+(`RecognitionRestarts`). iOS listens while a reply plays (echo cancellation,
+barge-in); the Mac has none, so recognition pauses while speaking. Pause
+(`drive.muted`) stops only the mic; replies are still spoken.
+
 Presented views (`.sheet`, `.fullScreenCover`) get `.environment(store)`
 explicitly: on the Mac a presented view doesn't inherit it, and reading a
 missing `@Environment` object traps.

@@ -19,8 +19,8 @@ struct DriveView: View {
                 VStack(spacing: 6) {
                     Text(title(d))
                         .font(.system(size: 15, weight: .semibold)).tracking(1.2)
-                        .foregroundStyle(d.muted ? Theme.Drive.muted : Theme.amber)
-                        .control("drive.phase")
+                        .foregroundStyle(d.muted && d.phase == .listening ? Theme.Drive.muted : Theme.amber)
+                        .control("drive.phase", label: title(d))
                     Text(subtitle(d)).font(.system(size: 13)).foregroundStyle(Theme.Drive.muted)
                 }
                 transcript(d)
@@ -126,16 +126,16 @@ struct DriveView: View {
             Spacer()
             CButton("drive.mute") { store.setDriveMuted(!d.muted) } label: {
                 VStack(spacing: 6) {
-                    Image(systemName: d.muted ? "mic.fill" : "mic.slash").font(.system(size: 36, weight: .medium))
-                    Text(d.muted ? "Unmute" : "Mute").font(.system(size: 15, weight: .bold))
+                    Image(systemName: d.muted ? "mic.fill" : "pause.fill").font(.system(size: 36, weight: .medium))
+                    Text(d.muted ? "Resume" : "Pause").font(.system(size: 15, weight: .bold))
                 }
                 .frame(width: big, height: big)
                 .background(d.muted ? Theme.amber.opacity(0.18) : Color(hex: 0x1C1D21), in: Circle())
                 .overlay(Circle().stroke(d.muted ? Theme.amber : Color(hex: 0x3A3C42), lineWidth: 2))
                 .foregroundStyle(d.muted ? Theme.amber : Theme.Drive.fg)
             }
-            .accessibilityLabel(d.muted ? "Unmute microphone" : "Mute microphone")
-            .accessibilityValue(d.muted ? "muted" : "listening")
+            .accessibilityLabel(d.muted ? "Resume listening" : "Pause listening")
+            .accessibilityValue(d.muted ? "paused" : "listening")
             Spacer()
             roundButton("Exit", icon: "xmark", id: "drive.exit") { store.exitDrive() }
         }
@@ -156,20 +156,29 @@ struct DriveView: View {
         .accessibilityLabel(title == "Repeat" ? "Repeat last answer" : "Exit drive mode")
     }
 
+    // Pausing only stops the mic: the agent still answers and is heard, so
+    // its speaking and thinking show through a pause.
     private func title(_ d: DriveState) -> String {
-        if d.muted { return "MUTED" }
         let name = Theme.displayName(d.agent ?? "Agent").uppercased()
         switch d.phase {
         case .speaking: return "\(name) IS TALKING"
         case .thinking: return "\(name) IS THINKING"
+        case _ where d.muted: return "PAUSED"
         case .listening: return d.heard.isEmpty ? "LISTENING" : "HEARING YOU"
         case .idle: return "READY"
         }
     }
 
     private func subtitle(_ d: DriveState) -> String {
-        if d.muted { return "Tap Unmute to talk" }
-        return d.phase == .speaking ? "Always listening · just talk to interrupt" : "Always listening · just talk"
+        if d.muted { return "Mic paused · tap Resume to talk" }
+        guard d.phase == .speaking else { return "Always listening · just talk" }
+        #if targetEnvironment(macCatalyst)
+        // No echo cancellation on the Mac: the mic would hear the reply, so
+        // it waits for the agent to finish.
+        return "Your turn when it's done"
+        #else
+        return "Always listening · just talk to interrupt"
+        #endif
     }
 }
 
@@ -182,12 +191,12 @@ struct Waveform: View {
     private let base: [CGFloat] = [12, 32, 56, 72, 44, 64, 36, 20, 8]
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 20, paused: muted || phase == .idle)) { ctx in
+        TimelineView(.animation(minimumInterval: 1 / 20, paused: still)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
             HStack(alignment: .center, spacing: 8) {
                 ForEach(base.indices, id: \.self) { i in
                     Capsule()
-                        .fill(muted ? Theme.Drive.line : Theme.amber)
+                        .fill(still ? Theme.Drive.line : Theme.amber)
                         .frame(width: 8, height: height(i, t))
                 }
             }
@@ -198,13 +207,18 @@ struct Waveform: View {
         }
         .padding(size * 0.127)
         .accessibilityElement()
-        .accessibilityLabel(muted ? "Microphone muted" : phase == .speaking ? "Agent is speaking" : "Listening")
+        .accessibilityLabel(phase == .speaking ? "Agent is speaking" : phase == .thinking ? "Agent is thinking" : muted ? "Microphone paused" : "Listening")
+    }
+
+    /// Nothing is moving: the mic is paused and the agent isn't busy.
+    private var still: Bool {
+        phase == .idle || (muted && phase == .listening)
     }
 
     private func height(_ i: Int, _ t: TimeInterval) -> CGFloat {
         let h = base[i] * size / 220
         switch phase {
-        case _ where muted: return 8
+        case _ where still: return 8
         case .speaking: return max(8, h * CGFloat(0.55 + 0.45 * sin(t * 7 + Double(i) * 0.9)))
         case .thinking: return max(8, h * CGFloat(0.3 + 0.15 * sin(t * 3 + Double(i) * 0.6)))
         case .listening: return max(8, h * CGFloat(0.25 + 0.2 * abs(sin(t * 4 + Double(i)))))

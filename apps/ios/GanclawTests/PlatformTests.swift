@@ -119,3 +119,33 @@ final class PlatformClientTests: XCTestCase {
         XCTAssertTrue(cleared)
     }
 }
+
+/// Drive mode restarts recognition after every utterance; a task that keeps
+/// failing at once must not spin the mic on and off.
+final class RecognitionRestartTests: XCTestCase {
+    func testNormalEndsRestartAtOnce() {
+        var r = RecognitionRestarts()
+        XCTAssertEqual(r.ended(after: 8, failed: false), 0, "an utterance finished")
+        XCTAssertEqual(r.ended(after: 30, failed: true), 0, "no speech after a long silence")
+        XCTAssertEqual(r.quickFailures, 0)
+    }
+
+    func testQuickFailuresBackOffAndDropOnDevice() {
+        var r = RecognitionRestarts()
+        XCTAssertEqual(r.ended(after: 0.01, failed: true), 0.25)
+        XCTAssertEqual(r.ended(after: 0.01, failed: true), 0.5)
+        XCTAssertTrue(r.onDeviceAllowed)
+        XCTAssertEqual(r.ended(after: 0.01, failed: true), 1)
+        XCTAssertFalse(r.onDeviceAllowed, "after a few, try server recognition")
+        for _ in 0..<10 { _ = r.ended(after: 0.01, failed: true) }
+        XCTAssertEqual(r.ended(after: 0.01, failed: true), 5, "capped")
+    }
+
+    func testHearingSpeechResetsTheBackoff() {
+        var r = RecognitionRestarts()
+        _ = r.ended(after: 0.01, failed: true)
+        _ = r.ended(after: 0.01, failed: true)
+        r.heard()
+        XCTAssertEqual(r.ended(after: 0.01, failed: true), 0.25)
+    }
+}

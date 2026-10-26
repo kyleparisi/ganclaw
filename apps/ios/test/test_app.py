@@ -199,6 +199,26 @@ def test_drive_mode(paired, fake):
     app.wait_screen("thread:infra")
 
 
+def test_drive_pause_only_pauses_the_mic(paired, fake):
+    """Pause is for the user's side: an answer already on its way is still spoken."""
+    app = paired
+    app.post("/drive/start", {"agent": "infra"})
+    app.wait_screen("drive")
+    app.post("/drive/say", {"text": "Did the fix ship?"})
+    wait_for(lambda: app.state()["drive"]["last_question"] == "Did the fix ship?", what="question")
+    app.tap("drive.mute")
+    wait_for(lambda: app.state()["drive"]["muted"], what="paused")
+    assert not app.state()["speech"]["listening"]
+    answer = wait_for(lambda: app.state()["drive"]["last_answer"], timeout=15, what="answer while paused")
+    assert answer in app.state()["speech"]["spoken"]
+    wait_for(lambda: app.state()["drive"]["phase"] == "listening", what="answer finished")
+    assert app.element("drive.phase")["label"] == "PAUSED"
+    app.screenshot("13b-drive-paused")
+    app.tap("drive.mute")
+    wait_for(lambda: app.state()["speech"]["listening"], what="resumed")
+    app.tap("drive.exit")
+
+
 def test_jobs_and_ask_about_a_run(paired, fake):
     app = paired
     runs_before = next(j for j in app.state()["jobs"] if j["name"] == "nightly-log-check")["runs"]
