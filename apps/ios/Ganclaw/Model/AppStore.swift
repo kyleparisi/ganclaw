@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import UIKit
 
 /// Owns AppState and runs side effects. Views call `send` for pure state
 /// changes and the intent methods below for anything that does I/O.
@@ -11,21 +10,18 @@ final class AppStore {
 
     @ObservationIgnored private var client: APIClient?
     @ObservationIgnored private let events = EventStream()
-    @ObservationIgnored let speech: SpeechEngine
+    /// Every device access goes through here (Platform/).
+    @ObservationIgnored let platform: Platform
     @ObservationIgnored private var attachmentData: [String: Data] = [:]
     @ObservationIgnored private var toastTask: Task<Void, Never>?
-    @ObservationIgnored private var persist: Bool
     /// Every action applied, newest last; the control server exposes it.
     @ObservationIgnored private(set) var actionLog: [String] = []
 
-    init(credentials: Credentials? = nil, speech: SpeechEngine, persist: Bool = true) {
-        self.speech = speech
-        self.persist = persist
+    init(platform: Platform) {
+        self.platform = platform
         events.onEvent = { [weak self] e in self?.handle(event: e) }
         events.onStatus = { [weak self] s in self?.handle(status: s) }
-        speech.onHeard = { [weak self] text, final in self?.heard(text, final: final) }
-        speech.onSpeakingDone = { [weak self] in self?.spokeReply() }
-        if let credentials { connect(credentials) }
+        if let credentials = platform.keychain.load() { connect(credentials) }
     }
 
     func send(_ action: AppState.Action) {
@@ -52,11 +48,11 @@ final class AppStore {
             return
         }
         send(.pairStarted)
-        let name = UIDevice.current.name
+        let name = platform.device.name()
         do {
             let r = try await APIClient(baseURL: server).pair(code: code, deviceName: name)
             let creds = Credentials(server: server, token: r.token, deviceName: r.device.name)
-            if persist { CredentialStore.save(creds) }
+            platform.keychain.save(creds)
             connect(creds)
         } catch {
             send(.pairFailed(describe(error)))
@@ -77,10 +73,10 @@ final class AppStore {
 
     func unpair(reason: String? = nil) {
         events.disconnect()
-        speech.stopListening()
-        speech.stopSpeaking()
+        platform.speech.stopListening()
+        platform.speech.stopSpeaking()
         client = nil
-        if persist { CredentialStore.clear() }
+        platform.keychain.clear()
         attachmentData = [:]
         send(.unpaired(reason: reason))
     }
@@ -216,7 +212,7 @@ final class AppStore {
     // MARK: Copy blocks
 
     func copy(_ text: String, block: String, label: String) {
-        UIPasteboard.general.string = text
+        platform.pasteboard.setString(text)
         send(.copied(block))
         showToast("\(label) copied")
         Task {
@@ -239,13 +235,10 @@ final class AppStore {
     func startDrive(_ agent: String?) async {
         guard let agent = agent ?? state.sortedAgents.first?.name else { return }
         send(.driveStart(agent))
-        guard await speech.requestAccess() else {
-            send(.driveError("Allow microphone and speech recognition in Settings to use drive mode."))
-            return
-        }
         do {
-            try speech.startListening()
-            UIApplication.shared.isIdleTimerDisabled = true
+            try await platform.speech.requestAccess()
+            try listen()
+            platform.device.setIdleTimerDisabled(true)
         } catch {
             send(.driveError(describe(error)))
         }
@@ -253,21 +246,29 @@ final class AppStore {
     }
 
     func exitDrive() {
-        speech.stopListening()
-        speech.stopSpeaking()
-        UIApplication.shared.isIdleTimerDisabled = false
+        platform.speech.stopListening()
+        platform.speech.stopSpeaking()
+        platform.device.setIdleTimerDisabled(false)
         send(.driveExit)
     }
 
     func setDriveMuted(_ muted: Bool) {
         send(.driveMuted(muted))
-        if muted { speech.stopListening() } else { try? speech.startListening() }
+        if muted {
+            platform.speech.stopListening()
+        } else {
+            do { try listen() } catch { send(.driveError(describe(error))) }
+        }
     }
 
     func repeatLastAnswer() {
         guard let a = state.drive.lastAnswer else { return }
         send(.drivePhase(.speaking))
-        speech.speak(a)
+        platform.speech.speak(a) { [weak self] in self?.spokeReply() }
+    }
+
+    private func listen() throws {
+        try platform.speech.listen { [weak self] text, final in self?.heard(text, final: final) }
     }
 
     private func heard(_ text: String, final: Bool) {
@@ -298,7 +299,7 @@ final class AppStore {
         let (spoken, details) = m.spokenPart
         let answer = spoken.isEmpty ? "Done." : spoken
         send(.driveAnswered(answer, details: details || !m.files.isEmpty || !m.actions.isEmpty))
-        speech.speak(answer)
+        platform.speech.speak(answer) { [weak self] in self?.spokeReply() }
     }
 
     // MARK: Events

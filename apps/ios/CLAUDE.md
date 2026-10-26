@@ -90,8 +90,40 @@ Same rule as bufflehead's UI: the screen is a projection of state.
   dispatch actions.
 - `Net/` — `APIClient` (REST), `EventStream` (WebSocket with reconnect),
   Keychain credentials, `ganclaw://pair` links.
-- `Drive/Speech.swift` — `SpeechEngine`: live (Speech + AVSpeechSynthesizer
-  with voice processing for barge-in) or fake.
+- `Platform/` — the only code that touches the device (see below).
+
+## Platform layer: device access through capability clients
+
+Modelled on investor-be's server clients (`SNSClient`, `SendGridClient`):
+each device API is a struct of closures (`SpeechClient`, `RecorderClient`,
+`PasteboardClient`, `KeychainClient`, `DeviceClient`) grouped in `Platform`.
+`Platform.live()` binds the real APIs; tests start from `Platform.inert` and
+replace the closures they need inline (`GanclawTests/PlatformTests.swift`).
+Nothing outside `Platform/` imports AVFoundation, Speech or Security, or uses
+UIPasteboard/UIDevice/`isIdleTimerDisabled` directly. Keep it that way.
+
+`Platform/Capability.swift` is the manifest of privacy-sensitive
+capabilities: Info.plist usage key and text, Mac entitlement, and what each
+requires. From it:
+
+- `tools/gencap` writes the usage strings into `Info.plist` and generates
+  `Generated/Ganclaw-mac.entitlements` on every build (pre-build phase in
+  `project.yml`). `test/run.sh` and CI run `tools/gencap/run.sh --check`
+  first, so committed files can't drift, and CI compares the signed Mac
+  app's entitlements with the manifest.
+- Live clients call `check.require(.capability)` before touching the API.
+  `CapabilityCheck.live` reads the running binary's Info.plist and, on the
+  Mac, its signed entitlements, so a missing declaration is a
+  `PlatformError` shown to the user instead of the OS killing the app.
+
+To use a new device API: add a `Capability` case, add or extend a client in
+`Platform/`, call `check.require` in its live implementation, and run
+`tools/gencap/run.sh`. Callbacks from Apple frameworks arrive off the main
+thread: make them `@Sendable` and hop with `Task { @MainActor in … }`.
+
+Presented views (`.sheet`, `.fullScreenCover`) get `.environment(store)`
+explicitly: on the Mac a presented view doesn't inherit it, and reading a
+missing `@Environment` object traps.
 
 Server contract: `internal/appchannel` (Go). Replies may end with
 `BUTTONS: A | B` (shown as buttons; a tap answers that message), and drive

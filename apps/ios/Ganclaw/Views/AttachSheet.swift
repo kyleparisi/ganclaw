@@ -25,10 +25,10 @@ struct AttachSheet: View {
             .padding(.top, 14)
 
             HStack(spacing: 8) {
-                source("Camera", "camera", id: "attach.camera", enabled: UIImagePickerController.isSourceTypeAvailable(.camera)) { showCamera = true }
+                source("Camera", "camera", id: "attach.camera", enabled: store.platform.device.cameraAvailable()) { showCamera = true }
                 source("Files", "doc", id: "attach.files") { showFiles = true }
                 source("Link", "link", id: "attach.link") { showLink = true }
-                source("Paste", "doc.on.clipboard", id: "attach.paste", enabled: UIPasteboard.general.hasImages || UIPasteboard.general.hasURLs || UIPasteboard.general.hasStrings) { paste() }
+                source("Paste", "doc.on.clipboard", id: "attach.paste", enabled: store.platform.pasteboard.hasContent()) { paste() }
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -161,15 +161,16 @@ struct AttachSheet: View {
     }
 
     private func paste() {
-        let pb = UIPasteboard.general
-        if let img = pb.image, let data = img.pngData() {
+        let pb = store.platform.pasteboard
+        if let img = pb.image(), let data = img.pngData() {
             store.addAttachment(name: "pasted.png", mime: "image/png", data: data)
-        } else if let url = pb.url {
+        } else if let url = pb.url() {
             addLink(url.absoluteString)
-        } else if let s = pb.string {
+        } else if let s = pb.string() {
             store.addAttachment(name: "pasted.txt", mime: "text/plain", data: Data(s.utf8))
         }
     }
+
 }
 
 struct PendingChip: View {

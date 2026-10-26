@@ -39,10 +39,15 @@ struct RootView: View {
         .animation(.easeOut(duration: 0.2), value: s.toast)
         .animation(.easeOut(duration: 0.2), value: s.banner)
         .fullScreenCover(isPresented: Binding(get: { store.state.drive.active }, set: { if !$0 { store.exitDrive() } })) {
+            // Presented content is a separate hosting view; on the Mac it
+            // does not inherit the root's environment, and a view reading a
+            // missing @Environment object traps. Inject it explicitly.
             DriveView()
+                .environment(store)
         }
         .sheet(isPresented: Binding(get: { store.state.attach.presented }, set: { if !$0 { store.send(.attachClose) } })) {
             AttachSheet()
+                .environment(store)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(28)

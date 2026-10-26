@@ -224,7 +224,11 @@ struct ThreadView: View {
             }
         } else {
             Task {
-                if !(await recorder.start()) { store.send(.banner("Allow the microphone in Settings to record voice notes.")) }
+                do {
+                    try await recorder.start(store.platform.recorder)
+                } catch {
+                    store.send(.banner(store.describe(error)))
+                }
             }
         }
     }

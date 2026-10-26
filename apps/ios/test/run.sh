@@ -19,6 +19,10 @@ echo "==> fake server"
 (cd "$REPO" && go build -o "$BUILD/fakeserver" ./apps/ios/tools/fakeserver)
 export FAKESERVER_BIN="$BUILD/fakeserver"
 
+echo "==> capability declarations"
+# Committed Info.plist and entitlements must match Platform/Capability.swift.
+"$IOS/tools/gencap/run.sh" "$IOS" --check
+
 echo "==> project"
 (cd "$IOS" && xcodegen generate --quiet)
 

@@ -21,14 +21,16 @@ final class ControlServer {
 
     let store: AppStore
     let key: String
+    /// Set when launched with GANCLAW_FAKE_SPEECH=1.
+    let fakeSpeech: FakeSpeech?
     private var listener: NWListener?
     private(set) var port: UInt16 = 0
 
-    static func start(store: AppStore) {
+    static func start(store: AppStore, fakeSpeech: FakeSpeech?) {
         let env = ProcessInfo.processInfo.environment
         let key = env["GANCLAW_CONTROL_KEY"].flatMap { $0.isEmpty ? nil : $0 } ?? Self.mintKey()
         let port = UInt16(env["GANCLAW_CONTROL_PORT"] ?? "") ?? 0
-        let s = ControlServer(store: store, key: key)
+        let s = ControlServer(store: store, key: key, fakeSpeech: fakeSpeech)
         shared = s
         do {
             try s.listen(port: port)
@@ -37,9 +39,10 @@ final class ControlServer {
         }
     }
 
-    private init(store: AppStore, key: String) {
+    private init(store: AppStore, key: String, fakeSpeech: FakeSpeech?) {
         self.store = store
         self.key = key
+        self.fakeSpeech = fakeSpeech
     }
 
     private static func mintKey() -> String {

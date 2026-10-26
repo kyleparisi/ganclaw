@@ -66,6 +66,7 @@ jobs:
       - name: Build Ganclaw.app (Mac Catalyst, Release)
         working-directory: apps/ios
         run: |
+          tools/gencap/run.sh "$PWD" --check
           xcodegen generate --quiet
           xcodebuild -project Ganclaw.xcodeproj -scheme Ganclaw -configuration Release \
             -destination 'generic/platform=macOS,variant=Mac Catalyst' \
@@ -81,11 +82,19 @@ jobs:
           codesign --verify --deep --strict "$APP" && codesign -dv "$APP" 2>&1 | grep -E "Identifier|Signature|flags"
           # Without these the hardened runtime kills the app when it opens
           # the mic or camera (the bug the first Mac build shipped with).
-          ENT=$(codesign -d --entitlements - --xml "$APP" 2>/dev/null)
-          for e in com.apple.security.device.audio-input com.apple.security.device.camera; do
-            echo "$ENT" | grep -q "$e" || { echo "missing entitlement $e"; exit 1; }
-          done
-          echo "entitlements ok"
+          # The signed app must carry exactly the manifest's entitlements
+          # (Platform/Capability.swift), plus what codesign adds itself.
+          codesign -d --entitlements - --xml "$APP" 2>/dev/null > /tmp/ent.plist
+          python3 - /tmp/ent.plist "$(tools/gencap/run.sh --entitlements 2>/dev/null || true)" <<'PY'
+          import plistlib, sys
+          signed = set(plistlib.load(open(sys.argv[1], "rb")))
+          signed.discard("com.apple.security.get-task-allow")
+          want = set(sys.argv[2].split())
+          assert want, "gencap printed no entitlements"
+          if signed != want:
+              sys.exit(f"entitlement mismatch: missing {sorted(want - signed)}, unexpected {sorted(signed - want)}")
+          print("entitlements match the manifest:", sorted(signed))
+          PY
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" -c "Print :LSMinimumSystemVersion" "$APP/Contents/Info.plist"
           mkdir -p dist && ditto -c -k --keepParent "$APP" dist/Ganclaw-mac.zip
           ls -la dist

@@ -1,4 +1,3 @@
-import AVFoundation
 import Observation
 import QuickLook
 import SwiftUI
@@ -93,58 +92,45 @@ final class FileCache {
     func store(_ img: UIImage, _ id: String) { cache.setObject(img, forKey: id as NSString) }
 }
 
-/// Records a voice note as AAC (.m4a), which ganclaw can transcribe.
+/// Recording state for the composer's mic button. The audio itself goes
+/// through Platform.recorder.
 @MainActor
 @Observable
 final class VoiceRecorder {
     private(set) var recording = false
     private(set) var elapsed: TimeInterval = 0
-    @ObservationIgnored private var recorder: AVAudioRecorder?
     @ObservationIgnored private var timer: Timer?
-    private let url = FileManager.default.temporaryDirectory.appendingPathComponent("voice-note.m4a")
+    @ObservationIgnored private var client: RecorderClient?
 
     var elapsedText: String { String(format: "%d:%02d", Int(elapsed) / 60, Int(elapsed) % 60) }
 
-    func start() async -> Bool {
-        guard await AVAudioApplication.requestRecordPermission() else { return false }
-        do {
-            let s = AVAudioSession.sharedInstance()
-            try s.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
-            try s.setActive(true)
-            let r = try AVAudioRecorder(url: url, settings: [
-                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-                AVSampleRateKey: 16000,
-                AVNumberOfChannelsKey: 1,
-                AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
-            ])
-            guard r.record() else { return false }
-            recorder = r
-            recording = true
-            elapsed = 0
-            timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.elapsed = self?.recorder?.currentTime ?? 0 }
-            }
-            return true
-        } catch {
-            return false
+    func start(_ client: RecorderClient) async throws {
+        try await client.requestAccess()
+        try client.start()
+        self.client = client
+        recording = true
+        elapsed = 0
+        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { @Sendable [weak self] _ in
+            Task { @MainActor in self?.elapsed = self?.client?.elapsed() ?? 0 }
         }
     }
 
     /// Stops and returns the recording, or nil if it was too short.
     func stop() -> Data? {
-        let long = (recorder?.currentTime ?? 0) >= 0.5
-        finish()
-        return long ? try? Data(contentsOf: url) : nil
+        let data = client?.stop()
+        reset()
+        return data
     }
 
-    func cancel() { finish() }
+    func cancel() {
+        client?.cancel()
+        reset()
+    }
 
-    private func finish() {
-        recorder?.stop()
-        recorder = nil
+    private func reset() {
         timer?.invalidate()
         timer = nil
+        client = nil
         recording = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }

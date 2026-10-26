@@ -29,7 +29,7 @@ struct ControlRoutes {
         case ("POST", "/tap"):
             return tap(body)
         case ("GET", "/clipboard"):
-            let text: Any = UIPasteboard.general.string.map { $0 as Any } ?? NSNull()
+            let text: Any = store.platform.pasteboard.string().map { $0 as Any } ?? NSNull()
             return .json(["text": text])
         case ("GET", "/actions"):
             return .json(["actions": Array(store.actionLog.suffix(Int(req.query["limit"] ?? "") ?? 100))])
@@ -100,7 +100,7 @@ struct ControlRoutes {
             await store.startDrive(body["agent"] as? String)
             return result(store.state.drive.error)
         case ("POST", "/drive/say"):
-            guard let fake = store.speech as? FakeSpeechEngine else { return .error("launch with GANCLAW_FAKE_SPEECH=1 to simulate speech", status: 409) }
+            guard let fake = server.fakeSpeech else { return .error("launch with GANCLAW_FAKE_SPEECH=1 to simulate speech", status: 409) }
             fake.hear(str(body, "text"), final: body["final"] as? Bool ?? true)
             return .ok
         case ("POST", "/drive/mute"):
@@ -128,7 +128,7 @@ struct ControlRoutes {
               var obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return .error("encode failed", status: 500) }
         obj["screen"] = store.state.currentScreen
         obj["inbox_rows"] = store.state.inboxRows.map(\.name)
-        if let fake = store.speech as? FakeSpeechEngine {
+        if let fake = server.fakeSpeech {
             obj["speech"] = ["spoken": fake.spoken, "listening": fake.listening, "speaking": fake.isSpeaking] as [String: Any]
         }
         return .json(obj)

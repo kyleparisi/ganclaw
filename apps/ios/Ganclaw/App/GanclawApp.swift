@@ -6,19 +6,23 @@ struct GanclawApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-        let env = ProcessInfo.processInfo.environment
-        var speech: SpeechEngine = LiveSpeechEngine()
-        var persist = true
+        var platform = Platform.live()
         #if CONTROL_SERVER
-        // Test launches: fake speech and nothing saved to the Keychain.
-        if env["GANCLAW_FAKE_SPEECH"] == "1" { speech = FakeSpeechEngine() }
-        if env["GANCLAW_EPHEMERAL"] == "1" { persist = false }
+        // Test launches swap clients, the way investor-be's tests build
+        // State with stub clients: fake speech, nothing kept in the Keychain.
+        let env = ProcessInfo.processInfo.environment
+        var fake: FakeSpeech?
+        if env["GANCLAW_FAKE_SPEECH"] == "1" {
+            let f = FakeSpeech()
+            platform.speech = f.client
+            fake = f
+        }
+        if env["GANCLAW_EPHEMERAL"] == "1" { platform.keychain = .inert }
         #endif
-        _ = env
-        let store = AppStore(credentials: persist ? CredentialStore.load() : nil, speech: speech, persist: persist)
+        let store = AppStore(platform: platform)
         _store = State(initialValue: store)
         #if CONTROL_SERVER
-        ControlServer.start(store: store)
+        ControlServer.start(store: store, fakeSpeech: fake)
         #endif
     }
 
