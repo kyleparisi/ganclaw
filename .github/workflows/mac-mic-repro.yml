@@ -1,0 +1,91 @@
+name: Mac mic repro
+
+# Temporary: launches the Mac (Catalyst) app on a runner, taps the mic
+# buttons through the debug control server, and keeps any crash report.
+on:
+  push:
+    branches: [app-channel-ios]
+    paths: [".github/workflows/mac-mic-repro.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: [d7ec34b, HEAD]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: App sources at ${{ matrix.ref }}
+        if: matrix.ref != 'HEAD'
+        run: git checkout ${{ matrix.ref }} -- apps/ios/Ganclaw
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: brew install xcodegen
+      - name: Build Debug Catalyst app and fake server
+        run: |
+          go build -o /tmp/fakeserver ./apps/ios/tools/fakeserver
+          cd apps/ios && xcodegen generate --quiet
+          xcodebuild -project Ganclaw.xcodeproj -scheme Ganclaw -configuration Debug \
+            -destination 'generic/platform=macOS,variant=Mac Catalyst' -derivedDataPath build/mac \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= build 2>&1 | grep -E "error:|\*\* BUILD " || true
+          test -d build/mac/Build/Products/Debug-maccatalyst/Ganclaw.app
+      - name: Launch, pair, tap the mics
+        run: |
+          set -x
+          mkdir -p out
+          /tmp/fakeserver -addr 127.0.0.1:18600 -admin 127.0.0.1:18601 > out/fake.log 2>&1 &
+          sleep 1; curl -s -XPOST 127.0.0.1:18601/admin/seed
+          APP=apps/ios/build/mac/Build/Products/Debug-maccatalyst/Ganclaw.app/Contents/MacOS/Ganclaw
+          GANCLAW_CONTROL_KEY=k GANCLAW_CONTROL_PORT=19911 GANCLAW_EPHEMERAL=1 "$APP" > out/app.log 2>&1 &
+          PID=$!
+          H="Authorization: Bearer k"; U=http://127.0.0.1:19911
+          for i in $(seq 1 30); do curl -sf -H "$H" $U/state >/dev/null && break; sleep 1; done
+          CODE=$(curl -s -XPOST 127.0.0.1:18601/admin/pair | python3 -c 'import json,sys; print(json.load(sys.stdin)["code"])')
+          curl -s -m 20 -H "$H" -XPOST $U/pair -d "{\"server\":\"http://127.0.0.1:18600\",\"code\":\"$CODE\"}"; echo
+          sleep 3
+          check() { if kill -0 $PID 2>/dev/null; then echo "ALIVE after $1"; else echo "CRASHED after $1"; fi; }
+          # Composer mic in a thread (voice note).
+          curl -s -m 10 -H "$H" -XPOST $U/navigate -d '{"route":"thread","agent":"infra"}'; echo
+          curl -s -m 15 -H "$H" -XPOST $U/tap -d '{"id":"composer.mic"}'; echo
+          sleep 5; check composer.mic
+          if kill -0 $PID 2>/dev/null; then
+            curl -s -m 10 -H "$H" -XPOST $U/tap -d '{"id":"composer.mic"}'; echo
+            curl -s -m 10 -H "$H" -XPOST $U/navigate -d '{"route":"inbox"}'; echo
+            # Drive mode via the inbox's mic button (live speech engine).
+            curl -s -m 20 -H "$H" -XPOST $U/tap -d '{"id":"inbox.talk"}'; echo
+            sleep 8; check inbox.talk
+            curl -s -m 5 -H "$H" $U/state | python3 -c 'import json,sys; d=json.load(sys.stdin)["drive"]; print("drive", d)' || true
+          fi
+          kill $PID 2>/dev/null || true
+          cp ~/Library/Logs/DiagnosticReports/Ganclaw*.ips out/ 2>/dev/null || true
+          ls -la out
+          for f in out/*.ips; do [ -f "$f" ] && python3 - "$f" <<'PY'
+          import json, sys
+          raw = open(sys.argv[1]).read().split("\n", 1)[1]
+          r = json.loads(raw)
+          ex = r.get("exception", {}); print("EXCEPTION", ex.get("type"), ex.get("signal"), r.get("termination", {}).get("indicator"))
+          for k in ("asi",):
+              if k in r: print("ASI", json.dumps(r[k])[:800])
+          t = next(t for t in r["threads"] if t.get("triggered"))
+          imgs = r["usedImages"]
+          for fr in t["frames"][:25]:
+              print("  ", imgs[fr["imageIndex"]].get("name", "?"), fr.get("symbol", hex(fr.get("imageOffset", 0))))
+          PY
+          done
+          tail -20 out/app.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mic-repro-${{ matrix.ref }}
+          path: out

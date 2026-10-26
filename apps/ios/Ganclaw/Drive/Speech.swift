@@ -42,11 +42,21 @@ final class LiveSpeechEngine: NSObject, SpeechEngine, AVSpeechSynthesizerDelegat
     }
 
     func requestAccess() async -> Bool {
-        let speech = await withCheckedContinuation { c in
-            SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0 == .authorized) }
-        }
+        let speech = await Self.speechAuthorized()
         let mic = await AVAudioApplication.requestRecordPermission()
         return speech && mic
+    }
+
+    /// Speech calls the authorization handler on a background queue. The
+    /// closure must not inherit this class's main-actor isolation: Swift
+    /// checks isolation at run time and stops the app when it's violated.
+    private nonisolated static func speechAuthorized() async -> Bool {
+        if SFSpeechRecognizer.authorizationStatus() == .authorized { return true }
+        return await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+            SFSpeechRecognizer.requestAuthorization { @Sendable status in
+                c.resume(returning: status == .authorized)
+            }
+        }
     }
 
     func startListening() throws {
@@ -60,16 +70,27 @@ final class LiveSpeechEngine: NSObject, SpeechEngine, AVSpeechSynthesizerDelegat
 
         let input = audio.inputNode
         try? input.setVoiceProcessingEnabled(true)
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw NSError(domain: "Speech", code: 2, userInfo: [NSLocalizedDescriptionKey: "No microphone is available."])
+        }
+        input.removeTap(onBus: 0) // a failed earlier start may have left one
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
         if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
         request = req
         latest = ""
-        input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { @Sendable [weak req] buf, _ in
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { @Sendable [weak req] buf, _ in
             req?.append(buf)
         }
         audio.prepare()
-        try audio.start()
+        do {
+            try audio.start()
+        } catch {
+            input.removeTap(onBus: 0)
+            request = nil
+            throw error
+        }
         task = recognizer.recognitionTask(with: req) { @Sendable [weak self] result, error in
             Task { @MainActor in self?.handle(result: result, error: error) }
         }
@@ -110,10 +131,8 @@ final class LiveSpeechEngine: NSObject, SpeechEngine, AVSpeechSynthesizerDelegat
         task = nil
         request?.endAudio()
         request = nil
-        if audio.isRunning {
-            audio.stop()
-            audio.inputNode.removeTap(onBus: 0)
-        }
+        if audio.isRunning { audio.stop() }
+        audio.inputNode.removeTap(onBus: 0)
         latest = ""
     }
 
