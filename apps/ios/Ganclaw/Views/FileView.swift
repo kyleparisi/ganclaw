@@ -14,10 +14,9 @@ struct FileView: View {
     @State private var loading = false
 
     var body: some View {
-        Button { Task { await open() } } label: { content }
+        CButton("file.\(file.id)") { Task { await open() } } label: { content }
             .buttonStyle(.plain)
             .accessibilityLabel("\(file.name), \(file.size.fileSize)")
-            .accessibilityIdentifier("file.\(file.id)")
             .task(id: file.id) { if file.isImage { await loadImage() } }
             .quickLookPreview($preview)
     }

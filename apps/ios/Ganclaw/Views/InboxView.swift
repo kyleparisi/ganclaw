@@ -13,7 +13,7 @@ struct InboxView: View {
                     if s.connection == .disconnected {
                         Label("Reconnecting…", systemImage: "wifi.exclamationmark")
                             .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.muted)
-                            .accessibilityIdentifier("inbox.reconnecting")
+                            .control("inbox.reconnecting")
                     }
                     if s.filter == .jobs {
                         JobList(jobs: s.jobs)
@@ -31,7 +31,6 @@ struct InboxView: View {
         }
         .background(Theme.ground.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .accessibilityIdentifier("screen.inbox")
     }
 
     private var header: some View {
@@ -53,7 +52,7 @@ struct InboxView: View {
                     .overlay(Circle().stroke(Theme.line))
             }
             .accessibilityLabel("Settings")
-            .accessibilityIdentifier("inbox.menu")
+            .control("inbox.menu")
         }
         .padding(.top, 8)
     }
@@ -68,25 +67,23 @@ struct InboxView: View {
                 Text(s.filter == .running ? "No agent is working right now." : s.filter == .needsYou ? "Nothing needs you." : "No agents configured.")
                     .font(.system(size: 15)).foregroundStyle(Theme.muted)
                     .frame(maxWidth: .infinity).padding(.top, 40)
-                    .accessibilityIdentifier("inbox.empty")
+                    .control("inbox.empty")
             }
             ForEach(rows) { a in
-                Button { store.openThread(a.name) } label: { AgentRow(agent: a, streaming: s.thread(a.name).streaming) }
+                CButton("inbox.row.\(a.name)") { store.openThread(a.name) } label: { AgentRow(agent: a, streaming: s.thread(a.name).streaming) }
                     .buttonStyle(.plain)
-                    .accessibilityIdentifier("inbox.row.\(a.name)")
             }
             if s.filter == .all, !s.jobs.isEmpty {
-                Button { store.send(.push(.jobs)) } label: { JobsSummaryRow(jobs: s.jobs) }
+                CButton("inbox.jobs") { store.send(.push(.jobs)) } label: { JobsSummaryRow(jobs: s.jobs) }
                     .buttonStyle(.plain)
                     .padding(.top, 4)
-                    .accessibilityIdentifier("inbox.jobs")
             }
         }
     }
 
     private var bottomBar: some View {
         HStack(spacing: 10) {
-            Button { Task { await store.startDrive(nil) } } label: {
+            CButton("inbox.drive") { Task { await store.startDrive(nil) } } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "car.fill").foregroundStyle(Theme.amber)
                     Text("Drive mode").font(.system(size: 16, weight: .semibold))
@@ -96,8 +93,7 @@ struct InboxView: View {
                 .foregroundStyle(.white)
                 .shadow(color: Theme.ink.opacity(0.22), radius: 12, y: 8)
             }
-            .accessibilityIdentifier("inbox.drive")
-            Button { Task { await store.startDrive(store.state.sortedAgents.first?.name) } } label: {
+            CButton("inbox.talk") { Task { await store.startDrive(store.state.sortedAgents.first?.name) } } label: {
                 Image(systemName: "mic").font(.system(size: 20, weight: .medium))
                     .frame(width: 60, height: 60)
                     .background(Theme.card, in: Circle())
@@ -105,7 +101,6 @@ struct InboxView: View {
                     .foregroundStyle(Theme.ink)
             }
             .accessibilityLabel("Talk to an agent")
-            .accessibilityIdentifier("inbox.talk")
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 12)
@@ -119,7 +114,7 @@ struct FilterBar: View {
     var body: some View {
         HStack(spacing: 6) {
             ForEach(InboxFilter.allCases) { f in
-                Button { select(f) } label: {
+                CButton("filter.\(f.rawValue)") { select(f) } label: {
                     Text(f.title)
                         .font(.system(size: 13, weight: f == selected ? .semibold : .medium))
                         .foregroundStyle(f == selected ? Theme.ink : Color(hex: 0x55565B))
@@ -129,7 +124,6 @@ struct FilterBar: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(f == selected ? .isSelected : [])
-                .accessibilityIdentifier("filter.\(f.rawValue)")
             }
         }
         .padding(4)

@@ -63,7 +63,7 @@ struct ToastView: View {
             .frame(height: 40)
             .background(Theme.ink, in: Capsule())
             .shadow(color: .black.opacity(0.2), radius: 12, y: 6)
-            .accessibilityIdentifier("toast")
+            .control("toast")
             .accessibilityAddTraits(.updatesFrequently)
     }
 }
@@ -84,7 +84,7 @@ struct BannerView: View {
         .background(Theme.amberChip, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .padding(.horizontal, 16)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("banner")
+        .control("banner")
     }
 }
 
@@ -117,10 +117,10 @@ struct PairView: View {
                       prompt: "ABCD-EFGH", id: "pair.code", keyboard: .asciiCapable)
 
                 if let e = p.error {
-                    Text(e).font(.system(size: 14)).foregroundStyle(Theme.red).accessibilityIdentifier("pair.error")
+                    Text(e).font(.system(size: 14)).foregroundStyle(Theme.red).control("pair.error", label: e)
                 }
 
-                Button {
+                CButton("pair.submit") {
                     Task { await store.pair() }
                 } label: {
                     HStack {
@@ -132,14 +132,12 @@ struct PairView: View {
                     .foregroundStyle(.white)
                 }
                 .disabled(p.busy)
-                .accessibilityIdentifier("pair.submit")
 
                 Text("Or open the ganclaw:// link it prints on this phone.").font(.system(size: 13)).foregroundStyle(Theme.muted)
             }
             .padding(.horizontal, 20)
         }
         .background(Theme.ground.ignoresSafeArea())
-        .accessibilityIdentifier("screen.pair")
     }
 
     private func field(_ label: String, text: Binding<String>, prompt: String, id: String, keyboard: UIKeyboardType) -> some View {
@@ -154,7 +152,7 @@ struct PairView: View {
                 .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.line))
                 .accessibilityLabel(label)
-                .accessibilityIdentifier(id)
+                .control(id)
         }
     }
 }

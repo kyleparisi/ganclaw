@@ -17,7 +17,6 @@ struct ThreadView: View {
         }
         .background(Theme.ground.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .accessibilityIdentifier("screen.thread")
         .task(id: agent) { if !t.loaded { await store.loadThread(agent) } }
     }
 
@@ -27,20 +26,20 @@ struct ThreadView: View {
         let summary = store.state.agent(agent)
         let st = summary?.state ?? .idle
         return HStack(spacing: 8) {
-            Button { store.send(.pop) } label: {
+            CButton("thread.back") { store.send(.pop) } label: {
                 Image(systemName: "chevron.left").font(.system(size: 20, weight: .semibold)).frame(width: 44, height: 44)
             }
             .foregroundStyle(Theme.ink)
             .accessibilityLabel("Back to agents")
-            .accessibilityIdentifier("thread.back")
             AgentAvatar(name: agent, size: 36)
             VStack(alignment: .leading, spacing: 1) {
                 Text(Theme.displayName(agent)).font(.system(size: 16, weight: .semibold))
-                Text(st.working ? "Working · \((st.detail ?? "working").lowercased())" : statusLine(summary))
+                let status = st.working ? "Working · \((st.detail ?? "working").lowercased())" : statusLine(summary)
+                Text(status)
                     .font(.system(size: 12, weight: st.working ? .medium : .regular))
                     .foregroundStyle(st.working ? Theme.blue : Theme.muted)
                     .lineLimit(1)
-                    .accessibilityIdentifier("thread.status")
+                    .control("thread.status", label: status)
             }
             Spacer()
             Menu {
@@ -53,8 +52,8 @@ struct ThreadView: View {
             }
             .foregroundStyle(Theme.ink)
             .accessibilityLabel("Thread options")
-            .accessibilityIdentifier("thread.menu")
-            Button { Task { await store.startDrive(agent) } } label: {
+            .control("thread.menu")
+            CButton("thread.audio") { Task { await store.startDrive(agent) } } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "headphones").foregroundStyle(Theme.amber)
                     Text("Audio").font(.system(size: 13, weight: .semibold))
@@ -64,7 +63,6 @@ struct ThreadView: View {
                 .foregroundStyle(.white)
             }
             .accessibilityLabel("Switch to drive mode")
-            .accessibilityIdentifier("thread.audio")
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .overlay(alignment: .bottom) { Theme.line.frame(height: 1) }
@@ -89,7 +87,7 @@ struct ThreadView: View {
                     }
                     if t.loaded && t.messages.isEmpty {
                         Text("Say hello to \(Theme.displayName(agent)).").font(.system(size: 15)).foregroundStyle(Theme.muted).padding(.top, 40)
-                            .accessibilityIdentifier("thread.empty")
+                            .control("thread.empty")
                     }
                     ForEach(Array(t.messages.enumerated()), id: \.element.id) { i, m in
                         if i == 0 || !Calendar.current.isDate(t.messages[i - 1].createdAt, equalTo: m.createdAt, toGranularity: .hour) {
@@ -110,7 +108,7 @@ struct ThreadView: View {
             .defaultScrollAnchor(.bottom)
             .onChange(of: t.messages.last?.id) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: t.streaming) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
-            .accessibilityIdentifier("thread.messages")
+            .control("thread.messages")
         }
     }
 
@@ -131,20 +129,19 @@ struct ThreadView: View {
                 Text(t.message(id)?.text ?? "a message").font(.system(size: 13)).foregroundStyle(Theme.text2).lineLimit(1)
             }
             Spacer()
-            Button { store.send(.replyTo(agent, nil)) } label: { Image(systemName: "xmark").frame(width: 36, height: 36) }
+            CButton("thread.cancelReply") { store.send(.replyTo(agent, nil)) } label: { Image(systemName: "xmark").frame(width: 36, height: 36) }
                 .foregroundStyle(Theme.text2)
                 .accessibilityLabel("Cancel reply")
-                .accessibilityIdentifier("thread.cancelReply")
         }
         .frame(height: 44)
         .padding(.horizontal, 14)
         .background(Theme.card)
-        .accessibilityIdentifier("thread.replyBar")
+        .control("thread.replyBar")
     }
 
     private func composer(_ t: ThreadState) -> some View {
         HStack(alignment: .bottom, spacing: 8) {
-            Button { store.send(.attachOpen(agent)) } label: {
+            CButton("composer.attach") { store.send(.attachOpen(agent)) } label: {
                 Image(systemName: "plus").font(.system(size: 18, weight: .semibold))
                     .frame(width: 44, height: 44)
                     .background(Theme.card, in: Circle())
@@ -152,7 +149,6 @@ struct ThreadView: View {
                     .foregroundStyle(Theme.ink)
             }
             .accessibilityLabel("Add attachment")
-            .accessibilityIdentifier("composer.attach")
 
             HStack(alignment: .bottom, spacing: 4) {
                 if recorder.recording {
@@ -160,8 +156,7 @@ struct ThreadView: View {
                         Circle().fill(Theme.red).frame(width: 8, height: 8)
                         Text("Recording \(recorder.elapsedText)").font(.system(size: 15, design: .monospaced)).foregroundStyle(Theme.ink)
                         Spacer()
-                        Button("Cancel") { recorder.cancel() }.font(.system(size: 14, weight: .medium))
-                            .accessibilityIdentifier("composer.cancelRecording")
+                        CButton("composer.cancelRecording", title: "Cancel") { recorder.cancel() }.font(.system(size: 14, weight: .medium))
                     }
                     .padding(.leading, 16).frame(minHeight: 42)
                 } else {
@@ -171,22 +166,21 @@ struct ThreadView: View {
                         .padding(.leading, 16).padding(.vertical, 11)
                         .focused($composerFocused)
                         .accessibilityLabel("Message")
-                        .accessibilityIdentifier("composer.text")
+                        .control("composer.text")
                 }
-                Button { toggleRecording() } label: {
+                CButton("composer.mic") { toggleRecording() } label: {
                     Image(systemName: recorder.recording ? "stop.fill" : "mic")
                         .font(.system(size: 18))
                         .frame(width: 36, height: 42)
                         .foregroundStyle(recorder.recording ? Theme.red : Theme.text2)
                 }
                 .accessibilityLabel(recorder.recording ? "Stop and send voice note" : "Record voice note")
-                .accessibilityIdentifier("composer.mic")
                 .padding(.trailing, 4)
             }
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Theme.line))
 
-            Button { Task { await store.sendDraft(agent) } } label: {
+            CButton("composer.send") { Task { await store.sendDraft(agent) } } label: {
                 Image(systemName: "arrow.up").font(.system(size: 18, weight: .bold))
                     .frame(width: 44, height: 44)
                     .background(canSend(t) ? Theme.blue : Theme.blue.opacity(0.4), in: Circle())
@@ -194,7 +188,6 @@ struct ThreadView: View {
             }
             .disabled(!canSend(t))
             .accessibilityLabel("Send")
-            .accessibilityIdentifier("composer.send")
         }
         .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 8)
         .background(Theme.ground)
@@ -258,7 +251,7 @@ struct MessageRow: View {
         .frame(maxWidth: 300, alignment: .trailing)
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("message.\(message.id)")
+        .control("message.\(message.id)")
     }
 
     private var agent: some View {
@@ -289,7 +282,7 @@ struct MessageRow: View {
         .frame(maxWidth: 310, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("message.\(message.id)")
+        .control("message.\(message.id)")
     }
 
     private var system: some View {
@@ -299,7 +292,7 @@ struct MessageRow: View {
             .multilineTextAlignment(.center)
             .padding(.horizontal, 24)
             .frame(maxWidth: .infinity)
-            .accessibilityIdentifier("message.\(message.id)")
+            .control("message.\(message.id)")
     }
 }
 
@@ -316,11 +309,11 @@ struct ActionCard: View {
                     .foregroundStyle(Theme.teal)
                     .padding(.horizontal, 12).frame(height: 32)
                     .background(Color(hex: 0xE5F3F1), in: Capsule())
-                    .accessibilityIdentifier("answer.\(message.id)")
+                    .control("answer.\(message.id)")
             } else {
                 HStack(spacing: 8) {
                     ForEach(Array(message.actions.enumerated()), id: \.offset) { i, label in
-                        Button { Task { await store.choose(label, on: message) } } label: {
+                        CButton("action.\(message.id).\(label)") { Task { await store.choose(label, on: message) } } label: {
                             Text(label)
                                 .font(.system(size: 14, weight: i == 0 ? .semibold : .medium))
                                 .frame(maxWidth: .infinity).frame(height: 44)
@@ -329,7 +322,6 @@ struct ActionCard: View {
                                 .foregroundStyle(i == 0 ? .white : Theme.ink)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityIdentifier("action.\(message.id).\(label)")
                     }
                 }
                 .padding(10)
@@ -362,6 +354,6 @@ struct TypingBubble: View {
             .padding(.horizontal, 14).padding(.vertical, 10)
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.line))
-            .accessibilityIdentifier("thread.typing")
+            .control("thread.typing")
     }
 }

@@ -5,8 +5,8 @@ import UIKit
 /// The control API's routes. Two kinds:
 ///
 /// - UI routes act on what is on screen, like a user: /ui-tree lists the
-///   accessibility elements, /tap activates one by identifier or label,
-///   /screenshot captures the window.
+///   controls on screen (see ControlRegistry), /tap runs one's action by
+///   id or label, /screenshot captures the window.
 /// - Intent routes call the same AppStore methods the views call, for
 ///   things the simulator can't do by tapping (photos, speech).
 ///
@@ -22,7 +22,7 @@ struct ControlRoutes {
         case ("GET", "/state"):
             return state()
         case ("GET", "/ui-tree"):
-            return .json(["screen": store.state.currentScreen, "elements": AccessibilityTree.snapshot().map(\.json)])
+            return .json(["screen": store.state.currentScreen, "elements": ControlRegistry.shared.visible().map(json)])
         case ("GET", "/screenshot"):
             guard let png = Screenshot.png() else { return .error("no window", status: 409) }
             return HTTPResponse(status: 200, contentType: "image/png", body: png)
@@ -138,16 +138,22 @@ struct ControlRoutes {
         let id = body["id"] as? String
         let label = body["label"] as? String
         guard id != nil || label != nil else { return .error("id or label is required") }
-        let elements = AccessibilityTree.snapshot()
-        guard let el = elements.first(where: { e in
-            if let id { return e.identifier == id }
-            return e.label == label
-        }) else {
-            return .json(["ok": false, "error": "no element \(id ?? label!)", "screen": store.state.currentScreen,
-                          "identifiers": elements.compactMap(\.identifier).filter { !$0.isEmpty }], status: 404)
+        let visible = ControlRegistry.shared.visible()
+        guard let e = visible.first(where: { id != nil ? $0.id == id : $0.label == label }) else {
+            return .json(["ok": false, "error": "no control \(id ?? label!) on screen", "screen": store.state.currentScreen,
+                          "visible": visible.map(\.id)], status: 404)
         }
-        let activated = el.object?.accessibilityActivate() ?? false
-        return .json(["ok": activated, "element": el.json])
+        guard let action = e.action else { return .json(["ok": false, "error": "\(e.id) can't be tapped"], status: 409) }
+        guard e.enabled else { return .json(["ok": false, "error": "\(e.id) is disabled"], status: 409) }
+        action()
+        return .json(["ok": true, "element": json(e)])
+    }
+
+    private func json(_ e: ControlRegistry.Entry) -> [String: Any] {
+        var o: [String: Any] = ["id": e.id, "enabled": e.enabled, "tappable": e.action != nil,
+                                "frame": [Int(e.frame.minX), Int(e.frame.minY), Int(e.frame.width), Int(e.frame.height)]]
+        if let l = e.label { o["label"] = l }
+        return o
     }
 
     private func navigate(_ body: [String: Any]) async -> HTTPResponse {
@@ -197,99 +203,10 @@ struct ControlRoutes {
     }
 }
 
-/// A flat list of the accessibility elements on screen, in reading order.
-enum AccessibilityTree {
-    /// SwiftUI only builds its accessibility elements while an assistive
-    /// technology is attached. XCUITest turns on the system's automation
-    /// flag for that; the control server does the same. Private API, which
-    /// is fine here: this file is compiled into Debug builds only.
-    static func enable() {
-        guard let lib = dlopen("/usr/lib/libAccessibility.dylib", RTLD_NOW) else { return }
-        typealias SetFlag = @convention(c) (Bool) -> Void
-        for name in ["_AXSSetAutomationEnabled", "_AXSApplicationAccessibilitySetEnabled"] {
-            if let sym = dlsym(lib, name) {
-                unsafeBitCast(sym, to: SetFlag.self)(true)
-            }
-        }
-    }
-
-    struct Element {
-        weak var object: NSObject?
-        var identifier: String?
-        var label: String?
-        var value: String?
-        var traits: [String]
-        var frame: CGRect
-        var depth: Int
-
-        var json: [String: Any] {
-            var o: [String: Any] = ["traits": traits, "depth": depth,
-                                    "frame": [Int(frame.minX), Int(frame.minY), Int(frame.width), Int(frame.height)]]
-            if let identifier, !identifier.isEmpty { o["id"] = identifier }
-            if let label, !label.isEmpty { o["label"] = label }
-            if let value, !value.isEmpty { o["value"] = value }
-            return o
-        }
-    }
-
-    static func snapshot() -> [Element] {
-        var out: [Element] = []
-        for w in windows() { walk(w, depth: 0, into: &out) }
-        return out
-    }
-
-    static func windows() -> [UIWindow] {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .filter { !$0.isHidden }
-    }
-
-    private static func walk(_ obj: NSObject, depth: Int, into out: inout [Element]) {
-        if let v = obj as? UIView, v.isHidden || v.alpha < 0.01 { return }
-        if obj.accessibilityElementsHidden { return }
-        let id = identifier(of: obj)
-        if obj.isAccessibilityElement || !(id ?? "").isEmpty {
-            out.append(Element(object: obj, identifier: id, label: obj.accessibilityLabel, value: obj.accessibilityValue,
-                               traits: traitNames(obj.accessibilityTraits), frame: obj.accessibilityFrame, depth: depth))
-        }
-        if obj.isAccessibilityElement && !(obj is UIView) { return }
-        for child in children(of: obj) { walk(child, depth: depth + 1, into: &out) }
-    }
-
-    /// SwiftUI's element objects are a private class that a Swift
-    /// `as? UIAccessibilityIdentification` cast misses; ask through the
-    /// Objective-C selector instead.
-    private static func identifier(of obj: NSObject) -> String? {
-        if let i = obj as? UIAccessibilityIdentification { return i.accessibilityIdentifier }
-        let sel = NSSelectorFromString("accessibilityIdentifier")
-        guard obj.responds(to: sel) else { return nil }
-        return obj.perform(sel)?.takeUnretainedValue() as? String
-    }
-
-    private static func children(of obj: NSObject) -> [NSObject] {
-        if let els = obj.accessibilityElements as? [NSObject], !els.isEmpty { return els }
-        let n = obj.accessibilityElementCount()
-        if n != NSNotFound, n > 0 {
-            return (0..<n).compactMap { obj.accessibilityElement(at: $0) as? NSObject }
-        }
-        if let v = obj as? UIView { return v.subviews }
-        return []
-    }
-
-    private static func traitNames(_ t: UIAccessibilityTraits) -> [String] {
-        let names: [(UIAccessibilityTraits, String)] = [
-            (.button, "button"), (.header, "header"), (.selected, "selected"), (.staticText, "text"),
-            (.image, "image"), (.link, "link"), (.notEnabled, "disabled"), (.searchField, "search"),
-            (.updatesFrequently, "updates"), (.adjustable, "adjustable"),
-        ]
-        return names.filter { t.contains($0.0) }.map(\.1)
-    }
-}
-
 enum Screenshot {
     static func png() -> Data? {
-        guard let w = AccessibilityTree.windows().first(where: \.isKeyWindow) ?? AccessibilityTree.windows().first else { return nil }
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).filter { !$0.isHidden }
+        guard let w = windows.first(where: \.isKeyWindow) ?? windows.first else { return nil }
         let r = UIGraphicsImageRenderer(bounds: w.bounds)
         let img = r.image { _ in w.drawHierarchy(in: w.bounds, afterScreenUpdates: true) }
         return img.pngData()

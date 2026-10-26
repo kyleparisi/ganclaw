@@ -61,7 +61,7 @@ struct CopyBlock: View {
                     .font(.system(size: 12, weight: .semibold, design: dark ? .monospaced : .default))
                     .foregroundStyle(dark ? Color(hex: 0x9CA3AF) : Theme.muted)
                 Spacer()
-                Button {
+                CButton("copy.\(blockID)") {
                     store.copy(text, block: blockID, label: dark ? "Command" : label)
                 } label: {
                     HStack(spacing: 4) {
@@ -75,7 +75,6 @@ struct CopyBlock: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(copied ? "Copied \(label)" : "Copy \(label)")
-                .accessibilityIdentifier("copy.\(blockID)")
             }
             Text(text)
                 .font(.system(size: dark ? 13 : 15, design: dark ? .monospaced : .default))
@@ -89,6 +88,6 @@ struct CopyBlock: View {
         .background(dark ? Theme.codeBg : Theme.ground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(dark ? .clear : Theme.lineSoft))
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("block.\(blockID)")
+        .control("block.\(blockID)")
     }
 }

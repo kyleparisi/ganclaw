@@ -14,7 +14,7 @@ struct DriveView: View {
                     Text(title(d))
                         .font(.system(size: 15, weight: .semibold)).tracking(1.2)
                         .foregroundStyle(d.muted ? Theme.Drive.muted : Theme.amber)
-                        .accessibilityIdentifier("drive.phase")
+                        .control("drive.phase")
                     Text(subtitle(d)).font(.system(size: 13)).foregroundStyle(Theme.Drive.muted)
                 }
                 transcript(d)
@@ -27,11 +27,11 @@ struct DriveView: View {
                     .padding(.horizontal, 14).padding(.vertical, 12)
                     .background(Theme.Drive.surface, in: RoundedRectangle(cornerRadius: 14))
                     .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.Drive.line))
-                    .accessibilityIdentifier("drive.detailsSaved")
+                    .control("drive.detailsSaved")
                 }
                 if let e = d.error {
                     Text(e).font(.system(size: 14)).foregroundStyle(Theme.amber).multilineTextAlignment(.center)
-                        .accessibilityIdentifier("drive.error")
+                        .control("drive.error")
                 }
             }
             Spacer(minLength: 0)
@@ -42,7 +42,6 @@ struct DriveView: View {
         .padding(.bottom, 8)
         .background(Theme.Drive.ground.ignoresSafeArea())
         .preferredColorScheme(.dark)
-        .accessibilityIdentifier("screen.drive")
     }
 
     private func header(_ d: DriveState) -> some View {
@@ -70,9 +69,9 @@ struct DriveView: View {
                 .foregroundStyle(Theme.Drive.fg)
             }
             .accessibilityLabel("Agent: \(d.agent ?? "none")")
-            .accessibilityIdentifier("drive.agent")
+            .control("drive.agent")
             Spacer()
-            Button { store.send(.driveShortAnswers(!d.shortAnswers)) } label: {
+            CButton("drive.short") { store.send(.driveShortAnswers(!d.shortAnswers)) } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "text.alignleft").font(.system(size: 13, weight: .semibold))
                     Text(d.shortAnswers ? "Short answers" : "Full answers").font(.system(size: 13, weight: .semibold))
@@ -82,7 +81,6 @@ struct DriveView: View {
                 .foregroundStyle(d.shortAnswers ? Theme.amber : Theme.Drive.muted)
             }
             .accessibilityAddTraits(d.shortAnswers ? .isSelected : [])
-            .accessibilityIdentifier("drive.short")
         }
     }
 
@@ -90,15 +88,15 @@ struct DriveView: View {
         VStack(alignment: .leading, spacing: 14) {
             if !d.heard.isEmpty {
                 Text(d.heard).font(.system(size: 22, weight: .medium)).foregroundStyle(Theme.Drive.fg)
-                    .accessibilityIdentifier("drive.heard")
+                    .control("drive.heard")
             } else {
                 if let q = d.lastQuestion {
                     Text("You: \(q)").font(.system(size: 17)).foregroundStyle(Theme.Drive.muted).lineSpacing(3)
-                        .accessibilityIdentifier("drive.question")
+                        .control("drive.question")
                 }
                 if let a = d.lastAnswer {
                     Text(a).font(.system(size: 26, weight: .semibold)).tracking(-0.3).foregroundStyle(Theme.Drive.fg).lineSpacing(4)
-                        .accessibilityIdentifier("drive.answer")
+                        .control("drive.answer")
                 } else if d.phase == .thinking, let agent = d.agent, let s = streamedReply(agent) {
                     Text(s).font(.system(size: 22, weight: .medium)).foregroundStyle(Theme.Drive.soft).lineLimit(4)
                 }
@@ -118,7 +116,7 @@ struct DriveView: View {
         HStack {
             roundButton("Repeat", icon: "arrow.counterclockwise", id: "drive.repeat", enabled: d.lastAnswer != nil) { store.repeatLastAnswer() }
             Spacer()
-            Button { store.setDriveMuted(!d.muted) } label: {
+            CButton("drive.mute") { store.setDriveMuted(!d.muted) } label: {
                 VStack(spacing: 6) {
                     Image(systemName: d.muted ? "mic.fill" : "mic.slash").font(.system(size: 36, weight: .medium))
                     Text(d.muted ? "Unmute" : "Mute").font(.system(size: 15, weight: .bold))
@@ -130,14 +128,13 @@ struct DriveView: View {
             }
             .accessibilityLabel(d.muted ? "Unmute microphone" : "Mute microphone")
             .accessibilityValue(d.muted ? "muted" : "listening")
-            .accessibilityIdentifier("drive.mute")
             Spacer()
             roundButton("Exit", icon: "xmark", id: "drive.exit") { store.exitDrive() }
         }
     }
 
     private func roundButton(_ title: String, icon: String, id: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        CButton(id, action: action) {
             VStack(spacing: 4) {
                 Image(systemName: icon).font(.system(size: 22, weight: .semibold))
                 Text(title).font(.system(size: 12, weight: .medium))
@@ -149,7 +146,6 @@ struct DriveView: View {
         }
         .disabled(!enabled)
         .accessibilityLabel(title == "Repeat" ? "Repeat last answer" : "Exit drive mode")
-        .accessibilityIdentifier(id)
     }
 
     private func title(_ d: DriveState) -> String {

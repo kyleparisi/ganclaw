@@ -49,9 +49,9 @@ curl -H "Authorization: Bearer $KEY" http://127.0.0.1:$PORT/screenshot > s.png
 
 Routes (`Ganclaw/Control/ControlRoutes.swift`):
 
-- UI, acting like a user: `GET /ui-tree` (accessibility elements on screen
-  with ids, labels, frames), `POST /tap {"id"|"label"}` (activates one),
-  `GET /screenshot`, `GET /clipboard`.
+- UI, acting like a user: `GET /ui-tree` (controls on screen with ids,
+  labels, frames, enabled), `POST /tap {"id"|"label"}` (runs a button's
+  action), `GET /screenshot`, `GET /clipboard`.
 - State: `GET /state` (the whole `AppState` as snake_case JSON, plus
   `screen`, `inbox_rows`, and `speech` with fake speech), `GET /actions`.
 - Intents (the same AppStore methods views call, for what a simulator
@@ -59,10 +59,16 @@ Routes (`Ganclaw/Control/ControlRoutes.swift`):
   `/type`, `/send`, `/choose`, `/stop`, `/reset`, `/attach/open|add|note|send|close`,
   `/drive/start|say|mute|short|repeat|exit`.
 
-Prefer `/tap` in tests: it exercises the real button. Every tappable view
-gets an `accessibilityIdentifier` like `inbox.row.<agent>`,
-`composer.send`, `action.<message id>.<label>`, `copy.<message id>.<segment>`;
-keep them stable and add one when you add a control.
+Prefer `/tap` in tests: it runs the same closure as the real button, and
+only while that button is on screen and enabled. Build tappable controls
+with `CButton("id") { action } label: { … }` and mark other views the tests
+read with `.control("id", label:)` (`Control/ControlRegistry.swift`); in
+Release both are just an accessibility identifier. Ids look like
+`inbox.row.<agent>`, `composer.send`, `action.<message id>.<label>`,
+`copy.<message id>.<segment>`; keep them stable. Don't put an id on a whole
+screen: in SwiftUI a container's identifier overrides its children's.
+(The tree is not read from SwiftUI's accessibility elements: those only
+exist while an assistive technology is attached.)
 
 The tests run against `tools/fakeserver`: ganclaw's real app channel with
 scripted agents (canned replies streamed in chunks), plus admin routes to

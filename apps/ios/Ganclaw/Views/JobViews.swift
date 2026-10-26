@@ -15,7 +15,6 @@ struct JobsView: View {
         }
         .background(Theme.ground.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .accessibilityIdentifier("screen.jobs")
     }
 }
 
@@ -32,12 +31,11 @@ struct JobList: View {
                         .font(.system(size: 13)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity).padding(.top, 40)
-                .accessibilityIdentifier("jobs.empty")
+                .control("jobs.empty")
             }
             ForEach(jobs) { j in
-                Button { store.openJob(j.name) } label: { JobRow(job: j) }
+                CButton("jobs.row.\(j.name)") { store.openJob(j.name) } label: { JobRow(job: j) }
                     .buttonStyle(.plain)
-                    .accessibilityIdentifier("jobs.row.\(j.name)")
             }
         }
     }
@@ -125,14 +123,13 @@ struct JobView: View {
                     let quiet = rest.filter { RunKind($0) == .ok }
                     ForEach(showAll ? rest : problems) { RunCard(run: $0, expanded: false) }
                     if !showAll && !quiet.isEmpty {
-                        Button { showAll = true } label: {
+                        CButton("job.showAll") { showAll = true } label: {
                             Text("Show \(quiet.count) quiet \(quiet.count == 1 ? "run" : "runs") · all OK")
                                 .font(.system(size: 14, weight: .medium))
                                 .frame(maxWidth: .infinity).frame(height: 44)
                                 .background(Theme.segment, in: RoundedRectangle(cornerRadius: 12))
                                 .foregroundStyle(Theme.text2)
                         }
-                        .accessibilityIdentifier("job.showAll")
                     }
                     if runs.isEmpty {
                         ProgressView().frame(maxWidth: .infinity).padding(.top, 40)
@@ -147,7 +144,6 @@ struct JobView: View {
         }
         .background(Theme.ground.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .accessibilityIdentifier("screen.job")
         .task(id: job) { if runs.isEmpty { await store.loadJobRuns(job) } }
     }
 }
@@ -171,36 +167,33 @@ struct RunCard: View {
             }
             if expanded {
                 HStack(spacing: 8) {
-                    Button { store.ask(about: run) } label: {
+                    CButton("job.ask.\(run.id)") { store.ask(about: run) } label: {
                         Text("Ask about this run").font(.system(size: 14, weight: .semibold))
                             .frame(maxWidth: .infinity).frame(height: 44)
                             .background(Theme.ink, in: RoundedRectangle(cornerRadius: 12))
                             .foregroundStyle(.white)
                     }
-                    .accessibilityIdentifier("job.ask.\(run.id)")
                     ForEach(run.pendingActions, id: \.self) { label in
-                        Button { Task { await store.choose(label, on: run) } } label: {
+                        CButton("action.\(run.id).\(label)") { Task { await store.choose(label, on: run) } } label: {
                             Text(label).font(.system(size: 14, weight: .medium))
                                 .frame(maxWidth: .infinity).frame(height: 44)
                                 .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
                                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line))
                                 .foregroundStyle(Theme.ink)
                         }
-                        .accessibilityIdentifier("action.\(run.id).\(label)")
                     }
                 }
             } else if RunKind(run) != .ok {
-                Button("Ask about this run") { store.ask(about: run) }
+                CButton("job.ask.\(run.id)", title: "Ask about this run") { store.ask(about: run) }
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Theme.blue)
-                    .accessibilityIdentifier("job.ask.\(run.id)")
             }
         }
         .padding(14)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.line))
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("run.\(run.id)")
+        .control("run.\(run.id)")
     }
 }
 
@@ -211,12 +204,11 @@ struct BackHeader: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Button { store.send(.pop) } label: {
+            CButton("header.back") { store.send(.pop) } label: {
                 Image(systemName: "chevron.left").font(.system(size: 20, weight: .semibold)).frame(width: 44, height: 44)
             }
             .foregroundStyle(Theme.ink)
             .accessibilityLabel("Back")
-            .accessibilityIdentifier("header.back")
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.system(size: 17, weight: .semibold))
                 if !subtitle.isEmpty { Text(subtitle).font(.system(size: 12)).foregroundStyle(Theme.muted) }

@@ -17,11 +17,10 @@ struct AttachSheet: View {
             HStack {
                 Text("Attach").font(.system(size: 18, weight: .bold)).accessibilityAddTraits(.isHeader)
                 Spacer()
-                Button("Cancel") { store.send(.attachClose) }
+                CButton("attach.cancel", title: "Cancel") { store.send(.attachClose) }
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Theme.blue)
                     .frame(minHeight: 44)
-                    .accessibilityIdentifier("attach.cancel")
             }
             .padding(.top, 14)
 
@@ -42,14 +41,14 @@ struct AttachSheet: View {
                 .photosPickerAccessoryVisibility(.hidden, edges: .all)
                 .frame(height: 96)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
-                .accessibilityIdentifier("attach.photos")
+                .control("attach.photos")
             }
 
             tray(a, agentName: agentName)
 
             Spacer(minLength: 0)
 
-            Button { Task { await store.sendAttachments() } } label: {
+            CButton("attach.send") { Task { await store.sendAttachments() } } label: {
                 Text(sendLabel(a))
                     .font(.system(size: 16, weight: .semibold))
                     .frame(maxWidth: .infinity).frame(height: 52)
@@ -57,12 +56,10 @@ struct AttachSheet: View {
                     .foregroundStyle(.white)
             }
             .disabled(!a.ready || a.sending)
-            .accessibilityIdentifier("attach.send")
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
         .background(Color.white)
-        .accessibilityIdentifier("screen.attach")
         .onChange(of: photoItems) { _, items in Task { await addPhotos(items) } }
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { urls.forEach(addFile) }
@@ -90,7 +87,7 @@ struct AttachSheet: View {
     }
 
     private func source(_ title: String, _ icon: String, id: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        CButton(id, action: action) {
             VStack(spacing: 6) {
                 Image(systemName: icon).font(.system(size: 20))
                 Text(title).font(.system(size: 12, weight: .medium))
@@ -102,14 +99,14 @@ struct AttachSheet: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .accessibilityIdentifier(id)
     }
 
     private func tray(_ a: AttachState, agentName: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(a.pending.isEmpty ? "Nothing selected" : "Ready to send · \(a.pending.count)")
+            let count = a.pending.isEmpty ? "Nothing selected" : "Ready to send · \(a.pending.count)"
+            Text(count)
                 .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text2)
-                .accessibilityIdentifier("attach.count")
+                .control("attach.count", label: count)
             if !a.pending.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
@@ -125,7 +122,7 @@ struct AttachSheet: View {
                 .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.line))
                 .accessibilityLabel("Caption")
-                .accessibilityIdentifier("attach.note")
+                .control("attach.note")
         }
         .padding(12)
         .background(Theme.ground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -202,7 +199,7 @@ struct PendingChip: View {
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(item.error == nil ? Theme.line : Theme.red.opacity(0.5)))
         .overlay(alignment: .topTrailing) {
-            Button { store.removeAttachment(item.id) } label: {
+            CButton("attach.remove.\(item.name)") { store.removeAttachment(item.id) } label: {
                 Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
                     .frame(width: 22, height: 22)
                     .background(Theme.ink, in: Circle())
@@ -211,10 +208,9 @@ struct PendingChip: View {
             }
             .offset(x: 6, y: -6)
             .accessibilityLabel("Remove \(item.name)")
-            .accessibilityIdentifier("attach.remove.\(item.name)")
         }
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("attach.item.\(item.name)")
+        .control("attach.item.\(item.name)")
     }
 }
 
