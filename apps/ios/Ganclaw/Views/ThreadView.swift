@@ -39,6 +39,7 @@ struct ThreadView: View {
                 Text(st.working ? "Working · \((st.detail ?? "working").lowercased())" : statusLine(summary))
                     .font(.system(size: 12, weight: st.working ? .medium : .regular))
                     .foregroundStyle(st.working ? Theme.blue : Theme.muted)
+                    .lineLimit(1)
                     .accessibilityIdentifier("thread.status")
             }
             Spacer()
@@ -71,7 +72,7 @@ struct ThreadView: View {
 
     private func statusLine(_ s: AgentSummary?) -> String {
         guard let last = s?.lastMessage else { return "Idle" }
-        return "Idle · last active \(last.createdAt.shortAgo())"
+        return "Idle · \(last.createdAt.shortAgo())"
     }
 
     // MARK: Messages
