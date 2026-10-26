@@ -1,6 +1,6 @@
 import AVFoundation
 import Foundation
-import Speech
+@preconcurrency import Speech
 
 /// Listening and talking for drive mode. Live on device; a fake in tests.
 @MainActor

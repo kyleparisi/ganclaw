@@ -199,6 +199,20 @@ struct ControlRoutes {
 
 /// A flat list of the accessibility elements on screen, in reading order.
 enum AccessibilityTree {
+    /// SwiftUI only builds its accessibility elements while an assistive
+    /// technology is attached. XCUITest turns on the system's automation
+    /// flag for that; the control server does the same. Private API, which
+    /// is fine here: this file is compiled into Debug builds only.
+    static func enable() {
+        guard let lib = dlopen("/usr/lib/libAccessibility.dylib", RTLD_NOW) else { return }
+        typealias SetFlag = @convention(c) (Bool) -> Void
+        for name in ["_AXSSetAutomationEnabled", "_AXSApplicationAccessibilitySetEnabled"] {
+            if let sym = dlsym(lib, name) {
+                unsafeBitCast(sym, to: SetFlag.self)(true)
+            }
+        }
+    }
+
     struct Element {
         weak var object: NSObject?
         var identifier: String?

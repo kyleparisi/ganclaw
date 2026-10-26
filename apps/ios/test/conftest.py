@@ -220,6 +220,28 @@ def paired(app, fake):
     return app
 
 
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    rep = outcome.get_result()
+    setattr(item, "rep_" + rep.when, rep)
+
+
+@pytest.fixture(autouse=True)
+def screenshot_on_failure(request):
+    """Saves what the app showed when a test failed, with its UI tree."""
+    yield
+    rep = getattr(request.node, "rep_call", None)
+    app = request.node.funcargs.get("app") or request.node.funcargs.get("paired")
+    if rep is not None and rep.failed and app is not None:
+        name = "FAILED-" + request.node.name
+        try:
+            (ARTIFACTS / f"{name}.png").write_bytes(app.get("/screenshot").content)
+            (ARTIFACTS / f"{name}.json").write_text(json.dumps({"state": app.state(), "tree": app.tree()}, indent=1, default=str))
+        except Exception as e:  # the app may be gone
+            print(f"no failure screenshot: {e}")
+
+
 def last_agent_reply(app, agent, after_id=0):
     """The newest finished agent message in a thread newer than after_id."""
     for m in reversed(app.messages(agent)):

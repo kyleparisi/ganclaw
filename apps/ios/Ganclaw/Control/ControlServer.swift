@@ -30,6 +30,7 @@ final class ControlServer {
         let port = UInt16(env["GANCLAW_CONTROL_PORT"] ?? "") ?? 0
         let s = ControlServer(store: store, key: key)
         shared = s
+        AccessibilityTree.enable()
         do {
             try s.listen(port: port)
         } catch {

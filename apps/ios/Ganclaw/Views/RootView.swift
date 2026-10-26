@@ -161,7 +161,7 @@ struct PairView: View {
 
 /// Keeps the swipe-back gesture working on screens that hide the
 /// navigation bar for their own headers.
-extension UINavigationController: UIGestureRecognizerDelegate {
+extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
     override open func viewDidLoad() {
         super.viewDidLoad()
         interactivePopGestureRecognizer?.delegate = self
