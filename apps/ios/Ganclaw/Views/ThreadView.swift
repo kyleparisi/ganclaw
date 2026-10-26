@@ -197,6 +197,7 @@ struct ThreadView: View {
                     .foregroundStyle(.white)
             }
             .disabled(!canSend(t))
+            .keyboardShortcut(.return, modifiers: .command)
             .accessibilityLabel("Send")
         }
         .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 8)

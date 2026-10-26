@@ -50,3 +50,39 @@ jobs:
           name: ios-artifacts
           path: ${{ runner.temp }}/ios-artifacts
           if-no-files-found: ignore
+
+  mac:
+    # The desktop app: the same SwiftUI app built with Mac Catalyst,
+    # ad-hoc signed (no Developer ID in this repo yet).
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - name: Build Ganclaw.app (Mac Catalyst, Release)
+        working-directory: apps/ios
+        run: |
+          xcodegen generate --quiet
+          xcodebuild -project Ganclaw.xcodeproj -scheme Ganclaw -configuration Release \
+            -destination 'generic/platform=macOS,variant=Mac Catalyst' \
+            -derivedDataPath build/mac \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
+            build 2>&1 | tee build-mac.log | grep -E "error:|\*\* BUILD " || true
+          test "${PIPESTATUS[0]}" -eq 0 || { tail -50 build-mac.log; exit 1; }
+      - name: Check and package
+        working-directory: apps/ios
+        run: |
+          APP=build/mac/Build/Products/Release-maccatalyst/Ganclaw.app
+          lipo -info "$APP/Contents/MacOS/Ganclaw"
+          codesign --verify --deep --strict "$APP" && codesign -dv "$APP" 2>&1 | grep -E "Identifier|Signature"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" -c "Print :LSMinimumSystemVersion" "$APP/Contents/Info.plist"
+          mkdir -p dist && ditto -c -k --keepParent "$APP" dist/Ganclaw-mac.zip
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ganclaw-mac
+          path: apps/ios/dist/Ganclaw-mac.zip
