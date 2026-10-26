@@ -1,0 +1,52 @@
+name: iOS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/ios/**"
+      - "internal/appchannel/**"
+      - "internal/store/**"
+      - "internal/router/**"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "apps/ios/**"
+      - "internal/appchannel/**"
+      - "internal/store/**"
+      - "internal/router/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - name: Build, unit tests and control-server tests
+        run: apps/ios/test/run.sh
+        env:
+          ARTIFACTS: ${{ runner.temp }}/ios-artifacts
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-artifacts
+          path: ${{ runner.temp }}/ios-artifacts
+          if-no-files-found: ignore

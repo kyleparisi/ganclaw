@@ -21,6 +21,10 @@ every agent. Idle, it uses about 20 MB.
   notes can be transcribed locally with
   [whisper.cpp](https://github.com/ggml-org/whisper.cpp). Agents send files
   back by putting `MEDIA: /path/to/file` on a line of their reply.
+- **A native iOS app** ([apps/ios](apps/ios)) over the app channel: HTTPS
+  plus a WebSocket for live replies, one thread per agent, attachments,
+  reply buttons for approvals (`BUTTONS: Approve | Not now`), scheduled-job
+  runs and a hands-free drive mode. Phones pair with a one-time code.
 - **Commands:** `/new` (or `/reset`) to clear the conversation, `/stop`, `/status`, `/help`, shown in Telegram's
   command menu.
 - **Conversations** persist per chat (the CLIs keep the history; ganclaw maps
@@ -199,7 +203,14 @@ ganclaw send --to alex "Disk is 90% full"                     plain message, no 
 ganclaw run  --agent support "Summarise today's tickets"      run an agent, print its reply
 ganclaw run  --agent support --to alex --prompt-file task.md  run and deliver the reply to a chat
 ganclaw status                                                provider availability
+
+ganclaw app pair --name "Kyle's iPhone"       one-time code that pairs a phone with the app channel
+ganclaw app devices                           list paired phones
+ganclaw app unpair <id>                       revoke a phone
 ```
+
+`--to app:<agent>` delivers to that agent's thread in the iOS app; with
+`--session NAME` the run is listed there as a scheduled job.
 
 Client commands find the gateway through `-socket`, `$GANCLAW_SOCKET`, or the
 `api_socket` in the config. Exit codes are meant for schedulers:
@@ -231,9 +242,20 @@ service user and root are refused (checked with `SO_PEERCRED`).
 | `GET /v1/status` | provider availability and limits |
 | `GET /v1/agents` | agents, their bots, and contacts |
 | `GET /v1/health` | providers, bot polling state and probe results |
+| `POST /v1/app/pair` | `{name}` → a one-time pairing code for the app channel |
+| `GET /v1/app/devices`, `DELETE /v1/app/devices/{id}` | list or unpair phones |
 
 Errors are `{"ok": false, "error": {"code", "message"}}` with stable codes
 (`unknown_contact`, `unavailable`, `busy`, …).
+
+## App channel
+
+The iOS app talks to ganclaw over HTTPS (`[app] listen`), separate from the
+local socket. Every route under `/app/v1/` except `/pair` and `/health` needs
+a device token from pairing (stored hashed). Plain HTTP is accepted only on
+loopback, for use behind a TLS reverse proxy. Messages, files sent either
+way and paired devices live in the SQLite database and `<state_dir>/app-files`.
+See [apps/ios/README.md](apps/ios/README.md).
 
 ## Browser and other MCP servers
 
@@ -299,6 +321,9 @@ Agents can run commands, so the real boundary is the operating system:
   for agents that read untrusted content such as email — that is where prompt
   injection comes from.
 - Bots only answer users in `allow_users`, in private chats.
+- Phones need a device token from `ganclaw app pair` (shell access on the
+  server); tokens are stored as SHA-256 hashes and can be revoked with
+  `ganclaw app unpair`.
 - Anything in `[[mcp_servers]]` command lines appears in the process list:
   keep secrets out of it.
 
@@ -333,7 +358,7 @@ The Codex app-server protocol schema is vendored in
 
 - Slack
 - Webhook endpoints that start agent runs (with signature checks)
-- An optional TCP listener with bearer-token auth for remote triggers
+- Push notifications for the iOS app (APNs) and an Android app
 - Group chats
 
 ## License

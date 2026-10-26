@@ -217,7 +217,13 @@ type sendRequest struct {
 	// ReplyTo is the message this answers, e.g. the one whose button was
 	// tapped.
 	ReplyTo int64 `json:"reply_to,omitempty"`
+	// Voice marks a message spoken in drive mode: the agent is asked for a
+	// short answer that reads well aloud. The stored text is unchanged.
+	Voice bool `json:"voice,omitempty"`
 }
+
+// VoicePrefix is added to the prompt of drive-mode messages.
+const VoicePrefix = "[The user is driving and will hear your reply read aloud. Answer in one or two short spoken sentences, with no Markdown, code or lists. If there are details, say they are in the thread and put them after a line containing only ---.]\n\n"
 
 func (c *Channel) handleSend(w http.ResponseWriter, r *http.Request) {
 	n, ok := c.agentParam(w, r)
@@ -249,13 +255,16 @@ func (c *Channel) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	prompt := req.Text
+	if req.Voice {
+		prompt = VoicePrefix + prompt
+	}
 	if req.ReplyTo != 0 {
 		orig, err := c.Store.AppMessage(ctx, req.ReplyTo)
 		if err != nil || orig.Thread != n {
 			writeErr(w, http.StatusBadRequest, "bad_request", "reply_to is not a message in this thread")
 			return
 		}
-		prompt = withReply(orig, req.Text)
+		prompt = withReply(orig, prompt)
 		if orig.Answer == "" && containsFold(orig.Actions, req.Text) {
 			orig.Answer = req.Text
 			if updated, err := c.Store.UpdateAppMessage(ctx, orig); err == nil {

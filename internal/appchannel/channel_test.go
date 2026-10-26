@@ -201,6 +201,18 @@ func TestSendAndReplyWithButtons(t *testing.T) {
 	assert.True(t, strings.HasSuffix(reqs[1].Prompt, "Approve"))
 }
 
+func TestVoiceMessage(t *testing.T) {
+	h := newHarness(t, func(provider.Request) string { return "Yes, it's live." })
+	h.pair()
+	require.Equal(t, http.StatusOK, h.do("POST", "/app/v1/threads/infra/messages", map[string]any{"text": "Did the fix ship?", "voice": true}, nil))
+	msgs := h.waitDone("infra", 2)
+	assert.Equal(t, "Did the fix ship?", msgs[0].Text, "stored text has no instructions")
+	reqs := h.run.requests()
+	require.Len(t, reqs, 1)
+	assert.True(t, strings.HasPrefix(reqs[0].Prompt, VoicePrefix))
+	assert.True(t, strings.HasSuffix(reqs[0].Prompt, "Did the fix ship?"))
+}
+
 func TestUnknownAgentAndBadRequests(t *testing.T) {
 	h := newHarness(t, func(provider.Request) string { return "hi" })
 	h.pair()
