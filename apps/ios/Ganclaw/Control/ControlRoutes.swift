@@ -159,23 +159,32 @@ struct ControlRoutes {
     private func navigate(_ body: [String: Any]) async -> HTTPResponse {
         switch str(body, "route") {
         case "inbox":
-            store.send(.setPath([]))
+            await settle([])
         case "thread":
             guard let agent = agent(body) else { return unknownAgent(body) }
-            // One path change: several in a row can leave NavigationStack
-            // showing a blank page.
-            store.send(.setPath([.thread(agent)]))
+            await settle([.thread(agent)])
             await store.loadThread(agent)
         case "jobs":
             store.send(.setPath([.jobs]))
         case "job":
             let job = str(body, "job")
-            store.send(.setPath([.jobs, .job(job)]))
+            await settle([.jobs, .job(job)])
             await store.loadJobRuns(job)
         default:
             return .error("route must be inbox, thread, jobs or job")
         }
         return .ok
+    }
+
+    /// Sets the navigation path in one change and waits for it to stick:
+    /// while a screen is still animating away, NavigationStack can write
+    /// back a shorter path, so re-apply it until it holds.
+    private func settle(_ path: [Route]) async {
+        for _ in 0..<5 {
+            if store.state.path != path { store.send(.setPath(path)) }
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            if store.state.path == path { return }
+        }
     }
 
     private func agent(_ body: [String: Any]) -> String? {
