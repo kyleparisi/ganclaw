@@ -73,9 +73,11 @@ def test_send_message_and_stream_reply(paired):
     app = paired
     app.tap("inbox.row.trader")
     app.wait_screen("thread:trader")
+    wait_for(lambda: app.thread("trader").get("loaded"), what="history")
+    before = app.messages("trader")[-1]["id"]
     app.post("/type", {"agent": "trader", "text": "hello trader"})
     app.tap("composer.send")
-    reply = wait_for(lambda: last_agent_reply(app, "trader"), what="reply")
+    reply = wait_for(lambda: last_agent_reply(app, "trader", after_id=before), what="reply")
     assert reply["text"] == "Got it: hello trader"
     assert app.thread("trader")["draft"] == ""
     texts = [m["text"] for m in app.messages("trader")]

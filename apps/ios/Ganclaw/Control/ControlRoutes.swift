@@ -162,15 +162,15 @@ struct ControlRoutes {
             store.send(.setPath([]))
         case "thread":
             guard let agent = agent(body) else { return unknownAgent(body) }
-            store.send(.setPath([]))
-            store.openThread(agent)
+            // One path change: several in a row can leave NavigationStack
+            // showing a blank page.
+            store.send(.setPath([.thread(agent)]))
             await store.loadThread(agent)
         case "jobs":
             store.send(.setPath([.jobs]))
         case "job":
             let job = str(body, "job")
-            store.send(.setPath([.jobs]))
-            store.openJob(job)
+            store.send(.setPath([.jobs, .job(job)]))
             await store.loadJobRuns(job)
         default:
             return .error("route must be inbox, thread, jobs or job")

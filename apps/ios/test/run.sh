@@ -24,8 +24,9 @@ echo "==> project"
 
 echo "==> simulator"
 if [ -z "${GANCLAW_SIM:-}" ]; then
+  # The newest plain "iPhone <number>" (390x844-class, like the design).
   GANCLAW_SIM="$(xcrun simctl list devices available -j | python3 -c '
-import json, sys
+import json, re, sys
 devs = json.load(sys.stdin)["devices"]
 best = None
 for runtime, items in devs.items():
@@ -33,10 +34,11 @@ for runtime, items in devs.items():
         continue
     ver = tuple(int(x) for x in runtime.rsplit("iOS-", 1)[-1].split("-") if x.isdigit())
     for d in items:
-        if d["name"].startswith("iPhone") and "Pro" not in d["name"] and "Plus" not in d["name"] and "Max" not in d["name"]:
-            key = (ver, d["name"])
+        m = re.fullmatch(r"iPhone (\d+)", d["name"])
+        if m:
+            key = (ver, int(m.group(1)))
             if best is None or key > best[0]:
-                best = (key, d["udid"])
+                best = (key, d["udid"], d["name"])
 if best is None:
     sys.exit("no available iPhone simulator")
 print(best[1])

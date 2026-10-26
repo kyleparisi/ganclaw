@@ -4,12 +4,18 @@ struct DriveView: View {
     @Environment(AppStore.self) private var store
 
     var body: some View {
+        GeometryReader { geo in content(compact: geo.size.height < 760) }
+            .background(Theme.Drive.ground.ignoresSafeArea())
+            .preferredColorScheme(.dark)
+    }
+
+    private func content(compact: Bool) -> some View {
         let d = store.state.drive
-        VStack(spacing: 20) {
+        return VStack(spacing: compact ? 12 : 20) {
             header(d)
             Spacer(minLength: 0)
-            VStack(spacing: 28) {
-                Waveform(phase: d.phase, muted: d.muted)
+            VStack(spacing: compact ? 16 : 28) {
+                Waveform(phase: d.phase, muted: d.muted, size: compact ? 150 : 220)
                 VStack(spacing: 6) {
                     Text(title(d))
                         .font(.system(size: 15, weight: .semibold)).tracking(1.2)
@@ -22,6 +28,7 @@ struct DriveView: View {
                     HStack(spacing: 10) {
                         Image(systemName: "bookmark").foregroundStyle(Theme.Drive.muted)
                         Text("Details saved to the thread for when you park.").font(.system(size: 14)).foregroundStyle(Theme.Drive.soft)
+                            .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 14).padding(.vertical, 12)
@@ -35,13 +42,11 @@ struct DriveView: View {
                 }
             }
             Spacer(minLength: 0)
-            controls(d)
+            controls(d, compact: compact)
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .padding(.bottom, 8)
-        .background(Theme.Drive.ground.ignoresSafeArea())
-        .preferredColorScheme(.dark)
     }
 
     private func header(_ d: DriveState) -> some View {
@@ -96,6 +101,8 @@ struct DriveView: View {
                 }
                 if let a = d.lastAnswer {
                     Text(a).font(.system(size: 26, weight: .semibold)).tracking(-0.3).foregroundStyle(Theme.Drive.fg).lineSpacing(4)
+                        .minimumScaleFactor(0.6)
+                        .fixedSize(horizontal: false, vertical: true)
                         .control("drive.answer")
                 } else if d.phase == .thinking, let agent = d.agent, let s = streamedReply(agent) {
                     Text(s).font(.system(size: 22, weight: .medium)).foregroundStyle(Theme.Drive.soft).lineLimit(4)
@@ -112,8 +119,9 @@ struct DriveView: View {
         return s.components(separatedBy: "\n---").first
     }
 
-    private func controls(_ d: DriveState) -> some View {
-        HStack {
+    private func controls(_ d: DriveState, compact: Bool) -> some View {
+        let big: CGFloat = compact ? 104 : 128
+        return HStack {
             roundButton("Repeat", icon: "arrow.counterclockwise", id: "drive.repeat", enabled: d.lastAnswer != nil) { store.repeatLastAnswer() }
             Spacer()
             CButton("drive.mute") { store.setDriveMuted(!d.muted) } label: {
@@ -121,7 +129,7 @@ struct DriveView: View {
                     Image(systemName: d.muted ? "mic.fill" : "mic.slash").font(.system(size: 36, weight: .medium))
                     Text(d.muted ? "Unmute" : "Mute").font(.system(size: 15, weight: .bold))
                 }
-                .frame(width: 128, height: 128)
+                .frame(width: big, height: big)
                 .background(d.muted ? Theme.amber.opacity(0.18) : Color(hex: 0x1C1D21), in: Circle())
                 .overlay(Circle().stroke(d.muted ? Theme.amber : Color(hex: 0x3A3C42), lineWidth: 2))
                 .foregroundStyle(d.muted ? Theme.amber : Theme.Drive.fg)
@@ -169,6 +177,7 @@ struct DriveView: View {
 struct Waveform: View {
     var phase: DrivePhase
     var muted: Bool
+    var size: CGFloat = 220
 
     private let base: [CGFloat] = [12, 32, 56, 72, 44, 64, 36, 20, 8]
 
@@ -182,18 +191,18 @@ struct Waveform: View {
                         .frame(width: 8, height: height(i, t))
                 }
             }
-            .frame(width: 220, height: 220)
+            .frame(width: size, height: size)
             .background(Theme.Drive.surface, in: Circle())
-            .background(Circle().fill(Theme.Drive.ring1).padding(-14))
-            .background(Circle().fill(Theme.Drive.ring2).padding(-28))
+            .background(Circle().fill(Theme.Drive.ring1).padding(-size * 0.064))
+            .background(Circle().fill(Theme.Drive.ring2).padding(-size * 0.127))
         }
-        .padding(28)
+        .padding(size * 0.127)
         .accessibilityElement()
         .accessibilityLabel(muted ? "Microphone muted" : phase == .speaking ? "Agent is speaking" : "Listening")
     }
 
     private func height(_ i: Int, _ t: TimeInterval) -> CGFloat {
-        let h = base[i]
+        let h = base[i] * size / 220
         switch phase {
         case _ where muted: return 8
         case .speaking: return max(8, h * CGFloat(0.55 + 0.45 * sin(t * 7 + Double(i) * 0.9)))

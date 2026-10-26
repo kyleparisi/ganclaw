@@ -78,7 +78,10 @@ struct ThreadView: View {
     private func messages(_ t: ThreadState) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 10) {
+                // Not lazy: a lazy stack can't scroll to the newest message
+                // when history arrives after the view appears. Threads load
+                // a page of 100.
+                VStack(spacing: 10) {
                     if t.loading && t.messages.isEmpty {
                         ProgressView().padding(.top, 40)
                     }
@@ -106,10 +109,17 @@ struct ThreadView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .defaultScrollAnchor(.bottom)
+            .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
+            .onChange(of: t.loaded) { _, _ in scrollToBottom(proxy) }
             .onChange(of: t.messages.last?.id) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: t.streaming) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
             .control("thread.messages")
         }
+    }
+
+    /// Waits a frame so freshly loaded messages are laid out first.
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
     }
 
     private func dayLabel(_ d: Date) -> String {
