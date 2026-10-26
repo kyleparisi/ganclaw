@@ -248,13 +248,23 @@ enum AccessibilityTree {
     private static func walk(_ obj: NSObject, depth: Int, into out: inout [Element]) {
         if let v = obj as? UIView, v.isHidden || v.alpha < 0.01 { return }
         if obj.accessibilityElementsHidden { return }
-        let id = (obj as? UIAccessibilityIdentification)?.accessibilityIdentifier
+        let id = identifier(of: obj)
         if obj.isAccessibilityElement || !(id ?? "").isEmpty {
             out.append(Element(object: obj, identifier: id, label: obj.accessibilityLabel, value: obj.accessibilityValue,
                                traits: traitNames(obj.accessibilityTraits), frame: obj.accessibilityFrame, depth: depth))
         }
         if obj.isAccessibilityElement && !(obj is UIView) { return }
         for child in children(of: obj) { walk(child, depth: depth + 1, into: &out) }
+    }
+
+    /// SwiftUI's element objects are a private class that a Swift
+    /// `as? UIAccessibilityIdentification` cast misses; ask through the
+    /// Objective-C selector instead.
+    private static func identifier(of obj: NSObject) -> String? {
+        if let i = obj as? UIAccessibilityIdentification { return i.accessibilityIdentifier }
+        let sel = NSSelectorFromString("accessibilityIdentifier")
+        guard obj.responds(to: sel) else { return nil }
+        return obj.perform(sel)?.takeUnretainedValue() as? String
     }
 
     private static func children(of obj: NSObject) -> [NSObject] {
