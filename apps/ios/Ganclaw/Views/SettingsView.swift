@@ -34,6 +34,7 @@ struct SettingsView: View {
 
 struct VoiceSettingsView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
     @State private var voices: [SpeechVoice] = []
 
     private var preferences: SpeechPreferences { store.state.speechPreferences }
@@ -74,6 +75,10 @@ struct VoiceSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .onAppear { voices = store.platform.speech.voices() }
+        // Voices are downloaded in the Settings app: pick up new ones on return.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { voices = store.platform.speech.voices() }
+        }
         .onDisappear { store.platform.speech.stopSpeaking() }
     }
 
