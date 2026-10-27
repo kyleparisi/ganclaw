@@ -264,6 +264,9 @@ def test_reconnects_after_server_restart(paired, fake):
     wait_for(lambda: app.agent("trader")["last_message"]["text"] == "Back online.", timeout=5, what="message after reconnect")
 
 
+SAMPLE = "Hello. This is how your agent replies will sound."
+
+
 def test_voice_settings_navigation(paired):
     app = paired
     app.tap("inbox.settings")
@@ -275,7 +278,35 @@ def test_voice_settings_navigation(paired):
     assert "voice.picker" in app.ids()
     assert "voice.speed" in app.ids()
     app.screenshot("settings-voice")
+    before = len(app.state()["speech"]["spoken"])
     app.tap("voice.preview")
+    wait_for(lambda: app.state()["speech"]["spoken"][before:] == [SAMPLE], what="sample spoken")
     app.tap("voice.stop")
+    wait_for(lambda: not app.state()["speech"]["speaking"], what="sample stopped")
+    app.post("/navigate", {"route": "inbox"})
+    app.wait_screen("inbox")
+
+
+def test_choosing_a_voice_plays_it_and_replies_use_it(paired):
+    app = paired
+    app.post("/navigate", {"route": "inbox"})
+    app.tap("inbox.settings")
+    app.tap("settings.voice")
+    app.wait_screen("settings:voice")
+    wait_for(lambda: app.element("voice.option.fake.voice.ava"), what="voice list")
+    # Downloaded high-quality voices are listed first.
+    options = [i for i in app.ids() if i.startswith("voice.option.")]
+    assert options[:3] == ["voice.option.default", "voice.option.fake.voice.ava", "voice.option.fake.voice.fred"]
+
+    before = len(app.state()["speech"]["spoken"])
+    app.tap("voice.option.fake.voice.ava")
+    s = wait_for(lambda: (st := app.state())["speech"]["spoken"][before:] == [SAMPLE] and st, what="sample on choose")
+    assert s["speech"]["voices_used"][-1] == "fake.voice.ava"
+    assert s["speech_preferences"]["voice_id"] == "fake.voice.ava"
+    app.screenshot("settings-voice-chosen")
+
+    before = len(s["speech"]["spoken"])
+    app.tap("voice.option.default")
+    wait_for(lambda: app.state()["speech"]["voices_used"][before:] == [""], what="sample in the default voice")
     app.post("/navigate", {"route": "inbox"})
     app.wait_screen("inbox")

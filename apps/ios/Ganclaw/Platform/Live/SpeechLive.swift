@@ -12,10 +12,13 @@ extension SpeechClient {
             speak: { engine.speak($0, done: $1) },
             stopSpeaking: { engine.stopSpeaking() },
             voices: {
-                AVSpeechSynthesisVoice.speechVoices().map {
-                    SpeechVoice(id: $0.identifier, name: $0.name, language: $0.language,
-                                quality: $0.quality == .premium ? "Premium" : $0.quality == .enhanced ? "Enhanced" : "")
-                }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+                let all = AVSpeechSynthesisVoice.speechVoices()
+                    .filter { !$0.voiceTraits.contains(.isNoveltyVoice) }
+                    .map {
+                        SpeechVoice(id: $0.identifier, name: $0.name, language: $0.language,
+                                    quality: $0.quality == .premium ? "Premium" : $0.quality == .enhanced ? "Enhanced" : "")
+                    }
+                return SpeechVoice.choices(all, language: Locale.current.language.languageCode?.identifier ?? "en")
             },
             loadPreferences: { engine.preferences },
             savePreferences: { engine.savePreferences($0) },
@@ -49,6 +52,8 @@ private final class LiveSpeech: NSObject, AVSpeechSynthesizerDelegate {
     private var speakingDone: (() -> Void)?
     private var utterance: ObjectIdentifier?
     private(set) var isSpeaking = false
+    /// Set while a playback-only session is active for speech.
+    private var outputActive = false
 
     /// How long a pause ends an utterance.
     private let silence: TimeInterval = 1.3
@@ -112,6 +117,7 @@ private final class LiveSpeech: NSObject, AVSpeechSynthesizerDelegate {
     /// toggles the system's mic indicator and drops audio between tasks.
     private func startAudio() throws {
         guard !audio.isRunning else { return }
+        outputActive = false // drive mode's session replaces the playback one
         let session = AVAudioSession.sharedInstance()
         #if targetEnvironment(macCatalyst)
         try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
@@ -270,14 +276,35 @@ private final class LiveSpeech: NSObject, AVSpeechSynthesizerDelegate {
         let u = AVSpeechUtterance(string: text)
         let settings = preferences
         if !settings.voiceID.isEmpty { u.voice = AVSpeechSynthesisVoice(identifier: settings.voiceID) }
-        let speed = settings.speed.isFinite ? min(1.5, max(0.5, settings.speed)) : 1.05
-        u.rate = min(AVSpeechUtteranceMaximumSpeechRate, max(AVSpeechUtteranceMinimumSpeechRate,
-                     AVSpeechUtteranceDefaultSpeechRate * Float(speed)))
+        u.rate = settings.rate(default: AVSpeechUtteranceDefaultSpeechRate,
+                               min: AVSpeechUtteranceMinimumSpeechRate, max: AVSpeechUtteranceMaximumSpeechRate)
+        prepareOutput()
         isSpeaking = true
         speakingDone = done
         utterance = ObjectIdentifier(u)
         if !echoCancelled { stopTask() } // the mic stays on; recognition waits
         synth.speak(u)
+    }
+
+    /// Outside drive mode nothing has configured the audio session, and the
+    /// default one is silenced by the ring/silent switch, so a reply or a
+    /// voice sample played with the phone on silent made no sound. Speech
+    /// is the point here: play it like a podcast app does, ducking music.
+    /// While listening, drive mode's play-and-record session already
+    /// plays out loud; leave it alone.
+    private func prepareOutput() {
+        guard !audio.isRunning else { return }
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+        try? session.setActive(true)
+        outputActive = true
+    }
+
+    /// Lets music ducked for a reply come back up.
+    private func releaseOutput() {
+        guard outputActive, !audio.isRunning else { return }
+        outputActive = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     func stopSpeaking() {
@@ -300,6 +327,7 @@ private final class LiveSpeech: NSObject, AVSpeechSynthesizerDelegate {
         guard id == utterance else { return }
         utterance = nil
         isSpeaking = false
+        releaseOutput()
         if !echoCancelled, onHeard != nil, task == nil { scheduleTask(after: afterSpeaking) }
         let done = speakingDone
         speakingDone = nil
