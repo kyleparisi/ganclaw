@@ -212,6 +212,13 @@ ganclaw app unpair <id>                       revoke a phone
 `--to app:<agent>` delivers to that agent's thread in the iOS app; with
 `--session NAME` the run is listed there as a scheduled job.
 
+A script that already has its report can list it as a job run without
+running an agent: `ganclaw send --to app:<agent> --job NAME [--failed] -`
+(text from stdin). Use the same NAME as `--session` would, so both kinds of
+run group under one job. Add `--failed` when the report is a failure, or the
+app shows the run as "No issues". To keep a Telegram copy, send that
+separately as before.
+
 Client commands find the gateway through `-socket`, `$GANCLAW_SOCKET`, or the
 `api_socket` in the config. Exit codes are meant for schedulers:
 

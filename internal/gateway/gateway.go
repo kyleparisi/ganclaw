@@ -143,6 +143,20 @@ func (g *Gateway) Send(ctx context.Context, t api.Target, text string) error {
 	return b.Client.SendMessage(ctx, t.Chat, text)
 }
 
+// SendJob records text in an app thread as a run of a scheduled job, without
+// running an agent. failed shows the run as failed in the app.
+func (g *Gateway) SendJob(ctx context.Context, t api.Target, text, job string, failed bool) error {
+	if err := g.checkApp(t); err != nil {
+		return err
+	}
+	status := store.StatusDone
+	if failed {
+		status = store.StatusError
+	}
+	_, err := g.App.PostMessage(ctx, store.AppMessage{Thread: t.Bot, Role: store.RoleAgent, Text: text, Job: job, Status: status})
+	return err
+}
+
 // Run queues an agent turn and waits for it. With a target, the reply
 // streams into that chat and the turn joins the chat's conversation, unless
 // req.Session names a separate one. Without a target it runs in a named (or

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/kyleparisi/ganclaw/internal/logx"
@@ -23,6 +24,8 @@ type Server struct {
 	Resolve func(to, via string) (Target, error)
 	// Send delivers text to t.
 	Send func(ctx context.Context, t Target, text string) error
+	// SendJob records text in the app as a run of a scheduled job.
+	SendJob func(ctx context.Context, t Target, text, job string, failed bool) error
 	// Run executes an agent turn, delivering to t if non-nil. It returns
 	// an *Error for requests that can't start (unknown agent, busy).
 	Run func(ctx context.Context, req RunRequest, t *Target) (router.TurnResult, error)
@@ -116,15 +119,28 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, Errorf(CodeBadRequest, "text is required"))
 		return
 	}
+	req.Job = strings.TrimSpace(req.Job)
+	if req.Failed && req.Job == "" {
+		writeErr(w, Errorf(CodeBadRequest, "failed requires a job"))
+		return
+	}
 	s.idempotent(w, r, req.IdempotencyKey, func() (any, error) {
 		t, err := s.Resolve(req.To, req.Via)
 		if err != nil {
 			return nil, err
 		}
-		if err := s.Send(r.Context(), t, req.Text); err != nil {
+		if req.Job != "" && (t.Channel != "app" || s.SendJob == nil) {
+			return nil, Errorf(CodeBadRequest, "job requires an app destination")
+		}
+		if req.Job != "" {
+			err = s.SendJob(r.Context(), t, req.Text, req.Job, req.Failed)
+		} else {
+			err = s.Send(r.Context(), t, req.Text)
+		}
+		if err != nil {
 			return nil, Errorf(CodeFailed, "send to %s: %v", t, err)
 		}
-		logx.OrDiscard(s.Logger).Info("api send", "target", t.String(), "text_len", len(req.Text))
+		logx.OrDiscard(s.Logger).Info("api send", "target", t.String(), "job", req.Job, "failed", req.Failed, "text_len", len(req.Text))
 		return SendResponse{OK: true, Target: t.String()}, nil
 	})
 }

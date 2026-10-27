@@ -15,6 +15,11 @@ import (
 
 // SendRequest delivers a plain message, no agent involved.
 type SendRequest struct {
+	// Job lists an app notification as a run of this scheduled job (the
+	// same name a run's Session uses).
+	Job string `json:"job,omitempty"`
+	// Failed marks that job run as failed in the app.
+	Failed bool `json:"failed,omitempty"`
 	// To is a contact name or a raw address "telegram:<bot>:<chat>".
 	To string `json:"to"`
 	// Via picks the bot, overriding the contact's default_bot.

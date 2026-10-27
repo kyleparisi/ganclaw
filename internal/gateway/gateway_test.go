@@ -496,6 +496,24 @@ func withApp(t *testing.T, g *Gateway, db *store.Store) *appchannel.Channel {
 func TestGatewayApp(t *testing.T) {
 	ctx := context.Background()
 
+	t.Run("Existing notification is recorded as a job without running an agent", func(t *testing.T) {
+		subject, db := newGateway(t, &sentMessages{}, func(context.Context, provider.Sessions, provider.Request) (string, provider.Result, error) {
+			t.Fatal("posting an existing notification must not run an agent")
+			return "", provider.Result{}, nil
+		})
+		withApp(t, subject, db)
+		target := api.Target{Channel: "app", Bot: "assistant"}
+		require.NoError(t, subject.SendJob(ctx, target, "Daily check complete", "daily-check", false))
+		require.NoError(t, subject.SendJob(ctx, target, "Disk check failed", "daily-check", true))
+		runs, err := db.AppJobRuns(ctx, "daily-check", 10)
+		require.NoError(t, err)
+		require.Len(t, runs, 2)
+		assert.Equal(t, "assistant", runs[1].Thread)
+		assert.Equal(t, "Daily check complete", runs[1].Text)
+		assert.Equal(t, store.StatusDone, runs[1].Status)
+		assert.Equal(t, store.StatusError, runs[0].Status, "a failed run shows as failed")
+	})
+
 	t.Run("Scheduled run lands in the agent's thread tagged as a job", func(t *testing.T) {
 		subject, db := newGateway(t, &sentMessages{}, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
 			sessions["codex"] = "t-1"

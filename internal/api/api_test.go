@@ -517,3 +517,35 @@ func unixPair() (*net.UnixConn, *net.UnixConn, error) {
 	server, err := ln.AcceptUnix()
 	return server, client, err
 }
+
+func TestScheduledNotification(t *testing.T) {
+	subject := serve
+	t.Run("App job reaches the scheduled sender", func(t *testing.T) {
+		called := false
+		c := subject(t, &Server{Resolve: testResolver.Resolve, SendJob: func(ctx context.Context, target Target, text, job string, failed bool) error {
+			called = true
+			assert.True(t, failed)
+			assert.Equal(t, "app", target.Channel)
+			assert.Equal(t, "support", target.Bot)
+			assert.Equal(t, "daily-check", job)
+			assert.Equal(t, "All clear", text)
+			return nil
+		}})
+		_, err := c.Send(context.Background(), SendRequest{To: "app:support", Text: "All clear", Job: " daily-check ", Failed: true})
+		require.NoError(t, err)
+		assert.True(t, called)
+	})
+	t.Run("Telegram job is rejected before delivery", func(t *testing.T) {
+		c := subject(t, &Server{Resolve: testResolver.Resolve, Send: func(context.Context, Target, string) error {
+			t.Fatal("invalid job must not deliver")
+			return nil
+		}})
+		_, err := c.Send(context.Background(), SendRequest{To: "alex", Text: "All clear", Job: "daily-check"})
+		require.ErrorContains(t, err, "job requires an app destination")
+	})
+	t.Run("Failed without a job is rejected", func(t *testing.T) {
+		c := subject(t, &Server{Resolve: testResolver.Resolve})
+		_, err := c.Send(context.Background(), SendRequest{To: "app:support", Text: "x", Failed: true})
+		require.ErrorContains(t, err, "failed requires a job")
+	})
+}
