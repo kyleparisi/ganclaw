@@ -61,6 +61,22 @@ struct APIClient {
         return try await sendJSON("POST", "/app/v1/pair", body: Body(code: code, deviceName: deviceName), as: PairResult.self)
     }
 
+    func registerPush(_ token: String) async throws {
+        struct Body: Encodable { var token: String }
+        struct R: Decodable { var ok: Bool }
+        _ = try await sendJSON("PUT", "/app/v1/me/push", body: Body(token: token), as: R.self)
+    }
+
+    func removePush() async throws {
+        struct R: Decodable { var ok: Bool }
+        _ = try await send(request("DELETE", "/app/v1/me/push"), as: R.self)
+    }
+
+    func unpair() async throws {
+        struct R: Decodable { var ok: Bool }
+        _ = try await send(request("DELETE", "/app/v1/me"), as: R.self)
+    }
+
     func agents() async throws -> [AgentSummary] {
         struct R: Decodable { var agents: [AgentSummary] }
         return try await send(request("GET", "/app/v1/agents"), as: R.self).agents

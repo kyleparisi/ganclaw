@@ -16,7 +16,7 @@ struct CapabilityCheck: Sendable {
     func missing(_ c: Capability) -> PlatformError? {
         for need in c.requires + [c] {
             let usage = infoValue(need.usageKey) as? String ?? ""
-            if usage.isEmpty {
+            if !need.usageKey.isEmpty && usage.isEmpty {
                 return .undeclared(need, missing: "\(need.usageKey) in Info.plist")
             }
             if let ent = need.macEntitlement, let has = entitlement, !has(ent) {

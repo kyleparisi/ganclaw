@@ -14,6 +14,7 @@ import (
 
 	"github.com/kyleparisi/ganclaw/internal/agent"
 	"github.com/kyleparisi/ganclaw/internal/api"
+	"github.com/kyleparisi/ganclaw/internal/apns"
 	"github.com/kyleparisi/ganclaw/internal/appchannel"
 	"github.com/kyleparisi/ganclaw/internal/attachments"
 	"github.com/kyleparisi/ganclaw/internal/config"
@@ -156,6 +157,13 @@ func cmdServe(ctx context.Context, args []string) error {
 			Submit:   r.Submit,
 			FilesDir: filepath.Join(cfg.StateDir, "app-files"),
 			Logger:   log,
+		}
+		sender, err := apns.New(cfg.App.APNs)
+		if err != nil {
+			return err
+		}
+		if sender != nil {
+			app.Push = sender.Send
 		}
 		if err := app.Start(ctx); err != nil {
 			return err

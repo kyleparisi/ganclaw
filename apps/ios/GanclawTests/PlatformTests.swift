@@ -43,6 +43,11 @@ final class CapabilityTests: XCTestCase {
         XCTAssertNil(check(info: allUsage, entitlements: nil).missing(.microphone))
     }
 
+    func testNotificationsUseSystemAuthorizationWithoutUsageText() {
+        XCTAssertNil(check(info: [:]).missing(.notifications))
+        XCTAssertEqual(Capability.iosEntitlements, ["aps-environment": "$(APNS_ENVIRONMENT)"])
+    }
+
     func testManifestEntitlements() {
         XCTAssertEqual(Capability.macEntitlements, ["com.apple.security.device.audio-input", "com.apple.security.device.camera"])
     }
@@ -108,6 +113,15 @@ final class PlatformClientTests: XCTestCase {
         XCTAssertEqual(idleDisabled, [true, false])
     }
 
+    func testNotificationsAreNotRequestedBeforePairing() async {
+        var p = Platform.inert
+        var requested = false
+        p.notifications.enable = { requested = true }
+        let store = AppStore(platform: p)
+        await store.enableNotifications()
+        XCTAssertFalse(requested)
+    }
+
     func testUnpairClearsTheKeychain() {
         var cleared = false
         var p = Platform.inert
@@ -117,6 +131,22 @@ final class PlatformClientTests: XCTestCase {
         store.unpair()
 
         XCTAssertTrue(cleared)
+    }
+
+    func testUnpairStillWorksWhenTheServerIsUnreachable() async throws {
+        var cleared = false
+        var p = Platform.inert
+        // Nothing listens on port 9: the server-side unpair fails at once.
+        p.keychain.load = { Credentials(server: URL(string: "http://127.0.0.1:9")!, token: "t", deviceName: "Phone") }
+        p.keychain.clear = { cleared = true }
+        let store = AppStore(platform: p)
+
+        store.unpair()
+
+        for _ in 0..<100 where !cleared { try await Task.sleep(nanoseconds: 50_000_000) }
+        XCTAssertTrue(cleared, "an unreachable server must not trap the phone in its pairing")
+        XCTAssertEqual(store.state.connection, .unpaired)
+        XCTAssertNotNil(store.state.pairing.error, "says the server may still notify")
     }
 }
 

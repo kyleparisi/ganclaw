@@ -35,6 +35,8 @@ const MaxFileSize = 50 << 20
 
 // Channel serves the app API and delivers agent replies into app threads.
 type Channel struct {
+	// Push is nil unless APNs is configured. Delivery failures never fail a reply.
+	Push   func(context.Context, store.AppPush, store.AppMessage) (bool, error)
 	Agents map[string]agent.Agent
 	Store  *store.Store
 	// Submit queues a turn, typically (*router.Router).Submit.
@@ -50,12 +52,13 @@ type Channel struct {
 	// PairTTL is how long a pairing code works; default 10m.
 	PairTTL time.Duration
 
-	once  sync.Once
-	log   *slog.Logger
-	hub   *hub
-	mu    sync.Mutex
-	state map[string]AgentState
-	codes map[string]pairCode
+	pushSlots chan struct{}
+	once      sync.Once
+	log       *slog.Logger
+	hub       *hub
+	mu        sync.Mutex
+	state     map[string]AgentState
+	codes     map[string]pairCode
 }
 
 // AgentState is what an agent is doing, for the inbox.
@@ -82,6 +85,7 @@ func (c *Channel) setup() {
 		if c.PairTTL == 0 {
 			c.PairTTL = 10 * time.Minute
 		}
+		c.pushSlots = make(chan struct{}, 16)
 		c.hub = newHub()
 		c.state = map[string]AgentState{}
 		c.codes = map[string]pairCode{}
@@ -162,6 +166,9 @@ func (c *Channel) PostMessage(ctx context.Context, m store.AppMessage) (store.Ap
 		return m, err
 	}
 	c.publishMessage(m)
+	if m.Role == store.RoleAgent && m.Status != store.StatusStreaming {
+		c.notify(m)
+	}
 	return m, nil
 }
 
@@ -183,6 +190,7 @@ func (c *Channel) Message(agentName, text, job string) router.Message {
 		Stream:   t.stream,
 		SendFile: t.sendFile,
 		OnDone: func(router.TurnResult) {
+			t.notifyFinal()
 			c.setState(agentName, AgentState{})
 		},
 	}
@@ -190,10 +198,11 @@ func (c *Channel) Message(agentName, text, job string) router.Message {
 
 // turn tracks the agent message one turn writes to.
 type turn struct {
-	c      *Channel
-	agent  string
-	job    string
-	hidden bool
+	c        *Channel
+	agent    string
+	job      string
+	hidden   bool
+	notified bool
 
 	mu  sync.Mutex
 	msg *store.AppMessage
@@ -271,9 +280,27 @@ func (t *turn) finish(ctx context.Context, text string) error {
 	if isFailure(text) {
 		status = store.StatusError
 	}
-	return t.update(ctx, func(m *store.AppMessage) {
+	err := t.update(ctx, func(m *store.AppMessage) {
 		m.Text, m.Actions, m.Status = body, actions, status
 	})
+	if err == nil {
+		t.notifyFinal()
+	}
+	return err
+}
+
+// File-only turns can finish without a text reply; OnDone also calls this.
+func (t *turn) notifyFinal() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.hidden || t.notified || t.msg == nil || t.msg.Status == store.StatusStreaming {
+		return
+	}
+	if t.msg.Text == "" && len(t.msg.Files) == 0 {
+		return
+	}
+	t.notified = true
+	t.c.notify(*t.msg)
 }
 
 func isFailure(text string) bool {
@@ -357,7 +384,11 @@ func (t *turn) sendFile(ctx context.Context, path string) error {
 	if _, err := t.ensure(ctx, store.StatusDone); err != nil {
 		return err
 	}
-	return t.update(ctx, func(m *store.AppMessage) { m.Files = append(m.Files, af) })
+	err = t.update(ctx, func(m *store.AppMessage) { m.Files = append(m.Files, af) })
+	if err == nil {
+		t.notifyFinal()
+	}
+	return err
 }
 
 // saveFile stores r under a new ID and records it.

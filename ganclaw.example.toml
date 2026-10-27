@@ -65,3 +65,14 @@ allow_users = [123456789]
 # name = "Mac Chrome tunnel"
 # url = "http://127.0.0.1:9223/json/version"
 # down_after = "30m"
+
+# Optional native iOS push notifications. Disabled when absent.
+# Match the app's signing environment: development -> sandbox;
+# TestFlight/App Store -> production. Keep the .p8 key outside this repo,
+# readable only by the service user (0600).
+# [app.apns]
+# key_file = "/path/to/private/AuthKey.p8"
+# key_id = "APPLE_KEY_ID"
+# team_id = "APPLE_TEAM_ID"
+# topic = "com.example.ganclaw"
+# environment = "sandbox"

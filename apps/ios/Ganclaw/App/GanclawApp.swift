@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct GanclawApp: App {
+    @UIApplicationDelegateAdaptor(NotificationDelegate.self) private var notificationDelegate
     @State private var store: AppStore
     @Environment(\.scenePhase) private var scenePhase
 
@@ -33,7 +34,7 @@ struct GanclawApp: App {
                 .onAppear { MacWindow.configure() }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active, store.state.connection != .unpaired {
-                        Task { await store.refresh() }
+                        Task { await store.syncNotifications(); await store.refresh() }
                     }
                 }
         }

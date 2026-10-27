@@ -22,6 +22,12 @@ CREATE TABLE IF NOT EXISTS app_devices (
 	created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 	last_seen  TEXT
 );
+CREATE TABLE IF NOT EXISTS app_push (
+	device_id TEXT PRIMARY KEY REFERENCES app_devices(id) ON DELETE CASCADE,
+	token TEXT NOT NULL UNIQUE,
+	registered INTEGER NOT NULL,
+	generation TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS app_messages (
 	id          INTEGER PRIMARY KEY AUTOINCREMENT,
 	thread      TEXT NOT NULL,

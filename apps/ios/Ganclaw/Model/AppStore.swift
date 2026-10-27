@@ -26,6 +26,20 @@ final class AppStore {
         events.onEvent = { [weak self] e in self?.handle(event: e) }
         events.onStatus = { [weak self] s in self?.handle(status: s) }
         if let credentials = platform.keychain.load() { connect(credentials) }
+        platform.notifications.observe({ [weak self] token in
+            guard let self, let client = self.client else { return }
+            Task {
+                do { try await client.registerPush(token) }
+                catch { self.send(.banner("Could not enable notifications. Try again in Settings.")) }
+            }
+        }, { [weak self] thread in
+            guard let self, self.client != nil else { return }
+            Task {
+                await self.refresh()
+                guard self.state.agents.contains(where: { $0.name == thread }) else { return }
+                self.openThread(thread)
+            }
+        }, { [weak self] message in self?.send(.banner(message)) })
     }
 
     func send(_ action: AppState.Action) {
@@ -89,17 +103,43 @@ final class AppStore {
         client = APIClient(baseURL: c.server, token: c.token)
         send(.paired(server: c.server, deviceName: c.deviceName))
         events.connect(client!)
-        Task { await refresh() }
+        Task { await syncNotifications(); await refresh() }
     }
 
     func unpair(reason: String? = nil) {
+        if reason == nil, let client {
+            // Tell the server first so it stops notifying this phone, but
+            // never trap the user in a pairing with a server that's gone.
+            Task {
+                do {
+                    try await client.unpair()
+                    self.unpair(reason: "")
+                } catch {
+                    self.unpair(reason: "Unpaired this phone, but the server couldn't be reached. It may keep sending notifications until you run `ganclaw app unpair` there.")
+                }
+            }
+            return
+        }
         events.disconnect()
         platform.speech.stopListening()
         platform.speech.stopSpeaking()
         client = nil
         platform.keychain.clear()
         attachmentData = [:]
-        send(.unpaired(reason: reason))
+        send(.unpaired(reason: reason == "" ? nil : reason))
+    }
+
+    func enableNotifications() async {
+        guard client != nil else { return }
+        do { try await platform.notifications.enable() }
+        catch { send(.banner(describe(error))) }
+    }
+
+    func syncNotifications() async {
+        guard let client else { return }
+        if !(await platform.notifications.registerIfAuthorized()) {
+            try? await client.removePush()
+        }
     }
 
     // MARK: Loading

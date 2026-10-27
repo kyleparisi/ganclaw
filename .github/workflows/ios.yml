@@ -76,6 +76,14 @@ jobs:
             build >build-mac.log 2>&1 || status=$?
           grep -E "error:|\*\* BUILD " build-mac.log || true
           test "$status" -eq 0 || { tail -50 build-mac.log; exit 1; }
+      - name: Push entitlement is opt-in
+        working-directory: apps/ios
+        run: |
+          ent() { xcodebuild -project Ganclaw.xcodeproj -target Ganclaw -sdk iphoneos -showBuildSettings 2>/dev/null | awk -F' = ' '/ CODE_SIGN_ENTITLEMENTS = /{print $2}'; }
+          test -z "$(ent)" || { echo "device builds must not request push by default"; exit 1; }
+          echo 'GANCLAW_PUSH_ENTITLEMENTS = Ganclaw/Generated/Ganclaw-ios.entitlements' > Local.xcconfig
+          test "$(ent)" = "Ganclaw/Generated/Ganclaw-ios.entitlements" || { echo "Local.xcconfig should turn push on"; exit 1; }
+          rm Local.xcconfig
       - name: Check and package
         working-directory: apps/ios
         run: |
