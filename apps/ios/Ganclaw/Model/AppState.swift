@@ -8,6 +8,8 @@ import Foundation
 
 enum Route: Codable, Hashable {
     case thread(String)
+    case settings
+    case voiceSettings
     case jobs
     case job(String)
 }
@@ -108,6 +110,7 @@ struct AppState: Codable, Equatable {
     var path: [Route] = []
     var attach = AttachState()
     var drive = DriveState()
+    var speechPreferences = SpeechPreferences()
 
     var toast: String?
     /// Identifies the copy block whose button shows "Copied".
@@ -122,6 +125,8 @@ struct AppState: Codable, Equatable {
         if attach.presented { return "attach" }
         switch path.last {
         case .thread(let a): return "thread:\(a)"
+        case .settings: return "settings"
+        case .voiceSettings: return "settings:voice"
         case .jobs: return "jobs"
         case .job(let j): return "job:\(j)"
         case nil: return "inbox"
@@ -158,6 +163,7 @@ struct AppState: Codable, Equatable {
     // MARK: Actions
 
     enum Action: Equatable {
+        case speechPreferences(SpeechPreferences)
         case pairFields(server: String, code: String)
         case pairStarted
         case pairFailed(String)
@@ -210,6 +216,7 @@ struct AppState: Codable, Equatable {
 
     mutating func apply(_ action: Action) {
         switch action {
+        case .speechPreferences(let preferences): speechPreferences = preferences
         case let .pairFields(server, code):
             pairing.server = server
             pairing.code = code

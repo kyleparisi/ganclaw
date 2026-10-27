@@ -41,6 +41,9 @@ struct SpeechClient {
     var stopListening: () -> Void
     var speak: (_ text: String, _ done: @escaping @MainActor () -> Void) -> Void
     var stopSpeaking: () -> Void
+    var voices: () -> [SpeechVoice] = { [] }
+    var loadPreferences: () -> SpeechPreferences = { SpeechPreferences() }
+    var savePreferences: (SpeechPreferences) -> Void = { _ in }
     var isSpeaking: () -> Bool
 }
 

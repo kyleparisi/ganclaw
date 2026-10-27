@@ -64,3 +64,11 @@ Mention this in an agent's `TOOLS.md` to have it ask that way.
 See [CLAUDE.md](CLAUDE.md): `apps/ios/test/run.sh` builds the app, runs the
 unit tests and drives the app in a simulator through its debug control
 server.
+
+### Voice settings
+
+Open the gear on the inbox, then **Settings → Voice** to choose an available
+system voice, preview it, and adjust speaking speed. The selection is saved
+on this device and used for drive-mode replies. If a selected voice is
+removed, speech falls back to the system default. More voices can be
+downloaded from the device's Accessibility settings.
