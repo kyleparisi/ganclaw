@@ -88,6 +88,7 @@ struct DriveState: Codable, Equatable {
     var lastQuestion: String?
     var lastAnswer: String?
     /// True when the last reply had details beyond the spoken part.
+    var transcriptPresented = false
     var detailsSaved = false
     /// Replies newer than this message ID are spoken.
     var askedAfter: Int64 = 0
@@ -200,6 +201,7 @@ struct AppState: Codable, Equatable {
 
         case driveStart(String)
         case driveExit
+        case driveTranscript(Bool)
         case driveAgent(String)
         case driveMuted(Bool)
         case driveShortAnswers(Bool)
@@ -304,9 +306,12 @@ struct AppState: Codable, Equatable {
 
         case .driveStart(let a):
             drive = DriveState(active: true, agent: a, shortAnswers: drive.shortAnswers, phase: .listening)
+        case .driveTranscript(let presented):
+            drive.transcriptPresented = presented
         case .driveExit:
             drive = DriveState(shortAnswers: drive.shortAnswers)
         case .driveAgent(let a):
+            drive.transcriptPresented = false
             drive.agent = a
             drive.lastQuestion = nil
             drive.lastAnswer = nil
