@@ -219,3 +219,104 @@ struct BackHeader: View {
         .overlay(alignment: .bottom) { Theme.line.frame(height: 1) }
     }
 }
+
+
+/// Task threads are read-only. Their final result also arrives in the
+/// conversation that requested the work; polling never starts a worker turn.
+struct TaskList: View {
+    @Environment(AppStore.self) private var store
+    @State private var archived = false
+    @State private var tasks: [WorkerTask] = []
+    @State private var selected: String?
+    @State private var messages: [AppMessage] = []
+    @State private var error: String?
+    @State private var more = false
+    @State private var olderMessages = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle("Archived tasks", isOn: $archived).control("tasks.archived")
+            if let error { Text(error).foregroundStyle(Theme.red) }
+            if tasks.isEmpty { Text("No \(archived ? "archived" : "active") tasks.").foregroundStyle(Theme.muted).control("tasks.empty") }
+            ForEach(tasks) { task in
+                CButton("tasks.row.\(task.id)") {
+                    selected = task.id
+                    messages = []
+                    Task { await loadMessages(task.id) }
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(Theme.displayName(task.agent)) · \(task.state.capitalized)").font(.headline)
+                        Text(task.progress).font(.subheadline)
+                        Text("Observed \(task.updatedAt.shortAgo()) · \(task.id.prefix(8))").font(.caption).foregroundStyle(Theme.muted)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
+                }.buttonStyle(.plain)
+            }
+            if more {
+                CButton("tasks.more", title: "Load more tasks") { Task { await load(append: true) } }
+            }
+            if selected != nil {
+                Text("Task results").font(.headline)
+                if olderMessages {
+                    CButton("tasks.older", title: "Load earlier messages") {
+                        if let selected { Task { await loadMessages(selected, older: true) } }
+                    }
+                }
+                ForEach(messages) { message in
+                    MessageContent(text: message.text, messageID: message.id)
+                    ForEach(message.files) { FileView(file: $0, onUser: false) }
+                }
+                if messages.isEmpty { Text("No result messages yet.").foregroundStyle(Theme.muted) }
+            }
+        }
+        .task(id: archived) {
+            selected = nil
+            tasks = []
+            while !Task.isCancelled {
+                await load()
+                if let selected { await loadMessages(selected) }
+                try? await Task.sleep(for: .seconds(3))
+            }
+        }
+    }
+
+    @MainActor private func load(append: Bool = false) async {
+        guard let api = store.api else { return }
+        let mode = archived
+        do {
+            // Refresh all loaded pages, so pagination stays stable while polling.
+            var page = try await api.tasks(archived: mode, before: append ? tasks.last?.cursor : nil)
+            let targetCount = tasks.count
+            var hasMore = page.count == 100
+            while !append && hasMore && page.count < targetCount {
+                let next = try await api.tasks(archived: mode, before: page.last?.cursor)
+                page += next
+                hasMore = next.count == 100
+            }
+            guard mode == archived, !Task.isCancelled else { return }
+            tasks = append ? tasks + page : page
+            more = hasMore
+            error = nil
+        } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+    }
+
+    @MainActor private func loadMessages(_ id: String, older: Bool = false) async {
+        guard let api = store.api else { return }
+        do {
+            let page = try await api.taskMessages(id, before: older ? messages.first?.id : nil)
+            guard selected == id else { return }
+            if older { messages = page + messages; olderMessages = page.count == 100 }
+            else {
+                let known = Set(messages.map(\.id))
+                messages += page.filter { !known.contains($0.id) }
+                messages.sort { $0.id < $1.id }
+                if known.isEmpty { olderMessages = page.count == 100 }
+                // Replace existing messages too (files can arrive after the text).
+                for message in page {
+                    if let index = messages.firstIndex(where: { $0.id == message.id }) { messages[index] = message }
+                }
+            }
+        } catch { self.error = error.localizedDescription }
+    }
+}

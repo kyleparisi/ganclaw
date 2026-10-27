@@ -398,3 +398,36 @@ The Codex app-server protocol schema is vendored in
 ## License
 
 [MIT](LICENSE)
+
+The native app's **Tasks** inbox filter is separate from agent conversations
+and scheduled jobs. It reads the same persisted worker task IDs and lifecycle
+states as `task_status`: queued/running tasks are active; completed/failed tasks
+move automatically to **Archived tasks**. Progress is the latest fixed activity
+observation, not a heartbeat or a percentage. The view polls every three seconds
+while open and shows observation age. Both lists support loading older pages.
+
+When the app channel is enabled, new asynchronous runs mirror final replies and
+files into read-only `task:<task_id>` app message threads. These threads emit no
+ordinary inbox events, are excluded from inbox previews, and cannot be opened
+through agent thread routes. Worker execution without an explicit session gets
+an isolated conversation. Explicit session names still reuse their named worker
+conversation. Worker session names are no longer treated as scheduled job names;
+an explicit job label remains supported. Original result delivery (including to
+`app:<agent>`) and local status-query APIs/MCP tools remain intact. The delivered
+result intentionally remains visible in the requesting conversation.
+
+Authenticated app routes are `GET /app/v1/tasks` (active by default;
+`archived=true` for terminal history) and `GET /app/v1/tasks/{id}/messages`.
+Task lists page by `before=<cursor>` with 100 records per page; message history
+pages by `before=<message_id>`. These share the app's existing paired-device
+trust boundary, with no per-device task ownership restriction.
+
+No automatic retention or purge is implemented. Archive means retained history,
+not deletion; task result files are copied into app storage. Old tasks created
+before task history capture have lifecycle metadata but no retroactive result
+messages, and runs made while the app channel is disabled do not capture app
+history. Quiet replies can be retained in task history even when delivery is
+suppressed. History capture failures mark the task failed via the existing
+reply/file failure lifecycle, even if original delivery succeeded. Worker replies
+are delivered as final messages rather than streamed while task capture is on;
+this keeps background typing and intermediate worker content out of the inbox.

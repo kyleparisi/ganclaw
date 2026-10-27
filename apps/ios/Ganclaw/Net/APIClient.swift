@@ -99,6 +99,19 @@ struct APIClient {
         _ = try await send(request("POST", "/app/v1/threads/\(escape(agent))/reset"), as: R.self)
     }
 
+    func tasks(archived: Bool, before: Int64? = nil) async throws -> [WorkerTask] {
+        struct R: Decodable { var tasks: [WorkerTask] }
+        var query = [URLQueryItem(name: "archived", value: String(archived))]
+        if let before { query.append(URLQueryItem(name: "before", value: String(before))) }
+        return try await send(request("GET", "/app/v1/tasks", query: query), as: R.self).tasks
+    }
+
+    func taskMessages(_ id: String, before: Int64? = nil) async throws -> [AppMessage] {
+        struct R: Decodable { var messages: [AppMessage] }
+        let query = before.map { [URLQueryItem(name: "before", value: String($0))] } ?? []
+        return try await send(request("GET", "/app/v1/tasks/\(escape(id))/messages", query: query), as: R.self).messages
+    }
+
     func jobs() async throws -> [JobSummary] {
         struct R: Decodable { var jobs: [JobSummary] }
         return try await send(request("GET", "/app/v1/jobs"), as: R.self).jobs

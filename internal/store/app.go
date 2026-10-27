@@ -276,7 +276,7 @@ func (s *Store) AppMessages(ctx context.Context, thread string, before int64, li
 // thread.
 func (s *Store) LastAppMessages(ctx context.Context) (map[string]AppMessage, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+msgCols+` FROM app_messages
-		WHERE id IN (SELECT MAX(id) FROM app_messages GROUP BY thread)`)
+		WHERE id IN (SELECT MAX(id) FROM app_messages WHERE thread NOT LIKE 'task:%' GROUP BY thread)`)
 	if err != nil {
 		return nil, err
 	}

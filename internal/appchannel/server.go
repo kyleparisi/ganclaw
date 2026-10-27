@@ -41,6 +41,8 @@ func (c *Channel) Handler(version string) http.Handler {
 	auth.HandleFunc("POST /app/v1/threads/{agent}/reset", c.handleReset)
 	auth.HandleFunc("POST /app/v1/threads/{agent}/files", c.handleUpload)
 	auth.HandleFunc("GET /app/v1/files/{id}", c.handleFile)
+	auth.HandleFunc("GET /app/v1/tasks", c.handleTasks)
+	auth.HandleFunc("GET /app/v1/tasks/{task}/messages", c.handleTaskMessages)
 	auth.HandleFunc("GET /app/v1/jobs", c.handleJobs)
 	auth.HandleFunc("GET /app/v1/jobs/{job}/runs", c.handleJobRuns)
 	auth.HandleFunc("GET /app/v1/events", c.handleEvents)

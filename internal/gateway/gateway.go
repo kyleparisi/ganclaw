@@ -178,6 +178,9 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 		// The reply lands in the target agent's thread, tagged with the
 		// session as the job name so the app can list scheduled runs.
 		job := req.Session
+		if req.Async {
+			job = ""
+		}
 		if req.Job != "" {
 			job = req.Job
 		}
@@ -212,6 +215,9 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 		quiet(&m)
 	}
 
+	if req.Async && req.Session == "" {
+		m.ChatKey = JobKey(req.Agent, "")
+	}
 	log := logx.OrDiscard(g.Logger).With("agent", req.Agent, "chat", m.ChatKey)
 	if req.Async {
 		task, err := g.Router.CreateTask(ctx, req.Agent)
@@ -219,6 +225,15 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 			return router.TurnResult{}, err
 		}
 		m.TaskID = task.ID
+		if g.App != nil {
+			// Keep worker history separate from the ordinary agent conversation.
+			// Original result delivery still happens through Reply and SendFile.
+			m.Stream = nil
+			if t != nil && t.Channel == "app" {
+				m.Typing, m.OnDone = nil, nil
+			}
+			g.App.TrackTask(&m, task.ID)
+		}
 		// The caller has gone by the time this runs; only shutdown stops it.
 		m.OnDone = chain(m.OnDone, func(res router.TurnResult) {
 			log.Info("queued run finished", "provider", res.Provider, "err", res.Err)
