@@ -4,49 +4,77 @@ struct DriveView: View {
     @Environment(AppStore.self) private var store
 
     var body: some View {
-        GeometryReader { geo in content(compact: geo.size.height < 760) }
-            .background(Theme.Drive.ground.ignoresSafeArea())
-            .preferredColorScheme(.dark)
+        GeometryReader { geo in
+            content(compact: geo.size.height < 760)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    controls(store.state.drive, compact: geo.size.height < 760)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12)
+                        .padding(.bottom, 8)
+                        .background(Theme.Drive.ground)
+                }
+        }
+        .background(Theme.Drive.ground.ignoresSafeArea())
+        .preferredColorScheme(.dark)
+        .sheet(isPresented: Binding(get: { store.state.drive.transcriptPresented }, set: { store.send(.driveTranscript($0)) })) {
+            DriveTranscriptView()
+                .environment(store)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .preferredColorScheme(.dark)
+        }
     }
 
     private func content(compact: Bool) -> some View {
         let d = store.state.drive
-        return VStack(spacing: compact ? 12 : 20) {
+        return VStack(spacing: 12) {
             header(d)
-            Spacer(minLength: 0)
-            VStack(spacing: compact ? 16 : 28) {
-                Waveform(phase: d.phase, muted: d.muted, size: compact ? 150 : 220)
-                VStack(spacing: 6) {
-                    Text(title(d))
-                        .font(.system(size: 15, weight: .semibold)).tracking(1.2)
-                        .foregroundStyle(d.muted && d.phase == .listening ? Theme.Drive.muted : Theme.amber)
-                        .control("drive.phase", label: title(d))
-                    Text(subtitle(d)).font(.system(size: 13)).foregroundStyle(Theme.Drive.muted)
-                }
-                transcript(d)
-                if d.detailsSaved {
-                    HStack(spacing: 10) {
-                        Image(systemName: "bookmark").foregroundStyle(Theme.Drive.muted)
-                        Text("Details saved to the thread for when you park.").font(.system(size: 14)).foregroundStyle(Theme.Drive.soft)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
+            ScrollView {
+                VStack(spacing: compact ? 16 : 24) {
+                    Waveform(phase: d.phase, muted: d.muted, size: compact ? 120 : 160)
+                    VStack(spacing: 6) {
+                        Text(title(d))
+                            .font(.system(size: 15, weight: .semibold)).tracking(1.2)
+                            .foregroundStyle(d.muted && d.phase == .listening ? Theme.Drive.muted : Theme.amber)
+                            .control("drive.phase", label: title(d))
+                        Text(subtitle(d)).font(.system(size: 13)).foregroundStyle(Theme.Drive.muted)
+                            .multilineTextAlignment(.center)
                     }
-                    .padding(.horizontal, 14).padding(.vertical, 12)
-                    .background(Theme.Drive.surface, in: RoundedRectangle(cornerRadius: 14))
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.Drive.line))
-                    .control("drive.detailsSaved")
+                    if !d.heard.isEmpty || d.lastQuestion != nil || d.lastAnswer != nil {
+                        CButton("drive.transcript") { store.send(.driveTranscript(true)) } label: {
+                            VStack(alignment: .leading, spacing: 12) {
+                                transcript(d)
+                                HStack {
+                                    Text("View conversation")
+                                    Spacer()
+                                    Image(systemName: "chevron.up")
+                                }
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Theme.amber)
+                            }
+                            .padding(16)
+                            .background(Theme.Drive.surface, in: RoundedRectangle(cornerRadius: 16))
+                            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.Drive.line))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("View full conversation")
+                    }
+                    if d.detailsSaved {
+                        Text("Details saved to the thread for when you park.")
+                            .font(.system(size: 13)).foregroundStyle(Theme.Drive.muted)
+                            .control("drive.detailsSaved")
+                    }
+                    if let e = d.error {
+                        Text(e).font(.system(size: 14)).foregroundStyle(Theme.amber).multilineTextAlignment(.center)
+                            .control("drive.error")
+                    }
                 }
-                if let e = d.error {
-                    Text(e).font(.system(size: 14)).foregroundStyle(Theme.amber).multilineTextAlignment(.center)
-                        .control("drive.error")
-                }
+                .padding(.vertical, 16)
+                .frame(maxWidth: .infinity)
             }
-            Spacer(minLength: 0)
-            controls(d, compact: compact)
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
-        .padding(.bottom, 8)
     }
 
     private func header(_ d: DriveState) -> some View {
@@ -92,20 +120,19 @@ struct DriveView: View {
     private func transcript(_ d: DriveState) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             if !d.heard.isEmpty {
-                Text(d.heard).font(.system(size: 22, weight: .medium)).foregroundStyle(Theme.Drive.fg)
+                Text(d.heard).lineLimit(2).font(.system(size: 20, weight: .medium)).foregroundStyle(Theme.Drive.fg)
                     .control("drive.heard")
             } else {
                 if let q = d.lastQuestion {
-                    Text("You: \(q)").font(.system(size: 17)).foregroundStyle(Theme.Drive.muted).lineSpacing(3)
+                    Text("You: \(q)").lineLimit(2).font(.system(size: 17)).foregroundStyle(Theme.Drive.muted).lineSpacing(3)
                         .control("drive.question")
                 }
                 if let a = d.lastAnswer {
-                    Text(a).font(.system(size: 26, weight: .semibold)).tracking(-0.3).foregroundStyle(Theme.Drive.fg).lineSpacing(4)
-                        .minimumScaleFactor(0.6)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(a).font(.system(size: 20, weight: .semibold)).tracking(-0.3).foregroundStyle(Theme.Drive.fg).lineSpacing(4)
+                        .lineLimit(3)
                         .control("drive.answer")
                 } else if d.phase == .thinking, let agent = d.agent, let s = streamedReply(agent) {
-                    Text(s).font(.system(size: 22, weight: .medium)).foregroundStyle(Theme.Drive.soft).lineLimit(4)
+                    Text(s).font(.system(size: 22, weight: .medium)).foregroundStyle(Theme.Drive.soft).lineLimit(3)
                 }
             }
         }
@@ -179,6 +206,65 @@ struct DriveView: View {
         #else
         return "Always listening · just talk to interrupt"
         #endif
+    }
+}
+
+/// Full text stays in a scrollable sheet instead of growing the drive screen.
+struct DriveTranscriptView: View {
+    @Environment(AppStore.self) private var store
+
+    var body: some View {
+        let d = store.state.drive
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    if !d.heard.isEmpty {
+                        section("Hearing you", text: d.heard, id: "drive.transcript.heard")
+                    }
+                    if let question = d.lastQuestion {
+                        section("You", text: question, id: "drive.transcript.question")
+                    }
+                    if let reply = reply(d) {
+                        section(Theme.displayName(d.agent ?? "Agent"), text: reply, id: "drive.transcript.answer")
+                    } else if d.phase == .thinking {
+                        ProgressView("Waiting for reply…")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+            }
+            .background(Theme.Drive.ground)
+            .navigationTitle("Conversation")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    CButton("drive.transcript.done", title: "Done") { store.send(.driveTranscript(false)) }
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+            }
+        }
+    }
+
+    private func section(_ title: String, text: String, id: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.amber)
+            Text(text).font(.title3).foregroundStyle(Theme.Drive.fg)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .control(id, label: text)
+        }
+    }
+
+    private func reply(_ d: DriveState) -> String? {
+        guard let agent = d.agent else { return d.lastAnswer }
+        let thread = store.state.thread(agent)
+        if d.lastAnswer != nil {
+            return thread.messages.last(where: { $0.id > d.askedAfter && $0.role != .user && $0.status != .streaming })?.text ?? d.lastAnswer
+        }
+        if let id = thread.streaming.keys.max(), id > d.askedAfter {
+            return thread.streaming[id]
+        }
+        return nil
     }
 }
 

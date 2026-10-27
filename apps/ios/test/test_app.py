@@ -187,6 +187,12 @@ def test_drive_mode(paired, fake):
     assert answer in s["speech"]["spoken"]
     assert fake.prompts()[-1]["prompt"].startswith("[The user is driving")
     app.screenshot("13-drive-answer")
+    app.tap("drive.transcript")
+    wait_for(lambda: app.element("drive.transcript.answer"), what="full reply sheet")
+    assert answer in app.element("drive.transcript.answer")["label"]
+    app.screenshot("13-drive-conversation")
+    app.tap("drive.transcript.done")
+    wait_for(lambda: not app.state()["drive"]["transcript_presented"], what="reply sheet dismissed")
     wait_for(lambda: app.state()["drive"]["phase"] == "listening", what="back to listening")
 
     app.tap("drive.mute")
