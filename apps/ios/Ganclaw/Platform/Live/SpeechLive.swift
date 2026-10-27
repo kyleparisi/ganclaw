@@ -52,8 +52,13 @@ private final class LiveSpeech: NSObject, AVSpeechSynthesizerDelegate {
     private var speakingDone: (() -> Void)?
     private var utterance: ObjectIdentifier?
     private(set) var isSpeaking = false
-    /// Set while a playback-only session is active for speech.
+    /// Set while a playback-only session is active (or being activated).
     private var outputActive = false
+    private var releaseTimer: Timer?
+    /// An utterance waiting for the playback session before it's spoken.
+    private var pending: AVSpeechUtterance?
+    /// Audio session changes, in order, off the main thread.
+    private nonisolated static let sessionQueue = DispatchQueue(label: "ganclaw.audio-session", qos: .userInitiated)
 
     /// How long a pause ends an utterance.
     private let silence: TimeInterval = 1.3
@@ -117,14 +122,21 @@ private final class LiveSpeech: NSObject, AVSpeechSynthesizerDelegate {
     /// toggles the system's mic indicator and drops audio between tasks.
     private func startAudio() throws {
         guard !audio.isRunning else { return }
+        releaseTimer?.invalidate()
+        releaseTimer = nil
         outputActive = false // drive mode's session replaces the playback one
-        let session = AVAudioSession.sharedInstance()
-        #if targetEnvironment(macCatalyst)
-        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
-        #else
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker, .duckOthers])
-        #endif
-        try session.setActive(true, options: .notifyOthersOnDeactivation)
+        // In order after any queued playback-session change. Synchronous:
+        // the engine below needs the session, and starting drive mode is a
+        // deliberate tap where a brief wait is fine.
+        try Self.sessionQueue.sync {
+            let session = AVAudioSession.sharedInstance()
+            #if targetEnvironment(macCatalyst)
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+            #else
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker, .duckOthers])
+            #endif
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+        }
 
         let input = audio.inputNode
         #if !targetEnvironment(macCatalyst)
@@ -278,11 +290,22 @@ private final class LiveSpeech: NSObject, AVSpeechSynthesizerDelegate {
         if !settings.voiceID.isEmpty { u.voice = AVSpeechSynthesisVoice(identifier: settings.voiceID) }
         u.rate = settings.rate(default: AVSpeechUtteranceDefaultSpeechRate,
                                min: AVSpeechUtteranceMinimumSpeechRate, max: AVSpeechUtteranceMaximumSpeechRate)
-        prepareOutput()
         isSpeaking = true
         speakingDone = done
-        utterance = ObjectIdentifier(u)
+        let id = ObjectIdentifier(u)
+        utterance = id
         if !echoCancelled { stopTask() } // the mic stays on; recognition waits
+        if audio.isRunning {
+            synth.speak(u)
+        } else {
+            pending = u
+            prepareOutput { [weak self] in self?.speakPending(id) }
+        }
+    }
+
+    private func speakPending(_ id: ObjectIdentifier) {
+        guard utterance == id, let u = pending else { return } // stopped or replaced meanwhile
+        pending = nil
         synth.speak(u)
     }
 
@@ -292,22 +315,53 @@ private final class LiveSpeech: NSObject, AVSpeechSynthesizerDelegate {
     /// is the point here: play it like a podcast app does, ducking music.
     /// While listening, drive mode's play-and-record session already
     /// plays out loud; leave it alone.
-    private func prepareOutput() {
-        guard !audio.isRunning else { return }
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-        try? session.setActive(true)
+    ///
+    /// Session changes block for a while, so they run on their own serial
+    /// queue (Xcode flags them on the main thread), and `ready` runs back on
+    /// the main actor once the session is set.
+    private func prepareOutput(_ ready: @escaping @MainActor @Sendable () -> Void) {
+        releaseTimer?.invalidate()
+        releaseTimer = nil
+        if outputActive {
+            ready()
+            return
+        }
         outputActive = true
+        Self.sessionQueue.async {
+            let session = AVAudioSession.sharedInstance()
+            try? session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            try? session.setActive(true)
+            Task { @MainActor in ready() }
+        }
     }
 
-    /// Lets music ducked for a reply come back up.
+    /// Lets music ducked for a reply come back up, after a moment so tapping
+    /// through voice samples doesn't toggle the session for each one.
     private func releaseOutput() {
         guard outputActive, !audio.isRunning else { return }
+        releaseTimer?.invalidate()
+        releaseTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { @Sendable [weak self] _ in
+            Task { @MainActor in self?.deactivateOutput() }
+        }
+    }
+
+    private func deactivateOutput() {
+        releaseTimer = nil
+        guard outputActive, !isSpeaking, !audio.isRunning else { return }
         outputActive = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        Self.sessionQueue.async {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     func stopSpeaking() {
+        if let id = utterance, pending != nil {
+            // Not handed to the synthesizer yet: end it the way a cancel
+            // would, on a later turn of the main actor.
+            pending = nil
+            Task { @MainActor in self.finishedSpeaking(id) }
+            return
+        }
         guard synth.isSpeaking else { return }
         synth.stopSpeaking(at: .immediate)
     }
