@@ -275,7 +275,7 @@ def test_voice_settings_navigation(paired):
     app.tap("settings.voice")
     app.wait_screen("settings:voice")
     wait_for(lambda: app.element("voice.preview"), what="voice sample button")
-    assert "voice.picker" in app.ids()
+    assert "voice.option.default" in app.ids()
     assert "voice.speed" in app.ids()
     app.screenshot("settings-voice")
     before = len(app.state()["speech"]["spoken"])

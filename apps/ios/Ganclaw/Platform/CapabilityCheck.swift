@@ -9,10 +9,12 @@ struct CapabilityCheck: Sendable {
     /// that don't enforce them (iOS).
     var entitlement: (@Sendable (String) -> Bool)?
 
-    /// The first missing declaration for `c` (or anything it requires), or
-    /// nil when it's safe to use.
+    /// The first missing declaration for `c` or anything it requires, or
+    /// nil when it's safe to use. What `c` builds on is checked first: with
+    /// nothing declared, "no microphone" is the cause, not "no speech
+    /// recognition".
     func missing(_ c: Capability) -> PlatformError? {
-        for need in [c] + c.requires {
+        for need in c.requires + [c] {
             let usage = infoValue(need.usageKey) as? String ?? ""
             if usage.isEmpty {
                 return .undeclared(need, missing: "\(need.usageKey) in Info.plist")

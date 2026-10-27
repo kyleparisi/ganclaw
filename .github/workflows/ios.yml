@@ -68,12 +68,14 @@ jobs:
         run: |
           tools/gencap/run.sh "$PWD" --check
           xcodegen generate --quiet
+          status=0
           xcodebuild -project Ganclaw.xcodeproj -scheme Ganclaw -configuration Release \
             -destination 'generic/platform=macOS,variant=Mac Catalyst' \
             -derivedDataPath build/mac \
             CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
-            build 2>&1 | tee build-mac.log | grep -E "error:|\*\* BUILD " || true
-          test "${PIPESTATUS[0]}" -eq 0 || { tail -50 build-mac.log; exit 1; }
+            build >build-mac.log 2>&1 || status=$?
+          grep -E "error:|\*\* BUILD " build-mac.log || true
+          test "$status" -eq 0 || { tail -50 build-mac.log; exit 1; }
       - name: Check and package
         working-directory: apps/ios
         run: |
