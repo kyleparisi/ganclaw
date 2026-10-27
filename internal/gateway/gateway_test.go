@@ -496,6 +496,20 @@ func withApp(t *testing.T, g *Gateway, db *store.Store) *appchannel.Channel {
 func TestGatewayApp(t *testing.T) {
 	ctx := context.Background()
 
+	t.Run("Existing notification is recorded as a job without running an agent", func(t *testing.T) {
+		subject, db := newGateway(t, &sentMessages{}, func(context.Context, provider.Sessions, provider.Request) (string, provider.Result, error) {
+			t.Fatal("posting an existing notification must not run an agent")
+			return "", provider.Result{}, nil
+		})
+		withApp(t, subject, db)
+		require.NoError(t, subject.SendJob(ctx, api.Target{Channel: "app", Bot: "assistant"}, "Daily check complete", "daily-check"))
+		runs, err := db.AppJobRuns(ctx, "daily-check", 10)
+		require.NoError(t, err)
+		require.Len(t, runs, 1)
+		assert.Equal(t, "assistant", runs[0].Thread)
+		assert.Equal(t, "Daily check complete", runs[0].Text)
+	})
+
 	t.Run("Scheduled run lands in the agent's thread tagged as a job", func(t *testing.T) {
 		subject, db := newGateway(t, &sentMessages{}, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
 			sessions["codex"] = "t-1"

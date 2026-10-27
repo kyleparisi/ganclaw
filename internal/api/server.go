@@ -23,6 +23,8 @@ type Server struct {
 	Resolve func(to, via string) (Target, error)
 	// Send delivers text to t.
 	Send func(ctx context.Context, t Target, text string) error
+	// SendJob records a named scheduled notification in the app.
+	SendJob func(ctx context.Context, t Target, text, job string) error
 	// Run executes an agent turn, delivering to t if non-nil. It returns
 	// an *Error for requests that can't start (unknown agent, busy).
 	Run func(ctx context.Context, req RunRequest, t *Target) (router.TurnResult, error)
@@ -121,7 +123,19 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		if err := s.Send(r.Context(), t, req.Text); err != nil {
+		var sendErr error
+		if req.Job != "" {
+			if t.Channel != "app" {
+				return nil, Errorf(CodeBadRequest, "job requires an app destination")
+			}
+			if s.SendJob == nil {
+				return nil, Errorf(CodeBadRequest, "scheduled app notifications are unavailable")
+			}
+			sendErr = s.SendJob(r.Context(), t, req.Text, req.Job)
+		} else {
+			sendErr = s.Send(r.Context(), t, req.Text)
+		}
+		if err := sendErr; err != nil {
 			return nil, Errorf(CodeFailed, "send to %s: %v", t, err)
 		}
 		logx.OrDiscard(s.Logger).Info("api send", "target", t.String(), "text_len", len(req.Text))

@@ -123,7 +123,8 @@ func printJSON(w io.Writer, v any) {
 // cmdSend: ganclaw send --to alex [--via bot] "text"
 func cmdSend(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("send", flag.ContinueOnError)
-	to := fs.String("to", "", "contact name or telegram:<bot>:<chat> (required)")
+	to := fs.String("to", "", "contact name, telegram:<bot>:<chat>, or app:<agent> (required)")
+	job := fs.String("job", "", "scheduled job name (app destinations only)")
 	via := fs.String("via", "", "bot to send through (overrides the contact's default_bot)")
 	key := fs.String("idempotency-key", "", "skip if a send with this key already succeeded")
 	cf := addClientFlags(fs)
@@ -138,7 +139,7 @@ func cmdSend(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := c.Send(ctx, api.SendRequest{To: *to, Via: *via, Text: text, IdempotencyKey: *key})
+	resp, err := c.Send(ctx, api.SendRequest{To: *to, Via: *via, Text: text, Job: *job, IdempotencyKey: *key})
 	if err != nil {
 		return err
 	}

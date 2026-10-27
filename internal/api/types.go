@@ -15,6 +15,8 @@ import (
 
 // SendRequest delivers a plain message, no agent involved.
 type SendRequest struct {
+	// Job groups app notifications under a scheduled job name.
+	Job string `json:"job,omitempty"`
 	// To is a contact name or a raw address "telegram:<bot>:<chat>".
 	To string `json:"to"`
 	// Via picks the bot, overriding the contact's default_bot.

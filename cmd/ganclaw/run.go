@@ -174,6 +174,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	apiSrv := &api.Server{
 		Resolve:  api.Resolver{Contacts: cfg.Contacts, Bots: botNames}.Resolve,
 		Send:     gw.Send,
+		SendJob:  gw.SendJob,
 		Run:      gw.Run,
 		Status:   chain.Status,
 		AgentBot: gw.AgentBot,

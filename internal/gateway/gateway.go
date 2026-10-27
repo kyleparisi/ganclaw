@@ -143,6 +143,19 @@ func (g *Gateway) Send(ctx context.Context, t api.Target, text string) error {
 	return b.Client.SendMessage(ctx, t.Chat, text)
 }
 
+// SendJob records an existing notification as a named app job run without
+// starting an agent or changing delivery through other channels.
+func (g *Gateway) SendJob(ctx context.Context, t api.Target, text, job string) error {
+	if t.Channel != "app" {
+		return api.Errorf(api.CodeBadRequest, "job requires an app destination")
+	}
+	if err := g.checkApp(t); err != nil {
+		return err
+	}
+	_, err := g.App.Post(ctx, t.Bot, store.RoleAgent, text, job)
+	return err
+}
+
 // Run queues an agent turn and waits for it. With a target, the reply
 // streams into that chat and the turn joins the chat's conversation, unless
 // req.Session names a separate one. Without a target it runs in a named (or

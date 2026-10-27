@@ -364,3 +364,19 @@ The Codex app-server protocol schema is vendored in
 ## License
 
 [MIT](LICENSE)
+
+### Scheduled notifications in the app
+
+Scripts that already produce their own report can record it in an app thread
+and the Jobs list without running an agent:
+
+```sh
+printf '%s\n' 'Daily checks passed' | ganclaw send --to app:alerts --job daily-check -
+```
+
+Keep the existing Telegram send and add this app send using the same report
+text. Use a stable job name to group runs, and an agent configured in ganclaw
+as the app destination. `--job` is only accepted for app destinations.
+A job appears after its first recorded notification, not merely because it
+exists in a scheduler. This command records a notification, not scheduler
+execution status; scripts should include failure details in their report.
