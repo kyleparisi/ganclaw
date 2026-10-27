@@ -11,8 +11,15 @@ Telegram delivery, worker status and hidden task history are unchanged.
 2. Create an APNs authentication key with permission for that team/topic and
    environment. Download its `.p8` once; retain the key ID and team ID.
    Do not commit the key, device tokens, profiles or signing credentials.
-3. Build with `APNS_ENVIRONMENT=development` for development signing.
-   For distribution/TestFlight/App Store, use `APNS_ENVIRONMENT=production`.
+3. Push is off in a plain checkout, so builds signed by a free Personal Team
+   still work. Turn it on with `apps/ios/Local.xcconfig` (git-ignored), then
+   rerun `xcodegen generate`:
+
+   ```
+   GANCLAW_PUSH_ENTITLEMENTS = Ganclaw/Generated/Ganclaw-ios.entitlements
+   APNS_ENVIRONMENT = development   // production for TestFlight/App Store
+   ```
+
    `tools/gencap` generates the iOS entitlement from the capability manifest;
    Xcode expands the setting. Confirm the **signed** app's entitlement and
    provisioning profile agree. Simulator builds do not use this entitlement.
@@ -46,15 +53,17 @@ change. Linux checks and simulator CI cannot prove live APNs delivery.
   A token belongs to at most one pairing; pairing the same installation again
   transfers its registration. `DELETE /app/v1/me/push` removes that registration.
 - `DELETE /app/v1/me` revokes the authenticated pairing and its registration.
-  The app waits for server confirmation before forgetting a pairing; offline
-  unpair asks you to reconnect. CLI device revocation also cascades registration
+  The app tells the server first; if it can't be reached, the phone unpairs
+  anyway and says the server may keep notifying until `ganclaw app unpair`
+  is run there. CLI device revocation also cascades registration
   deletion. Already submitted notifications cannot be recalled.
 - Final visible agent replies (including scheduled jobs and delivered worker
   results) notify paired devices. User messages, typing, stream chunks, system
   notes, and hidden task history do not. One streamed turn notifies once, including
   file-only results. Hidden worker history never produces a second push. Tasks
   routed solely to Telegram do not create app notifications.
-- Alerts contain generic text and the agent thread identifier for navigation,
+- Alerts name the agent, and the job for job runs ("infra replied.",
+  "infra: daily-check failed."), plus the thread identifier for navigation;
   never reply text, file names or user messages. Tapping refreshes history and
   opens that agent if it still exists. Foreground banners/sounds are suppressed;
   the app continues showing replies through its existing event stream.

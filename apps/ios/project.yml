@@ -18,6 +18,9 @@ targets:
     platform: iOS
     sources:
       - path: Ganclaw
+    configFiles:
+      Debug: Push.xcconfig
+      Release: Push.xcconfig
     preBuildScripts:
       - name: Generate capability declarations
         # Info.plist usage strings and Mac entitlements come from
@@ -30,8 +33,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kyleparisi.ganclaw
         PRODUCT_NAME: Ganclaw
-        APNS_ENVIRONMENT: development
-        "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": Ganclaw/Generated/Ganclaw-ios.entitlements
+        # Push is opt-in (Push.xcconfig): empty means no entitlements file.
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": $(GANCLAW_PUSH_ENTITLEMENTS)
         INFOPLIST_FILE: Ganclaw/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"
         # The Mac app is this app built with Mac Catalyst.

@@ -34,6 +34,7 @@ func TestSend(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotContains(t, string(body), "private reply")
 			assert.Contains(t, string(body), `"thread":"support"`)
+			assert.Contains(t, string(body), `"body":"support replied."`)
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(""))}, nil
 		}
 		for range 2 {
@@ -75,6 +76,16 @@ func TestSend(t *testing.T) {
 		assert.False(t, invalid)
 	})
 }
+func TestAlertText(t *testing.T) {
+	subject := AlertText
+	t.Run("Names the agent and job, never the reply", func(t *testing.T) {
+		assert.Equal(t, "infra replied.", subject(store.AppMessage{Thread: "infra", Text: "secret"}))
+		assert.Equal(t, "infra ran into a problem.", subject(store.AppMessage{Thread: "infra", Status: store.StatusError}))
+		assert.Equal(t, "infra: daily-check finished.", subject(store.AppMessage{Thread: "infra", Job: "daily-check"}))
+		assert.Equal(t, "infra: daily-check failed.", subject(store.AppMessage{Thread: "infra", Job: "daily-check", Status: store.StatusError}))
+	})
+}
+
 func TestNew(t *testing.T) {
 	subject := New
 	t.Run("Disabled by default", func(t *testing.T) { c, err := subject(Config{}); require.NoError(t, err); assert.Nil(t, c) })

@@ -102,6 +102,21 @@ func (c *Client) token() (string, error) {
 	return c.jwt, nil
 }
 
+// AlertText says which agent (and job) a notification is about, never what
+// the reply says: agent and job names come from the config, not from chats.
+func AlertText(m store.AppMessage) string {
+	switch {
+	case m.Job != "" && m.Status == store.StatusError:
+		return m.Thread + ": " + m.Job + " failed."
+	case m.Job != "":
+		return m.Thread + ": " + m.Job + " finished."
+	case m.Status == store.StatusError:
+		return m.Thread + " ran into a problem."
+	default:
+		return m.Thread + " replied."
+	}
+}
+
 // Send reports permanent token invalidation separately from transient failures.
 // No automatic retry: an ambiguous network failure may already have delivered.
 func (c *Client) Send(ctx context.Context, device store.AppPush, m store.AppMessage) (bool, error) {
@@ -113,7 +128,7 @@ func (c *Client) Send(ctx context.Context, device store.AppPush, m store.AppMess
 	if c.Config.Environment == "sandbox" {
 		host = "https://api.sandbox.push.apple.com"
 	}
-	body, _ := json.Marshal(map[string]any{"aps": map[string]any{"alert": map[string]string{"title": "Ganclaw", "body": "An agent reply is ready."}, "sound": "default"}, "thread": m.Thread})
+	body, _ := json.Marshal(map[string]any{"aps": map[string]any{"alert": map[string]string{"title": "Ganclaw", "body": AlertText(m)}, "sound": "default"}, "thread": m.Thread})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, host+"/3/device/"+device.Token, bytes.NewReader(body))
 	if err != nil {
 		return false, errors.New("APNs request failed")

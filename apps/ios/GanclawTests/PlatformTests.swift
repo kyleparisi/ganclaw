@@ -132,6 +132,22 @@ final class PlatformClientTests: XCTestCase {
 
         XCTAssertTrue(cleared)
     }
+
+    func testUnpairStillWorksWhenTheServerIsUnreachable() async throws {
+        var cleared = false
+        var p = Platform.inert
+        // Nothing listens on port 9: the server-side unpair fails at once.
+        p.keychain.load = { Credentials(server: URL(string: "http://127.0.0.1:9")!, token: "t", deviceName: "Phone") }
+        p.keychain.clear = { cleared = true }
+        let store = AppStore(platform: p)
+
+        store.unpair()
+
+        for _ in 0..<100 where !cleared { try await Task.sleep(nanoseconds: 50_000_000) }
+        XCTAssertTrue(cleared, "an unreachable server must not trap the phone in its pairing")
+        XCTAssertEqual(store.state.connection, .unpaired)
+        XCTAssertNotNil(store.state.pairing.error, "says the server may still notify")
+    }
 }
 
 /// Drive mode restarts recognition after every utterance; a task that keeps

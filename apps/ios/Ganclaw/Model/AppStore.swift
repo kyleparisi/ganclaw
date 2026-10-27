@@ -108,9 +108,15 @@ final class AppStore {
 
     func unpair(reason: String? = nil) {
         if reason == nil, let client {
+            // Tell the server first so it stops notifying this phone, but
+            // never trap the user in a pairing with a server that's gone.
             Task {
-                do { try await client.unpair(); self.unpair(reason: "") }
-                catch { self.send(.banner("Connect to your server to unpair and stop notifications.")) }
+                do {
+                    try await client.unpair()
+                    self.unpair(reason: "")
+                } catch {
+                    self.unpair(reason: "Unpaired this phone, but the server couldn't be reached. It may keep sending notifications until you run `ganclaw app unpair` there.")
+                }
             }
             return
         }

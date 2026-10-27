@@ -1,0 +1,12 @@
+// Push notifications are off by default: free (Personal Team) Apple
+// accounts can't sign the aps-environment entitlement, and a build that
+// asks for it fails to sign. To turn push on (paid team, see
+// docs/notifications.md), create apps/ios/Local.xcconfig (git-ignored):
+//
+//   GANCLAW_PUSH_ENTITLEMENTS = Ganclaw/Generated/Ganclaw-ios.entitlements
+//   APNS_ENVIRONMENT = development   // production for TestFlight/App Store
+//
+// then rerun `xcodegen generate`.
+GANCLAW_PUSH_ENTITLEMENTS =
+APNS_ENVIRONMENT = development
+#include? "Local.xcconfig"
