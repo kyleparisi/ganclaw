@@ -42,6 +42,14 @@ final class AppStore {
         platform.speech.speak("Hello. This is how your agent replies will sound.") {}
     }
 
+    /// Selects a voice ("" for the system default) and plays it.
+    func chooseVoice(_ id: String) {
+        var value = state.speechPreferences
+        value.voiceID = id
+        setSpeechPreferences(value)
+        previewVoice()
+    }
+
     // MARK: Pairing
 
     func pair() async {

@@ -129,7 +129,8 @@ struct ControlRoutes {
         obj["screen"] = store.state.currentScreen
         obj["inbox_rows"] = store.state.inboxRows.map(\.name)
         if let fake = server.fakeSpeech {
-            obj["speech"] = ["spoken": fake.spoken, "listening": fake.listening, "speaking": fake.isSpeaking] as [String: Any]
+            obj["speech"] = ["spoken": fake.spoken, "voices_used": fake.voicesUsed, "voice": fake.preferences.voiceID,
+                             "listening": fake.listening, "speaking": fake.isSpeaking] as [String: Any]
         }
         return .json(obj)
     }

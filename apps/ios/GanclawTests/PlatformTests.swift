@@ -178,3 +178,47 @@ final class SpeechPreferencesTests: XCTestCase {
         XCTAssertFalse(store.state.drive.active)
     }
 }
+
+final class SpeechVoiceTests: XCTestCase {
+    func testChoicesKeepTheReplyLanguageWithBetterVoicesFirst() {
+        let all = [
+            SpeechVoice(id: "fred", name: "Fred", language: "en-US", quality: ""),
+            SpeechVoice(id: "thomas", name: "Thomas", language: "fr-FR", quality: "Enhanced"),
+            SpeechVoice(id: "zoe", name: "Zoe", language: "en-US", quality: "Premium"),
+            SpeechVoice(id: "serena", name: "Serena", language: "en-GB", quality: "Enhanced"),
+            SpeechVoice(id: "ava", name: "Ava", language: "en-US", quality: "Premium"),
+        ]
+        XCTAssertEqual(SpeechVoice.choices(all, language: "en").map(\.id), ["ava", "zoe", "serena", "fred"])
+        // No voice in the language: offer everything rather than nothing.
+        XCTAssertEqual(SpeechVoice.choices(all, language: "ja").count, all.count)
+    }
+
+    func testRateFollowsSpeedWithinLimits() {
+        func rate(_ speed: Double) -> Float {
+            SpeechPreferences(speed: speed).rate(default: 0.5, min: 0, max: 1)
+        }
+        XCTAssertEqual(rate(1), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(rate(1.2), 0.6, accuracy: 0.0001)
+        XCTAssertEqual(rate(9), 0.75, accuracy: 0.0001) // slider max 1.5×
+        XCTAssertEqual(rate(0.1), 0.25, accuracy: 0.0001) // slider min 0.5×
+        XCTAssertEqual(rate(.nan), 0.525, accuracy: 0.0001) // default 1.05×
+        XCTAssertEqual(SpeechPreferences(speed: 1.5).rate(default: 0.8, min: 0, max: 1), 1)
+    }
+}
+
+@MainActor
+final class ChooseVoiceTests: XCTestCase {
+    func testChoosingAVoiceSavesItAndPlaysASample() {
+        var platform = Platform.inert
+        var saved: SpeechPreferences?
+        var spoken = 0
+        platform.speech.savePreferences = { saved = $0 }
+        platform.speech.speak = { _, done in spoken += 1; done() }
+        let store = AppStore(platform: platform)
+        store.chooseVoice("ava")
+        XCTAssertEqual(saved?.voiceID, "ava")
+        XCTAssertEqual(saved?.speed, SpeechPreferences().speed, "choosing a voice keeps the speed")
+        XCTAssertEqual(store.state.speechPreferences.voiceID, "ava")
+        XCTAssertEqual(spoken, 1)
+    }
+}

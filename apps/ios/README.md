@@ -67,8 +67,10 @@ server.
 
 ### Voice settings
 
-Open the gear on the inbox, then **Settings → Voice** to choose an available
-system voice, preview it, and adjust speaking speed. The selection is saved
-on this device and used for drive-mode replies. If a selected voice is
-removed, speech falls back to the system default. More voices can be
-downloaded from the device's Accessibility settings.
+Open the gear on the inbox, then **Settings → Voice**. Tapping a voice
+selects it and plays a sample; voices in your language are listed, Premium
+and Enhanced first. The selection and speaking speed are saved on this
+device and used for drive-mode replies. If a selected voice is removed,
+speech falls back to the system default. The better voices have to be
+downloaded first: Settings › Accessibility › Spoken Content › Voices.
+Speech plays even with the ring/silent switch on silent.

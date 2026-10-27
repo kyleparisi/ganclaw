@@ -41,28 +41,12 @@ struct VoiceSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Picker("Voice", selection: Binding(get: { preferences.voiceID }, set: {
-                    var value = preferences
-                    value.voiceID = $0
-                    store.setSpeechPreferences(value)
-                })) {
-                    Text("System default").tag("")
-                    if !preferences.voiceID.isEmpty, !voices.contains(where: { $0.id == preferences.voiceID }) {
-                        Text("Unavailable voice (using system default)").tag(preferences.voiceID)
-                    }
-                    ForEach(voices) { voice in Text(voice.title).tag(voice.id) }
-                }
-                .control("voice.picker")
-            } footer: {
-                Text("Voices available on this device. You can download more voices in the system Accessibility settings. Your choice applies to spoken replies on this device.")
-            }
-            Section {
                 LabeledContent("Speaking speed", value: String(format: "%.2f×", preferences.speed))
                 Slider(value: Binding(get: { preferences.speed }, set: {
                     var value = preferences
                     value.speed = $0
                     store.setSpeechPreferences(value)
-                }), in: 0.5...1.5, step: 0.05)
+                }), in: SpeechPreferences.speeds, step: 0.05)
                 .accessibilityLabel("Speaking speed")
                 .control("voice.speed")
                 CButton("voice.preview") { store.previewVoice() } label: {
@@ -72,6 +56,17 @@ struct VoiceSettingsView: View {
                     Label("Stop sample", systemImage: "stop.fill")
                 }
             }
+            Section {
+                row(id: "", title: "System default")
+                if !preferences.voiceID.isEmpty, !voices.contains(where: { $0.id == preferences.voiceID }) {
+                    row(id: preferences.voiceID, title: "Unavailable voice (using system default)")
+                }
+                ForEach(voices) { voice in row(id: voice.id, title: voice.name, detail: voice.detail) }
+            } header: {
+                Text("Voice")
+            } footer: {
+                Text("Tap a voice to hear it. Enhanced and Premium voices sound much better; download them in Settings › Accessibility › Spoken Content › Voices, then come back here.")
+            }
         }
         .scrollContentBackground(.hidden)
         .background(Theme.ground)
@@ -80,5 +75,19 @@ struct VoiceSettingsView: View {
         .toolbar(.visible, for: .navigationBar)
         .onAppear { voices = store.platform.speech.voices() }
         .onDisappear { store.platform.speech.stopSpeaking() }
+    }
+
+    private func row(id: String, title: String, detail: String = "") -> some View {
+        CButton("voice.option.\(id.isEmpty ? "default" : id)") { store.chooseVoice(id) } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).foregroundStyle(Theme.ink)
+                    if !detail.isEmpty { Text(detail).font(.caption).foregroundStyle(Theme.muted) }
+                }
+                Spacer()
+                if preferences.voiceID == id { Image(systemName: "checkmark").foregroundStyle(Theme.blue) }
+            }
+            .contentShape(Rectangle())
+        }
     }
 }

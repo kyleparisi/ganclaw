@@ -5,6 +5,13 @@ import Foundation
 @MainActor
 final class FakeSpeech {
     private(set) var spoken: [String] = []
+    /// The voice id in effect for each entry of `spoken` ("" = default).
+    private(set) var voicesUsed: [String] = []
+    private(set) var preferences = SpeechPreferences()
+    let voices = [
+        SpeechVoice(id: "fake.voice.ava", name: "Ava", language: "en-US", quality: "Premium"),
+        SpeechVoice(id: "fake.voice.fred", name: "Fred", language: "en-US", quality: ""),
+    ]
     private(set) var listening = false
     private(set) var isSpeaking = false
     private var onHeard: ((String, Bool) -> Void)?
@@ -17,6 +24,7 @@ final class FakeSpeech {
             stopListening: { [unowned self] in listening = false; onHeard = nil },
             speak: { [unowned self] text, done in
                 spoken.append(text)
+                voicesUsed.append(preferences.voiceID)
                 isSpeaking = true
                 speakingDone = done
                 // Finish "speaking" after a beat so tests can see the phase.
@@ -26,6 +34,9 @@ final class FakeSpeech {
                 }
             },
             stopSpeaking: { [unowned self] in finishSpeaking() },
+            voices: { [unowned self] in voices },
+            loadPreferences: { [unowned self] in preferences },
+            savePreferences: { [unowned self] in preferences = $0 },
             isSpeaking: { [unowned self] in isSpeaking }
         )
     }
