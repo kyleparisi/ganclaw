@@ -91,7 +91,7 @@ func TestTools(t *testing.T) {
 
 	t.Run("hand_off can isolate background work from the app conversation", func(t *testing.T) {
 		cs := connect(t, Deps{Run: func(ctx context.Context, req api.RunRequest) (api.RunResponse, error) {
-			assert.Equal(t, api.RunRequest{Agent: "support", Prompt: "Investigate the alert", To: "app:support", Session: "drive-task-1", Async: true}, req)
+			assert.Equal(t, api.RunRequest{Agent: "support", Prompt: "Investigate the alert", To: "app:support", Session: "drive-task-1", Job: "background", Async: true}, req)
 			return api.RunResponse{OK: true, Queued: true, Target: "app:support"}, nil
 		}})
 		_, isErr := call(t, cs, "hand_off", map[string]any{"agent": "support", "prompt": "Investigate the alert", "to": "app:support", "session": "drive-task-1"})

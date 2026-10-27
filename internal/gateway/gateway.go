@@ -163,7 +163,11 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 		}
 		// The reply lands in the target agent's thread, tagged with the
 		// session as the job name so the app can list scheduled runs.
-		m = g.App.Message(t.Bot, req.Prompt, req.Session)
+		job := req.Session
+		if req.Job != "" {
+			job = req.Job
+		}
+		m = g.App.Message(t.Bot, req.Prompt, job)
 		m.Agent = req.Agent
 		if req.Agent != t.Bot {
 			m.ChatKey += ":" + req.Agent

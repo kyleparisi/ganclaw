@@ -42,6 +42,9 @@ type AskOut struct {
 	Answer   string `json:"answer"`
 }
 
+// BackgroundJob is the app job name for work handed off to its own session.
+const BackgroundJob = "background"
+
 type HandOffIn struct {
 	Session string `json:"session,omitempty" jsonschema:"separate named work session; use a unique name for background work so it does not occupy the destination chat"`
 	Agent   string `json:"agent" jsonschema:"agent to hand the task to; see list_agents"`
@@ -95,7 +98,13 @@ func NewServer(d Deps, version string) *mcp.Server {
 		if in.Agent == "" || in.Prompt == "" || in.To == "" {
 			return nil, HandOffOut{}, errors.New("agent, prompt and to are required")
 		}
-		resp, err := d.Run(ctx, api.RunRequest{Agent: in.Agent, Prompt: in.Prompt, To: in.To, Session: in.Session, Async: true})
+		req := api.RunRequest{Agent: in.Agent, Prompt: in.Prompt, To: in.To, Session: in.Session, Async: true}
+		if in.Session != "" {
+			// One "background" job in the app, not one per task; it also
+			// tells drive mode the result isn't an answer to a question.
+			req.Job = BackgroundJob
+		}
+		resp, err := d.Run(ctx, req)
 		return nil, HandOffOut{Queued: resp.Queued, Target: resp.Target}, err
 	})
 	return s

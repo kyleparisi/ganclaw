@@ -517,6 +517,25 @@ func TestGatewayApp(t *testing.T) {
 		assert.Equal(t, provider.Sessions{"codex": "t-1"}, s, "the job keeps its own conversation")
 	})
 
+	t.Run("Job names the run in the app while the session stays separate", func(t *testing.T) {
+		subject, db := newGateway(t, &sentMessages{}, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+			sessions["codex"] = "t-2"
+			return "codex", provider.Result{Text: "Alert was a false positive."}, nil
+		})
+		withApp(t, subject, db)
+		target := &api.Target{Channel: "app", Bot: "assistant"}
+
+		_, err := subject.Run(ctx, api.RunRequest{Agent: "assistant", Prompt: "investigate", Session: "drive-task-1", Job: "background"}, target)
+
+		require.NoError(t, err)
+		msgs, err := db.AppMessages(ctx, "assistant", 0, 10)
+		require.NoError(t, err)
+		require.Len(t, msgs, 1)
+		assert.Equal(t, "background", msgs[0].Job)
+		s, _ := db.Sessions(ctx, JobKey("assistant", "drive-task-1"))
+		assert.Equal(t, provider.Sessions{"codex": "t-2"}, s, "the work keeps its own conversation")
+	})
+
 	t.Run("Run without a session joins the thread's conversation", func(t *testing.T) {
 		subject, db := newGateway(t, &sentMessages{}, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
 			sessions["codex"] = "t-2"
