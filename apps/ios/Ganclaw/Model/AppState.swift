@@ -15,7 +15,7 @@ enum Route: Codable, Hashable {
 }
 
 enum InboxFilter: String, Codable, CaseIterable, Identifiable {
-    case all, running, needsYou, jobs
+    case all, running, needsYou, jobs, tasks
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -23,6 +23,7 @@ enum InboxFilter: String, Codable, CaseIterable, Identifiable {
         case .running: "Running"
         case .needsYou: "Needs you"
         case .jobs: "Jobs"
+        case .tasks: "Tasks"
         }
     }
 }
@@ -154,6 +155,7 @@ struct AppState: Codable, Equatable {
     var inboxRows: [AgentSummary] {
         switch filter {
         case .all, .jobs: sortedAgents
+        case .tasks: []
         case .running: sortedAgents.filter { $0.state.working }
         case .needsYou: sortedAgents.filter { $0.needsYou }
         }

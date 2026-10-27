@@ -190,9 +190,10 @@ func (c *Channel) Message(agentName, text, job string) router.Message {
 
 // turn tracks the agent message one turn writes to.
 type turn struct {
-	c     *Channel
-	agent string
-	job   string
+	c      *Channel
+	agent  string
+	job    string
+	hidden bool
 
 	mu  sync.Mutex
 	msg *store.AppMessage
@@ -214,7 +215,9 @@ func (t *turn) ensure(ctx context.Context, status string) (store.AppMessage, err
 		return m, err
 	}
 	t.msg = &m
-	t.c.publishMessage(m)
+	if !t.hidden {
+		t.c.publishMessage(m)
+	}
 	return m, nil
 }
 
@@ -231,7 +234,9 @@ func (t *turn) update(ctx context.Context, f func(m *store.AppMessage)) error {
 		return err
 	}
 	t.msg = &m
-	t.c.publishMessage(m)
+	if !t.hidden {
+		t.c.publishMessage(m)
+	}
 	return nil
 }
 
@@ -244,7 +249,11 @@ func (t *turn) reply(ctx context.Context, text string) error {
 	finished := t.msg != nil && t.msg.Status != store.StatusStreaming
 	t.mu.Unlock()
 	if finished {
-		_, err := t.c.Post(ctx, t.agent, store.RoleSystem, text, t.job)
+		if !t.hidden {
+			_, err := t.c.Post(ctx, t.agent, store.RoleSystem, text, t.job)
+			return err
+		}
+		_, err := t.c.Store.AddAppMessage(ctx, store.AppMessage{Thread: t.agent, Role: store.RoleSystem, Text: text, Job: t.job})
 		return err
 	}
 	if _, err := t.ensure(ctx, store.StatusStreaming); err != nil {

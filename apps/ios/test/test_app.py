@@ -355,3 +355,14 @@ def test_drive_reads_out_background_results_after_the_answer(paired, fake):
     wait_for(lambda: app.state()["drive"]["phase"] == "listening", what="back to listening")
     app.tap("drive.short")
     app.tap("drive.exit")
+
+
+def test_tasks_filter_keeps_ordinary_threads_out(paired):
+    app = paired
+    app.tap("filter.tasks")
+    wait_for(lambda: app.element("tasks.empty"), what="empty active tasks")
+    assert not any(value.startswith("inbox.row.") for value in app.ids())
+    assert "tasks.archived" in app.ids()
+    app.screenshot("inbox-tasks")
+    app.tap("filter.all")
+    wait_for(lambda: app.element("inbox.row.infra"), what="ordinary inbox restored")

@@ -13,6 +13,29 @@ final class AppStateTests: XCTestCase {
         AgentSummary(name: name, state: AgentState(working: working, detail: nil, since: nil), lastMessage: last, needsYou: needsYou)
     }
 
+    func testTasksFilterDoesNotReuseOrdinaryAgentRows() {
+        var state = AppState()
+        state.apply(.agentsLoaded([agent("support", working: true)]))
+        XCTAssertEqual(state.filter, .all)
+        state.apply(.setFilter(.tasks))
+        XCTAssertTrue(state.inboxRows.isEmpty)
+        XCTAssertEqual(InboxFilter.tasks.title, "Tasks")
+        state.apply(.setFilter(.all))
+        XCTAssertEqual(state.inboxRows.map(\.name), ["support"])
+    }
+
+    func testWorkerTaskDecodesActualLifecycleAndCursor() throws {
+        let data = Data(#"{"id":"work","agent":"support","state":"running","progress":"Tool activity observed","cursor":42,"updated_at":"2026-01-01T00:00:00Z"}"#.utf8)
+        var task = try JSON.decoder.decode(WorkerTask.self, from: data)
+        XCTAssertTrue(task.isActive)
+        XCTAssertEqual(task.cursor, 42)
+        XCTAssertEqual(task.progress, "Tool activity observed")
+        task.state = "completed"
+        XCTAssertFalse(task.isActive)
+        task.state = "failed"
+        XCTAssertFalse(task.isActive)
+    }
+
     func testInboxOrder() {
         var s = AppState()
         s.apply(.agentsLoaded([
