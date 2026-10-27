@@ -17,9 +17,11 @@ import (
 
 	"github.com/kyleparisi/ganclaw/internal/agent"
 	"github.com/kyleparisi/ganclaw/internal/api"
+	"github.com/kyleparisi/ganclaw/internal/appchannel"
 	"github.com/kyleparisi/ganclaw/internal/logx"
 	"github.com/kyleparisi/ganclaw/internal/provider"
 	"github.com/kyleparisi/ganclaw/internal/router"
+	"github.com/kyleparisi/ganclaw/internal/store"
 	"github.com/kyleparisi/ganclaw/internal/telegram"
 )
 
@@ -30,6 +32,8 @@ type Gateway struct {
 	Router *router.Router
 	Agents map[string]agent.Agent
 	Bots   map[string]*telegram.Bot
+	// App is the native-app channel, nil when it is off.
+	App    *appchannel.Channel
 	Logger *slog.Logger
 }
 
@@ -125,6 +129,13 @@ var ErrShuttingDown = errors.New("ganclaw is shutting down")
 
 // Send delivers plain text to t.
 func (g *Gateway) Send(ctx context.Context, t api.Target, text string) error {
+	if t.Channel == "app" {
+		if err := g.checkApp(t); err != nil {
+			return err
+		}
+		_, err := g.App.Post(ctx, t.Bot, store.RoleAgent, text, "")
+		return err
+	}
 	b, ok := g.Bots[t.Bot]
 	if !ok {
 		return api.Errorf(api.CodeUnknownBot, "no bot named %q", t.Bot)
@@ -146,7 +157,21 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 	}
 
 	var m router.Message
-	if t != nil {
+	if t != nil && t.Channel == "app" {
+		if err := g.checkApp(*t); err != nil {
+			return router.TurnResult{}, err
+		}
+		// The reply lands in the target agent's thread, tagged with the
+		// session as the job name so the app can list scheduled runs.
+		m = g.App.Message(t.Bot, req.Prompt, req.Session)
+		m.Agent = req.Agent
+		if req.Agent != t.Bot {
+			m.ChatKey += ":" + req.Agent
+		}
+		if req.Session != "" {
+			m.ChatKey = JobKey(req.Agent, req.Session)
+		}
+	} else if t != nil {
 		b, ok := g.Bots[t.Bot]
 		if !ok {
 			return router.TurnResult{}, api.Errorf(api.CodeUnknownBot, "no bot named %q", t.Bot)
@@ -172,9 +197,9 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 	log := logx.OrDiscard(g.Logger).With("agent", req.Agent, "chat", m.ChatKey)
 	if req.Async {
 		// The caller has gone by the time this runs; only shutdown stops it.
-		m.OnDone = func(res router.TurnResult) {
+		m.OnDone = chain(m.OnDone, func(res router.TurnResult) {
 			log.Info("queued run finished", "provider", res.Provider, "err", res.Err)
-		}
+		})
 		if !g.Router.Submit(m) {
 			return router.TurnResult{}, api.Errorf(api.CodeBusy, "that conversation has too many queued messages; try again later")
 		}
@@ -183,7 +208,7 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 
 	done := make(chan router.TurnResult, 1)
 	m.Ctx = ctx
-	m.OnDone = func(res router.TurnResult) { done <- res }
+	m.OnDone = chain(m.OnDone, func(res router.TurnResult) { done <- res })
 	if !g.Router.Submit(m) {
 		return router.TurnResult{}, api.Errorf(api.CodeBusy, "that conversation has too many queued messages; try again later")
 	}
@@ -192,6 +217,28 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 		return res, nil
 	case <-g.Ctx.Done():
 		return router.TurnResult{Err: ErrShuttingDown, Text: ErrShuttingDown.Error()}, nil
+	}
+}
+
+// checkApp reports whether t can be delivered to the app channel.
+func (g *Gateway) checkApp(t api.Target) error {
+	if g.App == nil {
+		return api.Errorf(api.CodeBadRequest, "the app channel is off; set [app] listen in the config")
+	}
+	if _, ok := g.Agents[t.Bot]; !ok {
+		return api.Errorf(api.CodeUnknownAgent, "no agent named %q for %s", t.Bot, t)
+	}
+	return nil
+}
+
+// chain runs first (if set), then next.
+func chain(first, next func(router.TurnResult)) func(router.TurnResult) {
+	if first == nil {
+		return next
+	}
+	return func(res router.TurnResult) {
+		first(res)
+		next(res)
 	}
 }
 

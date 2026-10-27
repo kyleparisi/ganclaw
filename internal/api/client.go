@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 
 	"github.com/kyleparisi/ganclaw/internal/provider"
 )
@@ -59,6 +60,24 @@ func (c *Client) Status(ctx context.Context) ([]provider.Status, error) {
 	return resp.Providers, err
 }
 
+func (c *Client) Pair(ctx context.Context, name string) (PairResponse, error) {
+	var resp PairResponse
+	err := c.do(ctx, http.MethodPost, "/v1/app/pair", PairRequest{Name: name}, &resp)
+	return resp, err
+}
+
+func (c *Client) Devices(ctx context.Context) ([]DeviceInfo, error) {
+	var resp struct {
+		Devices []DeviceInfo `json:"devices"`
+	}
+	err := c.do(ctx, http.MethodGet, "/v1/app/devices", nil, &resp)
+	return resp.Devices, err
+}
+
+func (c *Client) Unpair(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/app/devices/"+url.PathEscape(id), nil, nil)
+}
+
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
 	var body io.Reader
 	if in != nil {
@@ -92,6 +111,9 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 			return er.Error
 		}
 		return &Error{Status: resp.StatusCode, Code: CodeFailed, Message: string(bytes.TrimSpace(data))}
+	}
+	if out == nil {
+		return nil
 	}
 	return json.Unmarshal(data, out)
 }

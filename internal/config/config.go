@@ -5,6 +5,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -41,6 +43,8 @@ type Config struct {
 
 	Monitor Monitor `toml:"monitor"`
 
+	App App `toml:"app"`
+
 	// DisableAgentTools stops ganclaw registering its own MCP server
 	// ("ganclaw": send_message, ask_agent, hand_off, list_agents) with
 	// every agent.
@@ -56,6 +60,24 @@ type Contact struct {
 	// DefaultBot is used when a request doesn't pick one with --via.
 	DefaultBot string `toml:"default_bot"`
 }
+
+// App configures the channel for ganclaw's native apps: HTTPS for requests
+// and a WebSocket for live updates. Off unless Listen is set.
+type App struct {
+	// Listen is the address to serve on, e.g. "0.0.0.0:8443". Without
+	// TLSCert/TLSKey it must be a loopback address, for use behind a
+	// reverse proxy that terminates TLS: device tokens never cross the
+	// network in the clear.
+	Listen  string `toml:"listen"`
+	TLSCert string `toml:"tls_cert"`
+	TLSKey  string `toml:"tls_key"`
+	// PublicURL is how phones reach this server, e.g.
+	// "https://ganclaw.example.com". `ganclaw app pair` shows it.
+	PublicURL string `toml:"public_url"`
+}
+
+// Enabled reports whether the app channel is configured.
+func (a App) Enabled() bool { return a.Listen != "" }
 
 // Monitor configures `ganclaw check`.
 type Monitor struct {
@@ -331,10 +353,42 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("monitor.probes[%d]: name and url are required", i))
 		}
 	}
+	if err := c.App.validate(); err != nil {
+		errs = append(errs, err)
+	}
 	if n := c.OpenClawCompat.Notify; n != "" && !contacts[n] {
 		errs = append(errs, fmt.Errorf("openclaw_compat: notify contact %q is not defined", n))
 	}
 	return errors.Join(errs...)
+}
+
+func (a App) validate() error {
+	if !a.Enabled() {
+		if a.TLSCert != "" || a.TLSKey != "" || a.PublicURL != "" {
+			return errors.New("app: listen is required when other [app] keys are set")
+		}
+		return nil
+	}
+	host, _, err := net.SplitHostPort(a.Listen)
+	if err != nil {
+		return fmt.Errorf("app: listen %q: %w", a.Listen, err)
+	}
+	if (a.TLSCert == "") != (a.TLSKey == "") {
+		return errors.New("app: set both tls_cert and tls_key, or neither")
+	}
+	if a.TLSCert == "" {
+		ip := net.ParseIP(host)
+		if host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			return fmt.Errorf("app: listen %q is not a loopback address; set tls_cert and tls_key, or listen on 127.0.0.1 behind a TLS reverse proxy", a.Listen)
+		}
+	}
+	if a.PublicURL != "" {
+		u, err := url.Parse(a.PublicURL)
+		if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+			return fmt.Errorf("app: public_url %q must be an http(s) URL", a.PublicURL)
+		}
+	}
+	return nil
 }
 
 // Contact returns the named contact.

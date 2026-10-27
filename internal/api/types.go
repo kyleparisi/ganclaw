@@ -100,6 +100,28 @@ type ProbeResult struct {
 	Error string `json:"error,omitempty"`
 }
 
+// PairRequest asks for a code that pairs a phone with the app channel.
+type PairRequest struct {
+	Name string `json:"name"`
+}
+
+type PairResponse struct {
+	Code      string    `json:"code"`
+	ExpiresAt time.Time `json:"expires_at"`
+	// URL is the server the phone should connect to, if configured.
+	URL string `json:"url,omitempty"`
+	// Link opens the app with both filled in, e.g. as a QR code.
+	Link string `json:"link,omitempty"`
+}
+
+// DeviceInfo is a paired phone.
+type DeviceInfo struct {
+	ID       string     `json:"id"`
+	Name     string     `json:"name"`
+	Created  time.Time  `json:"created_at"`
+	LastSeen *time.Time `json:"last_seen,omitempty"`
+}
+
 // Error is an API error. Code is stable and machine-readable.
 type Error struct {
 	Status  int    `json:"-"`
@@ -151,15 +173,28 @@ func Errorf(code, format string, args ...any) *Error {
 
 // Target is a resolved address.
 type Target struct {
-	Channel string // "telegram"
-	Bot     string
-	Chat    int64
+	Channel string // "telegram" or "app"
+	// Bot is the Telegram bot; for the app channel, the agent whose thread
+	// receives the message.
+	Bot  string
+	Chat int64
 }
 
-func (t Target) String() string { return fmt.Sprintf("%s:%s:%d", t.Channel, t.Bot, t.Chat) }
+func (t Target) String() string {
+	if t.Channel == "app" {
+		return "app:" + t.Bot
+	}
+	return fmt.Sprintf("%s:%s:%d", t.Channel, t.Bot, t.Chat)
+}
 
-// ParseAddress parses "telegram:<bot>:<chat>".
+// ParseAddress parses "telegram:<bot>:<chat>" or "app:<agent>".
 func ParseAddress(s string) (Target, bool) {
+	if agent, ok := strings.CutPrefix(s, "app:"); ok {
+		if agent == "" || strings.Contains(agent, ":") {
+			return Target{}, false
+		}
+		return Target{Channel: "app", Bot: agent}, true
+	}
 	parts := strings.Split(s, ":")
 	if len(parts) != 3 || parts[0] != "telegram" || parts[1] == "" {
 		return Target{}, false

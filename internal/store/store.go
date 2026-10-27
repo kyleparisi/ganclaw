@@ -1,5 +1,6 @@
 // Package store persists ganclaw's small amount of state in SQLite:
-// per-chat provider sessions and per-bot channel offsets.
+// per-chat provider sessions, per-bot channel offsets and the app
+// channel's devices, messages and files.
 package store
 
 import (
@@ -55,7 +56,12 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
-	return &Store{db: db}, nil
+	s := &Store{db: db}
+	if err := s.initApp(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("init app schema: %w", err)
+	}
+	return s, nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }

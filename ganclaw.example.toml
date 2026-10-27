@@ -45,6 +45,15 @@ token_env = "GANCLAW_TELEGRAM_ASSISTANT_TOKEN"
 # commands in their workspace, so open bots are refused.
 allow_users = [123456789]
 
+# Optional: the channel for ganclaw's iOS app (apps/ios). Pair a phone with
+# `ganclaw app pair --name iphone`. Plain HTTP only on loopback, behind a TLS
+# reverse proxy; or set tls_cert/tls_key to serve HTTPS directly.
+# [app]
+# listen = "127.0.0.1:8443"
+# public_url = "https://ganclaw.example.com"
+# tls_cert = "/etc/ganclaw/tls/fullchain.pem"
+# tls_key = "/etc/ganclaw/tls/privkey.pem"
+
 # Health alerts from `ganclaw check` (see deploy/ganclaw-check.timer).
 # Uses no AI: provider status, bot polling and HTTP probes only.
 # [monitor]

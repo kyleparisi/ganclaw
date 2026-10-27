@@ -19,6 +19,7 @@ import (
 
 	"github.com/kyleparisi/ganclaw/internal/agent"
 	"github.com/kyleparisi/ganclaw/internal/api"
+	"github.com/kyleparisi/ganclaw/internal/appchannel"
 	"github.com/kyleparisi/ganclaw/internal/provider"
 	"github.com/kyleparisi/ganclaw/internal/router"
 	"github.com/kyleparisi/ganclaw/internal/store"
@@ -481,5 +482,77 @@ func TestGatewayQuietTyping(t *testing.T) {
 		assert.Positive(t, count, "interactive typing remains enabled")
 		assert.Equal(t, count, interactiveActions.Load(), "interactive typing stops when that conversation finishes")
 		assert.Zero(t, quietActions.Load(), "quiet job sends no chat actions during overlap or after the interactive reply")
+	})
+}
+
+func withApp(t *testing.T, g *Gateway, db *store.Store) *appchannel.Channel {
+	t.Helper()
+	app := &appchannel.Channel{Agents: g.Agents, Store: db, Submit: g.Router.Submit, FilesDir: t.TempDir()}
+	require.NoError(t, app.Start(context.Background()))
+	g.App = app
+	return app
+}
+
+func TestGatewayApp(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Scheduled run lands in the agent's thread tagged as a job", func(t *testing.T) {
+		subject, db := newGateway(t, &sentMessages{}, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+			sessions["codex"] = "t-1"
+			return "codex", provider.Result{Text: "2 timeouts overnight."}, nil
+		})
+		withApp(t, subject, db)
+		target := &api.Target{Channel: "app", Bot: "assistant"}
+
+		res, err := subject.Run(ctx, api.RunRequest{Agent: "assistant", Prompt: "check logs", Session: "nightly"}, target)
+
+		require.NoError(t, err)
+		assert.Equal(t, "2 timeouts overnight.", res.Text)
+		msgs, err := db.AppMessages(ctx, "assistant", 0, 10)
+		require.NoError(t, err)
+		require.Len(t, msgs, 1)
+		assert.Equal(t, "nightly", msgs[0].Job)
+		assert.Equal(t, "2 timeouts overnight.", msgs[0].Text)
+		s, _ := db.Sessions(ctx, JobKey("assistant", "nightly"))
+		assert.Equal(t, provider.Sessions{"codex": "t-1"}, s, "the job keeps its own conversation")
+	})
+
+	t.Run("Run without a session joins the thread's conversation", func(t *testing.T) {
+		subject, db := newGateway(t, &sentMessages{}, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+			sessions["codex"] = "t-2"
+			return "codex", provider.Result{Text: "ok"}, nil
+		})
+		withApp(t, subject, db)
+
+		_, err := subject.Run(ctx, api.RunRequest{Agent: "assistant", Prompt: "hi"}, &api.Target{Channel: "app", Bot: "assistant"})
+
+		require.NoError(t, err)
+		s, _ := db.Sessions(ctx, "app:assistant")
+		assert.Equal(t, provider.Sessions{"codex": "t-2"}, s)
+	})
+
+	t.Run("Send posts to the thread", func(t *testing.T) {
+		subject, db := newGateway(t, &sentMessages{}, nil)
+		withApp(t, subject, db)
+
+		require.NoError(t, subject.Send(ctx, api.Target{Channel: "app", Bot: "support"}, "deploy finished"))
+
+		msgs, err := db.AppMessages(ctx, "support", 0, 10)
+		require.NoError(t, err)
+		require.Len(t, msgs, 1)
+		assert.Equal(t, "deploy finished", msgs[0].Text)
+	})
+
+	t.Run("App off or unknown agent", func(t *testing.T) {
+		subject, db := newGateway(t, &sentMessages{}, nil)
+		var e *api.Error
+		err := subject.Send(ctx, api.Target{Channel: "app", Bot: "assistant"}, "x")
+		require.ErrorAs(t, err, &e)
+		assert.Equal(t, api.CodeBadRequest, e.Code)
+
+		withApp(t, subject, db)
+		_, err = subject.Run(ctx, api.RunRequest{Agent: "assistant", Prompt: "x"}, &api.Target{Channel: "app", Bot: "ghost"})
+		require.ErrorAs(t, err, &e)
+		assert.Equal(t, api.CodeUnknownAgent, e.Code)
 	})
 }
