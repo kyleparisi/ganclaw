@@ -58,12 +58,18 @@ XCB=(xcodebuild -project "$IOS/Ganclaw.xcodeproj" -scheme Ganclaw -configuration
 
 if [ -z "${SKIP_UNIT:-}" ]; then
   echo "==> build + unit tests"
-  "${XCB[@]}" test -resultBundlePath "$ARTIFACTS/unit.xcresult" 2>&1 | tee "$ARTIFACTS/xcodebuild-test.log" | grep -E "error:|warning: .*Ganclaw/|Test Case .* (passed|failed)|\*\* (TEST|BUILD) " || true
-  [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "unit tests failed; see $ARTIFACTS/xcodebuild-test.log"; exit 1; }
+  # Status first, filtering after: with pipefail, "pipeline || true" leaves
+  # PIPESTATUS as true's 0, which let failing unit tests pass CI.
+  status=0
+  "${XCB[@]}" test -resultBundlePath "$ARTIFACTS/unit.xcresult" >"$ARTIFACTS/xcodebuild-test.log" 2>&1 || status=$?
+  grep -E "error:|warning: .*Ganclaw/|Test Case .* (passed|failed)|\*\* (TEST|BUILD) " "$ARTIFACTS/xcodebuild-test.log" || true
+  [ "$status" -eq 0 ] || { echo "unit tests failed; see $ARTIFACTS/xcodebuild-test.log"; exit 1; }
 else
   echo "==> build"
-  "${XCB[@]}" build 2>&1 | tee "$ARTIFACTS/xcodebuild-build.log" | grep -E "error:|\*\* BUILD " || true
-  [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "build failed; see $ARTIFACTS/xcodebuild-build.log"; exit 1; }
+  status=0
+  "${XCB[@]}" build >"$ARTIFACTS/xcodebuild-build.log" 2>&1 || status=$?
+  grep -E "error:|\*\* BUILD " "$ARTIFACTS/xcodebuild-build.log" || true
+  [ "$status" -eq 0 ] || { echo "build failed; see $ARTIFACTS/xcodebuild-build.log"; exit 1; }
 fi
 
 APP="$BUILD/dd/Build/Products/Debug-iphonesimulator/Ganclaw.app"
