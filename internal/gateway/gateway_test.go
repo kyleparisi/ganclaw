@@ -502,12 +502,16 @@ func TestGatewayApp(t *testing.T) {
 			return "", provider.Result{}, nil
 		})
 		withApp(t, subject, db)
-		require.NoError(t, subject.SendJob(ctx, api.Target{Channel: "app", Bot: "assistant"}, "Daily check complete", "daily-check"))
+		target := api.Target{Channel: "app", Bot: "assistant"}
+		require.NoError(t, subject.SendJob(ctx, target, "Daily check complete", "daily-check", false))
+		require.NoError(t, subject.SendJob(ctx, target, "Disk check failed", "daily-check", true))
 		runs, err := db.AppJobRuns(ctx, "daily-check", 10)
 		require.NoError(t, err)
-		require.Len(t, runs, 1)
-		assert.Equal(t, "assistant", runs[0].Thread)
-		assert.Equal(t, "Daily check complete", runs[0].Text)
+		require.Len(t, runs, 2)
+		assert.Equal(t, "assistant", runs[1].Thread)
+		assert.Equal(t, "Daily check complete", runs[1].Text)
+		assert.Equal(t, store.StatusDone, runs[1].Status)
+		assert.Equal(t, store.StatusError, runs[0].Status, "a failed run shows as failed")
 	})
 
 	t.Run("Scheduled run lands in the agent's thread tagged as a job", func(t *testing.T) {

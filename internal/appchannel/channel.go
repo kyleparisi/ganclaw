@@ -147,11 +147,17 @@ func (c *Channel) agentState(agentName string) AgentState {
 // Post adds a message to an agent's thread with no agent turn, e.g. a
 // plain `ganclaw send` to the app.
 func (c *Channel) Post(ctx context.Context, agentName, role, text, job string) (store.AppMessage, error) {
+	return c.PostMessage(ctx, store.AppMessage{Thread: agentName, Role: role, Text: text, Job: job})
+}
+
+// PostMessage adds m to its thread (m.Thread names the agent) and pushes it
+// to connected phones.
+func (c *Channel) PostMessage(ctx context.Context, m store.AppMessage) (store.AppMessage, error) {
 	c.setup()
-	if _, ok := c.Agents[agentName]; !ok {
-		return store.AppMessage{}, fmt.Errorf("no agent named %q", agentName)
+	if _, ok := c.Agents[m.Thread]; !ok {
+		return store.AppMessage{}, fmt.Errorf("no agent named %q", m.Thread)
 	}
-	m, err := c.Store.AddAppMessage(ctx, store.AppMessage{Thread: agentName, Role: role, Text: text, Job: job})
+	m, err := c.Store.AddAppMessage(ctx, m)
 	if err != nil {
 		return m, err
 	}
