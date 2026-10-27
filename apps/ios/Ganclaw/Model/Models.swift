@@ -144,3 +144,13 @@ enum JSON {
         return fractional.date(from: trimmed)
     }
 }
+
+struct WorkerTask: Codable, Identifiable, Equatable {
+    var id: String
+    var agent: String
+    var state: String
+    var progress: String
+    var cursor: Int64
+    var updatedAt: Date
+    var isActive: Bool { state == "queued" || state == "running" }
+}

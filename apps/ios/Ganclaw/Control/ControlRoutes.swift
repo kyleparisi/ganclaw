@@ -48,7 +48,7 @@ struct ControlRoutes {
         case ("POST", "/navigate"):
             return await navigate(body)
         case ("POST", "/filter"):
-            guard let f = InboxFilter(rawValue: str(body, "filter")) else { return .error("filter must be all, running, needsYou or jobs") }
+            guard let f = InboxFilter(rawValue: str(body, "filter")) else { return .error("filter must be all, running, needsYou, jobs or tasks") }
             store.send(.setFilter(f))
             return .ok
 

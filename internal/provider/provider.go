@@ -27,6 +27,8 @@ type Request struct {
 	Attachments []Attachment
 	// OnDelta, if set, receives streamed text of the final answer.
 	OnDelta func(text string)
+	// OnProgress receives fixed safe activity labels, never raw provider content.
+	OnProgress func(activity string)
 	// OnReset, if set, is called by Chain before falling back to the next
 	// provider, so streamed text from the failed one can be discarded.
 	OnReset func()

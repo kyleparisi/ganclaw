@@ -15,7 +15,9 @@ struct InboxView: View {
                             .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.muted)
                             .control("inbox.reconnecting")
                     }
-                    if s.filter == .jobs {
+                    if s.filter == .tasks {
+                        TaskList()
+                    } else if s.filter == .jobs {
                         JobList(jobs: s.jobs)
                     } else {
                         rows(s)

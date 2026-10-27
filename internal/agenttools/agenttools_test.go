@@ -39,7 +39,7 @@ func call(t *testing.T, cs *mcp.ClientSession, name string, args map[string]any)
 }
 
 func TestTools(t *testing.T) {
-	t.Run("Lists the four tools", func(t *testing.T) {
+	t.Run("Lists the available tools", func(t *testing.T) {
 		cs := connect(t, Deps{})
 
 		res, err := cs.ListTools(context.Background(), nil)
@@ -49,7 +49,7 @@ func TestTools(t *testing.T) {
 		for _, tl := range res.Tools {
 			names = append(names, tl.Name)
 		}
-		assert.ElementsMatch(t, []string{"list_agents", "send_message", "ask_agent", "hand_off"}, names)
+		assert.ElementsMatch(t, []string{"list_agents", "send_message", "ask_agent", "hand_off", "task_status"}, names)
 	})
 
 	t.Run("send_message sends through the API", func(t *testing.T) {
@@ -80,13 +80,14 @@ func TestTools(t *testing.T) {
 	t.Run("hand_off queues a delivered run", func(t *testing.T) {
 		cs := connect(t, Deps{Run: func(ctx context.Context, req api.RunRequest) (api.RunResponse, error) {
 			assert.Equal(t, api.RunRequest{Agent: "sales", Prompt: "Draft a reply to this lead", To: "alex", Async: true}, req)
-			return api.RunResponse{OK: true, Queued: true, Target: "telegram:sales:111"}, nil
+			return api.RunResponse{OK: true, Queued: true, TaskID: "task-1", Target: "telegram:sales:111"}, nil
 		}})
 
 		out, isErr := call(t, cs, "hand_off", map[string]any{"agent": "sales", "prompt": "Draft a reply to this lead", "to": "alex"})
 
 		assert.False(t, isErr)
 		assert.Equal(t, true, out["queued"])
+		assert.Equal(t, "task-1", out["task_id"])
 	})
 
 	t.Run("hand_off can isolate background work from the app conversation", func(t *testing.T) {
@@ -122,5 +123,18 @@ func TestTools(t *testing.T) {
 		assert.True(t, isErr1)
 		assert.True(t, isErr2)
 		assert.True(t, isErr3, "hand_off needs a recipient")
+	})
+}
+
+func TestTaskStatus(t *testing.T) {
+	subject := connect
+	t.Run("Passes task lookup to the read only API", func(t *testing.T) {
+		cs := subject(t, Deps{Tasks: func(_ context.Context, id, agent string) (api.TasksResponse, error) {
+			assert.Equal(t, "task-1", id)
+			assert.Empty(t, agent)
+			return api.TasksResponse{}, nil
+		}})
+		_, isErr := call(t, cs, "task_status", map[string]any{"task_id": "task-1"})
+		assert.False(t, isErr)
 	})
 }

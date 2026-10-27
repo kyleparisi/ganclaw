@@ -101,7 +101,7 @@ func (p *Provider) Run(ctx context.Context, req provider.Request) (provider.Resu
 	}
 	log.Debug("turn started", "prompt_len", len(req.Prompt))
 
-	st, parseErr := parseStream(proc.Stdout, req.OnDelta)
+	st, parseErr := parseStream(proc.Stdout, req.OnDelta, req.OnProgress)
 	waitErr := proc.Wait()
 	if st.rateLimit != nil {
 		p.mu.Lock()

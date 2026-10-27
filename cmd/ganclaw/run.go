@@ -170,6 +170,10 @@ func cmdServe(ctx context.Context, args []string) error {
 		}()
 	}
 
+	if err := st.InterruptTasks(ctx); err != nil {
+		return err
+	}
+
 	gw := &gateway.Gateway{Ctx: ctx, Router: r, Agents: agents, Bots: bots, App: app, Logger: log}
 	apiSrv := &api.Server{
 		Resolve:  api.Resolver{Contacts: cfg.Contacts, Bots: botNames}.Resolve,

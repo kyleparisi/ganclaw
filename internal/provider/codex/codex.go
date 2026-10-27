@@ -95,11 +95,12 @@ func (s *server) exited() bool {
 
 // turnState collects notifications for the one active turn on a thread.
 type turnState struct {
-	onDelta func(string)
-	phase   map[string]string // itemId -> phase
-	final   string            // last final_answer message
-	last    string            // last agent message of any phase
-	done    chan turn
+	onDelta    func(string)
+	onProgress func(string)
+	phase      map[string]string // itemId -> phase
+	final      string            // last final_answer message
+	last       string            // last agent message of any phase
+	done       chan turn
 }
 
 // New starts the app-server and completes the initialize handshake. ctx
@@ -212,7 +213,7 @@ func (p *Provider) run(ctx context.Context, srv *server, req provider.Request) (
 	}
 	log := p.log.With("thread", threadID)
 
-	ts := &turnState{onDelta: req.OnDelta, phase: map[string]string{}, done: make(chan turn, 1)}
+	ts := &turnState{onProgress: req.OnProgress, onDelta: req.OnDelta, phase: map[string]string{}, done: make(chan turn, 1)}
 	p.mu.Lock()
 	if p.turns[threadID] != nil {
 		p.mu.Unlock()
@@ -324,7 +325,16 @@ func (p *Provider) handleNotification(method string, params json.RawMessage) {
 	switch method {
 	case "item/started", "item/completed":
 		var n itemNotification
-		if json.Unmarshal(params, &n) != nil || n.Item.Type != "agentMessage" {
+		if json.Unmarshal(params, &n) != nil {
+			return
+		}
+		if ts := p.turn(n.ThreadID); ts != nil && ts.onProgress != nil {
+			label := map[string]string{"commandExecution": "Command activity observed", "fileChange": "File change activity observed", "mcpToolCall": "MCP tool activity observed", "webSearch": "Web search activity observed", "agentMessage": "Agent message activity observed"}[n.Item.Type]
+			if label != "" {
+				ts.onProgress(label)
+			}
+		}
+		if n.Item.Type != "agentMessage" {
 			return
 		}
 		ts := p.turn(n.ThreadID)

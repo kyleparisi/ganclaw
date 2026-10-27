@@ -11,6 +11,7 @@ import (
 	"net/url"
 
 	"github.com/kyleparisi/ganclaw/internal/provider"
+	"github.com/kyleparisi/ganclaw/internal/store"
 )
 
 // Client talks to the API over its Unix socket.
@@ -116,4 +117,21 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 		return nil
 	}
 	return json.Unmarshal(data, out)
+}
+
+// Tasks looks up an ID, or discovers the latest 50 tasks when ID is empty.
+func (c *Client) Tasks(ctx context.Context, id, agent string) (TasksResponse, error) {
+	var out TasksResponse
+	path := "/v1/tasks?agent=" + url.QueryEscape(agent)
+	if id != "" {
+		var task store.Task
+		err := c.do(ctx, http.MethodGet, "/v1/tasks/"+url.PathEscape(id), nil, &task)
+		if err != nil {
+			return out, err
+		}
+		out.Tasks = []store.Task{task}
+		return out, nil
+	}
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out, err
 }

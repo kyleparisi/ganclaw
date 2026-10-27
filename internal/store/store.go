@@ -22,6 +22,7 @@ type Store struct {
 }
 
 const schema = `
+CREATE TABLE IF NOT EXISTS worker_tasks (id TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions (
 	chat_key   TEXT NOT NULL,
 	provider   TEXT NOT NULL,

@@ -41,6 +41,8 @@ func (c *Channel) Handler(version string) http.Handler {
 	auth.HandleFunc("POST /app/v1/threads/{agent}/reset", c.handleReset)
 	auth.HandleFunc("POST /app/v1/threads/{agent}/files", c.handleUpload)
 	auth.HandleFunc("GET /app/v1/files/{id}", c.handleFile)
+	auth.HandleFunc("GET /app/v1/tasks", c.handleTasks)
+	auth.HandleFunc("GET /app/v1/tasks/{task}/messages", c.handleTaskMessages)
 	auth.HandleFunc("GET /app/v1/jobs", c.handleJobs)
 	auth.HandleFunc("GET /app/v1/jobs/{job}/runs", c.handleJobRuns)
 	auth.HandleFunc("GET /app/v1/events", c.handleEvents)
@@ -230,7 +232,7 @@ const VoicePrefix = "[The user is driving and will hear your reply read aloud. A
 // DriveWorkPrefix keeps the conversational turn free while a separate
 // session performs work. The explicit destination lets results return to
 // the same app thread without relying on Telegram contact defaults.
-const DriveWorkPrefix = "[Drive mode: keep this conversation responsive. For any requested task that needs tools, research or code changes and would take more than a few seconds, delegate it to a background agent instead of doing it in this conversational turn. Use ganclaw hand_off with agent %q, to %q, and a unique nonempty session for that task. Include all necessary context and tell the worker to do the work directly without delegating it again, and to start its reply with one or two short spoken sentences summarising the result, then a line containing only ---, then any details. After the handoff confirms it is queued, briefly acknowledge and end this turn immediately; do not wait or poll for completion. The worker's result is read aloud to the user when it arrives. Answer simple conversation and quick questions briefly yourself. Never claim work has started until the handoff succeeds; if delegation is unavailable or fails, say so.]\n\n"
+const DriveWorkPrefix = "[Drive mode: keep this conversation responsive. For any requested task that needs tools, research or code changes and would take more than a few seconds, delegate it to a background agent instead of doing it in this conversational turn. Use ganclaw hand_off with agent %q, to %q, and a unique nonempty session for that task. Include all necessary context and tell the worker to do the work directly without delegating it again, and to start its reply with one or two short spoken sentences summarising the result, then a line containing only ---, then any details. After the handoff confirms it is queued, briefly acknowledge and end this turn immediately; do not wait or poll for completion. The worker's result is read aloud to the user when it arrives. Answer simple conversation and quick questions briefly yourself. Retain the task_id returned by hand_off. For status questions, use task_status by ID, or discover recent tasks if the ID is unavailable. Queued means waiting; report running only when task_status says running. Progress is the latest observed activity, not continuous live visibility. Never claim work has been queued until the handoff succeeds; if delegation is unavailable or fails, say so.]\n\n"
 
 func (c *Channel) handleSend(w http.ResponseWriter, r *http.Request) {
 	n, ok := c.agentParam(w, r)
