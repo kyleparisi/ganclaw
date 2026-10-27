@@ -210,6 +210,8 @@ func TestVoiceMessage(t *testing.T) {
 	reqs := h.run.requests()
 	require.Len(t, reqs, 1)
 	assert.True(t, strings.HasPrefix(reqs[0].Prompt, VoicePrefix))
+	assert.Contains(t, reqs[0].Prompt, `to "app:infra"`)
+	assert.Contains(t, reqs[0].Prompt, "unique nonempty session")
 	assert.True(t, strings.HasSuffix(reqs[0].Prompt, "Did the fix ship?"))
 }
 
@@ -413,4 +415,29 @@ func TestExtractButtons(t *testing.T) {
 		assert.Equal(t, tc.text, text, tc.in)
 		assert.Equal(t, tc.labels, labels, tc.in)
 	}
+}
+
+func TestDriveDelegationPolicy(t *testing.T) {
+	subject := newHarness
+	t.Run("Full answers still receive the drive work policy", func(t *testing.T) {
+		h := subject(t, func(provider.Request) string { return "Queued." })
+		h.pair()
+		require.Equal(t, http.StatusOK, h.do("POST", "/app/v1/threads/infra/messages", map[string]any{"text": "Investigate the alert", "drive_mode": true}, nil))
+		msgs := h.waitDone("infra", 2)
+		assert.Equal(t, "Investigate the alert", msgs[0].Text)
+		reqs := h.run.requests()
+		require.Len(t, reqs, 1)
+		assert.Contains(t, reqs[0].Prompt, "delegate it to a background agent")
+		assert.Contains(t, reqs[0].Prompt, `to "app:infra"`)
+		assert.NotContains(t, reqs[0].Prompt, VoicePrefix)
+	})
+	t.Run("Ordinary typed messages do not receive the drive policy", func(t *testing.T) {
+		h := subject(t, func(provider.Request) string { return "Done." })
+		h.pair()
+		require.Equal(t, http.StatusOK, h.do("POST", "/app/v1/threads/infra/messages", map[string]any{"text": "Investigate the alert"}, nil))
+		h.waitDone("infra", 2)
+		reqs := h.run.requests()
+		require.Len(t, reqs, 1)
+		assert.NotContains(t, reqs[0].Prompt, "Drive mode:")
+	})
 }

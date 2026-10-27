@@ -73,10 +73,10 @@ struct APIClient {
         return try await send(request("GET", "/app/v1/threads/\(escape(agent))/messages", query: q), as: ThreadPage.self)
     }
 
-    func send(agent: String, text: String, fileIDs: [String], replyTo: Int64?, voice: Bool) async throws -> AppMessage {
-        struct Body: Encodable { var text: String; var fileIds: [String]?; var replyTo: Int64?; var voice: Bool? }
+    func send(agent: String, text: String, fileIDs: [String], replyTo: Int64?, voice: Bool, driveMode: Bool = false) async throws -> AppMessage {
+        struct Body: Encodable { var text: String; var fileIds: [String]?; var replyTo: Int64?; var voice: Bool?; var driveMode: Bool? }
         struct R: Decodable { var message: AppMessage }
-        let body = Body(text: text, fileIds: fileIDs.isEmpty ? nil : fileIDs, replyTo: replyTo, voice: voice ? true : nil)
+        let body = Body(text: text, fileIds: fileIDs.isEmpty ? nil : fileIDs, replyTo: replyTo, voice: voice ? true : nil, driveMode: driveMode ? true : nil)
         return try await sendJSON("POST", "/app/v1/threads/\(escape(agent))/messages", body: body, as: R.self).message
     }
 

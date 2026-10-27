@@ -220,10 +220,17 @@ type sendRequest struct {
 	// Voice marks a message spoken in drive mode: the agent is asked for a
 	// short answer that reads well aloud. The stored text is unchanged.
 	Voice bool `json:"voice,omitempty"`
+	// DriveMode is independent of the short-answer preference.
+	DriveMode bool `json:"drive_mode,omitempty"`
 }
 
 // VoicePrefix is added to the prompt of drive-mode messages.
 const VoicePrefix = "[The user is driving and will hear your reply read aloud. Answer in one or two short spoken sentences, with no Markdown, code or lists. If there are details, say they are in the thread and put them after a line containing only ---.]\n\n"
+
+// DriveWorkPrefix keeps the conversational turn free while a separate
+// session performs work. The explicit destination lets results return to
+// the same app thread without relying on Telegram contact defaults.
+const DriveWorkPrefix = "[Drive mode: keep this conversation responsive. For every requested task involving tools, research, code changes, or other work, delegate it to a background agent instead of doing the task in this conversational turn. Use ganclaw hand_off with agent %q, to %q, and a unique nonempty session for that task. Include all necessary context and tell the worker to do the work directly without delegating it again. After the handoff confirms it is queued, briefly acknowledge and end this turn immediately; do not wait or poll for completion. The worker delivers its result to this thread. Answer simple conversation and status questions briefly yourself. Never claim work has started until the handoff succeeds; if delegation is unavailable or fails, report that honestly rather than silently doing a blocking task.]\n\n"
 
 func (c *Channel) handleSend(w http.ResponseWriter, r *http.Request) {
 	n, ok := c.agentParam(w, r)
@@ -255,6 +262,9 @@ func (c *Channel) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	prompt := req.Text
+	if req.Voice || req.DriveMode {
+		prompt = fmt.Sprintf(DriveWorkPrefix, n, "app:"+n) + prompt
+	}
 	if req.Voice {
 		prompt = VoicePrefix + prompt
 	}

@@ -74,3 +74,17 @@ device and used for drive-mode replies. If a selected voice is removed,
 speech falls back to the system default. The better voices have to be
 downloaded first: Settings › Accessibility › Spoken Content › Voices.
 Speech plays even with the ring/silent switch on silent.
+
+### Background work in drive mode
+
+Drive messages request that tool work, research and coding be handed to a
+background agent session, while simple conversation and status replies stay
+in the voice conversation. This applies with both Short and Full answers.
+The handoff names a separate session and returns results to the same app
+thread. The conversational agent should acknowledge only a confirmed queue
+operation and finish its turn immediately, without polling the worker.
+
+This is a prompt policy, not a scheduling guarantee: it depends on the
+provider following the instruction and having the ganclaw handoff tool.
+Worker capacity and service limits can still delay work. Background workers
+are asked to perform the task directly, without recursively delegating.

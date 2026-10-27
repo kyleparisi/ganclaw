@@ -43,9 +43,10 @@ type AskOut struct {
 }
 
 type HandOffIn struct {
-	Agent  string `json:"agent" jsonschema:"agent to hand the task to; see list_agents"`
-	Prompt string `json:"prompt" jsonschema:"the task, with all the context the other agent needs"`
-	To     string `json:"to" jsonschema:"contact who should receive that agent's reply, e.g. alex"`
+	Session string `json:"session,omitempty" jsonschema:"separate named work session; use a unique name for background work so it does not occupy the destination chat"`
+	Agent   string `json:"agent" jsonschema:"agent to hand the task to; see list_agents"`
+	Prompt  string `json:"prompt" jsonschema:"the task, with all the context the other agent needs"`
+	To      string `json:"to" jsonschema:"contact who should receive that agent's reply, e.g. alex"`
 }
 
 type HandOffOut struct {
@@ -94,7 +95,7 @@ func NewServer(d Deps, version string) *mcp.Server {
 		if in.Agent == "" || in.Prompt == "" || in.To == "" {
 			return nil, HandOffOut{}, errors.New("agent, prompt and to are required")
 		}
-		resp, err := d.Run(ctx, api.RunRequest{Agent: in.Agent, Prompt: in.Prompt, To: in.To, Async: true})
+		resp, err := d.Run(ctx, api.RunRequest{Agent: in.Agent, Prompt: in.Prompt, To: in.To, Session: in.Session, Async: true})
 		return nil, HandOffOut{Queued: resp.Queued, Target: resp.Target}, err
 	})
 	return s

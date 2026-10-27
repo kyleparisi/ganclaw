@@ -166,11 +166,11 @@ final class AppStore {
     }
 
     @discardableResult
-    func sendMessage(_ agent: String, text: String, fileIDs: [String], replyTo: Int64?, voice: Bool) async -> AppMessage? {
+    func sendMessage(_ agent: String, text: String, fileIDs: [String], replyTo: Int64?, voice: Bool, driveMode: Bool = false) async -> AppMessage? {
         guard let client else { return nil }
         send(.sending(agent, true))
         do {
-            let m = try await client.send(agent: agent, text: text, fileIDs: fileIDs, replyTo: replyTo, voice: voice)
+            let m = try await client.send(agent: agent, text: text, fileIDs: fileIDs, replyTo: replyTo, voice: voice, driveMode: driveMode)
             send(.sent(m))
             return m
         } catch {
@@ -300,7 +300,7 @@ final class AppStore {
         let after = state.thread(agent).messages.last?.id ?? state.agent(agent)?.lastMessage?.id ?? 0
         send(.driveAsked(text, after: after))
         Task {
-            if await sendMessage(agent, text: text, fileIDs: [], replyTo: nil, voice: d.shortAnswers) == nil {
+            if await sendMessage(agent, text: text, fileIDs: [], replyTo: nil, voice: d.shortAnswers, driveMode: true) == nil {
                 send(.drivePhase(.listening))
             }
         }
