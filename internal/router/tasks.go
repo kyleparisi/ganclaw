@@ -2,9 +2,32 @@ package router
 
 import (
 	"context"
-	"github.com/kyleparisi/ganclaw/internal/store"
+	"sync"
 	"time"
+
+	"github.com/kyleparisi/ganclaw/internal/store"
 )
+
+// progressWriter limits task progress writes to one per interval: providers
+// report every tool call and message, and each write is a database
+// transaction on the provider's event path. Repeats are dropped; the turn's
+// final state is written separately when it ends.
+func progressWriter(write func(string), every time.Duration, now func() time.Time) func(string) {
+	var mu sync.Mutex
+	var last string
+	var at time.Time
+	return func(activity string) {
+		mu.Lock()
+		t := now()
+		if activity == last || (!at.IsZero() && t.Sub(at) < every) {
+			mu.Unlock()
+			return
+		}
+		last, at = activity, t
+		mu.Unlock()
+		write(activity)
+	}
+}
 
 func (r *Router) CreateTask(ctx context.Context, agent string) (store.Task, error) {
 	return r.cfg.Store.CreateTask(ctx, agent)

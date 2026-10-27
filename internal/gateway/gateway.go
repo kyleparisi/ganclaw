@@ -215,7 +215,10 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 		quiet(&m)
 	}
 
-	if req.Async && req.Session == "" {
+	// Unnamed background work in the app runs in its own conversation, so it
+	// neither blocks nor joins the thread's. Telegram handoffs keep joining
+	// the chat's conversation: the contact may reply to the result.
+	if req.Async && req.Session == "" && t != nil && t.Channel == "app" {
 		m.ChatKey = JobKey(req.Agent, "")
 	}
 	log := logx.OrDiscard(g.Logger).With("agent", req.Agent, "chat", m.ChatKey)

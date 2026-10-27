@@ -82,7 +82,7 @@ to a background session and just confirm it's queued, so the conversation
 stays free; quick questions are answered directly. This applies with both
 Short and Full answers. When the work finishes, its result lands in the same
 thread and is read aloud once drive mode isn't thinking about or speaking
-another reply. All handed-off work is listed under one "background" job.
+another reply. Handed-off work is listed under Tasks, not Jobs.
 
 This is a prompt policy, not a scheduling guarantee: it depends on the
 provider following the instruction and having the ganclaw handoff tool.

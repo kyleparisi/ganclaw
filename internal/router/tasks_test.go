@@ -4,12 +4,28 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/kyleparisi/ganclaw/internal/provider"
 	"github.com/kyleparisi/ganclaw/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestProgressWriter(t *testing.T) {
+	subject := progressWriter
+	t.Run("Writes at most once per interval and skips repeats", func(t *testing.T) {
+		now := time.Unix(0, 0)
+		var written []string
+		write := subject(func(s string) { written = append(written, s) }, 2*time.Second, func() time.Time { return now })
+		write("Tool activity observed")
+		write("Agent message activity observed") // too soon
+		now = now.Add(3 * time.Second)
+		write("Tool activity observed") // same as last written
+		write("Agent message activity observed")
+		assert.Equal(t, []string{"Tool activity observed", "Agent message activity observed"}, written)
+	})
+}
 
 func TestTaskDelivery(t *testing.T) {
 	subject := (*Router).process

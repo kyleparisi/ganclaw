@@ -432,6 +432,10 @@ type JobSummary struct {
 	Problems int `json:"problems"`
 }
 
+// backgroundJob tags work handed off to its own session
+// (agenttools.BackgroundJob); drive mode reads those results aloud.
+const backgroundJob = "background"
+
 func (c *Channel) handleJobs(w http.ResponseWriter, r *http.Request) {
 	runs, err := c.Store.AppJobRuns(r.Context(), "", 500)
 	if err != nil {
@@ -441,6 +445,9 @@ func (c *Channel) handleJobs(w http.ResponseWriter, r *http.Request) {
 	byName := map[string]*JobSummary{}
 	out := []*JobSummary{}
 	for _, m := range runs { // newest first
+		if m.Job == backgroundJob {
+			continue // listed under Tasks; the job name only marks drive-mode results
+		}
 		j, ok := byName[m.Job]
 		if !ok {
 			j = &JobSummary{Name: m.Job, Agent: m.Thread, LastRun: m}
