@@ -13,53 +13,59 @@ struct AttachSheet: View {
     var body: some View {
         let a = store.state.attach
         let agentName = Theme.displayName(a.agent ?? "")
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Attach").font(.system(size: 18, weight: .bold)).accessibilityAddTraits(.isHeader)
-                Spacer()
-                CButton("attach.cancel", title: "Cancel") { store.send(.attachClose) }
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Theme.blue)
-                    .frame(minHeight: 44)
-            }
-            .padding(.top, 14)
-
-            HStack(spacing: 8) {
-                source("Camera", "camera", id: "attach.camera", enabled: store.platform.device.cameraAvailable()) { showCamera = true }
-                source("Files", "doc", id: "attach.files") { showFiles = true }
-                source("Link", "link", id: "attach.link") { showLink = true }
-                source("Paste", "doc.on.clipboard", id: "attach.paste", enabled: store.platform.pasteboard.hasContent()) { paste() }
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Recent photos").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text2)
-                PhotosPicker(selection: $photoItems, maxSelectionCount: 10, selectionBehavior: .continuousAndOrdered, matching: .images, photoLibrary: .shared()) {
-                    Text("All photos")
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 8) {
+                    source("Camera", "camera", id: "attach.camera", enabled: store.platform.device.cameraAvailable()) { showCamera = true }
+                    source("Files", "doc", id: "attach.files") { showFiles = true }
+                    source("Link", "link", id: "attach.link") { showLink = true }
+                    source("Paste", "doc.on.clipboard", id: "attach.paste", enabled: store.platform.pasteboard.hasContent()) { paste() }
                 }
-                .photosPickerStyle(.inline)
-                .photosPickerDisabledCapabilities([.search, .collectionNavigation, .stagingArea])
-                .photosPickerAccessoryVisibility(.hidden, edges: .all)
-                .frame(height: 96)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .control("attach.photos")
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Recent photos").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text2)
+                    PhotosPicker(selection: $photoItems, maxSelectionCount: 10, selectionBehavior: .continuousAndOrdered, matching: .images, photoLibrary: .shared()) {
+                        Text("All photos")
+                    }
+                    .photosPickerStyle(.inline)
+                    .photosPickerDisabledCapabilities([.search, .collectionNavigation, .stagingArea])
+                    .photosPickerAccessoryVisibility(.hidden, edges: .all)
+                    .frame(height: 96)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .control("attach.photos")
+                }
+
+                tray(a, agentName: agentName)
+
+                Spacer(minLength: 0)
+
+                CButton("attach.send") { Task { await store.sendAttachments() } } label: {
+                    Text(sendLabel(a))
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(maxWidth: .infinity).frame(height: 52)
+                        .background(a.ready && !a.sending ? Theme.blue : Theme.blue.opacity(0.4), in: Capsule())
+                        .foregroundStyle(.white)
+                }
+                .disabled(!a.ready || a.sending)
             }
-
-            tray(a, agentName: agentName)
-
-            Spacer(minLength: 0)
-
-            CButton("attach.send") { Task { await store.sendAttachments() } } label: {
-                Text(sendLabel(a))
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(maxWidth: .infinity).frame(height: 52)
-                    .background(a.ready && !a.sending ? Theme.blue : Theme.blue.opacity(0.4), in: Capsule())
-                    .foregroundStyle(.white)
+            .padding(.top, 16)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+            .background(Color.white)
+            .toolbar(.visible, for: .navigationBar)
+            .navigationTitle("Attach")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    CButton("attach.cancel") { store.send(.attachClose) } label: {
+                        Text("Cancel")
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .foregroundStyle(Theme.blue)
+                }
             }
-            .disabled(!a.ready || a.sending)
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 12)
-        .background(Color.white)
         .onChange(of: photoItems) { _, items in Task { await addPhotos(items) } }
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { urls.forEach(addFile) }
