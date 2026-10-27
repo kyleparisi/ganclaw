@@ -441,3 +441,20 @@ func TestDriveDelegationPolicy(t *testing.T) {
 		assert.NotContains(t, reqs[0].Prompt, "Drive mode:")
 	})
 }
+
+func TestBackgroundWorkIsNotAJob(t *testing.T) {
+	h := newHarness(t, func(provider.Request) string { return "unused" })
+	h.pair()
+	ctx := context.Background()
+	_, err := h.ch.Post(ctx, "infra", store.RoleAgent, "Alert was a false positive.", backgroundJob)
+	require.NoError(t, err)
+	_, err = h.ch.Post(ctx, "infra", store.RoleAgent, "All checks passed.", "daily-check")
+	require.NoError(t, err)
+
+	var jobs struct {
+		Jobs []JobSummary `json:"jobs"`
+	}
+	require.Equal(t, http.StatusOK, h.do("GET", "/app/v1/jobs", nil, &jobs))
+	require.Len(t, jobs.Jobs, 1, "handed-off work is listed under Tasks, not Jobs")
+	assert.Equal(t, "daily-check", jobs.Jobs[0].Name)
+}

@@ -130,6 +130,24 @@ func TestGatewayRun(t *testing.T) {
 		assert.Equal(t, provider.Sessions{"claude": "k-1"}, s, "the user can reply in Telegram with context")
 	})
 
+	t.Run("Async handoff to Telegram joins the chat's conversation", func(t *testing.T) {
+		sent := &sentMessages{}
+		subject, db := newGateway(t, sent, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+			sessions["claude"] = "k-handoff"
+			return "claude", provider.Result{Text: "Drafted the reply."}, nil
+		})
+		target := &api.Target{Channel: "telegram", Bot: "assistant", Chat: 111}
+
+		_, err := subject.Run(ctx, api.RunRequest{Agent: "assistant", Prompt: "draft", Async: true}, target)
+
+		require.NoError(t, err)
+		require.Eventually(t, func() bool { return len(sent.all()) == 1 }, 2*time.Second, 5*time.Millisecond)
+		require.Eventually(t, func() bool {
+			s, _ := db.Sessions(ctx, "telegram:assistant:111")
+			return s["claude"] == "k-handoff"
+		}, 2*time.Second, 5*time.Millisecond, "the contact can reply to the result with context")
+	})
+
 	t.Run("Delivered run with a session keeps its own conversation", func(t *testing.T) {
 		sent := &sentMessages{}
 		subject, db := newGateway(t, sent, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {

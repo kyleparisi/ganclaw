@@ -363,7 +363,7 @@ func (r *Router) process(m Message) {
 		Settings:     a.Settings,
 	}
 	if m.TaskID != "" {
-		req.OnProgress = func(activity string) { r.taskUpdate(m.TaskID, "running", activity) }
+		req.OnProgress = progressWriter(func(activity string) { r.taskUpdate(m.TaskID, "running", activity) }, 2*time.Second, time.Now)
 	}
 	var stream *ReplyStream
 	if m.Stream != nil {
