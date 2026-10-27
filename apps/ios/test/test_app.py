@@ -310,3 +310,48 @@ def test_choosing_a_voice_plays_it_and_replies_use_it(paired):
     wait_for(lambda: app.state()["speech"]["voices_used"][before:] == [""], what="sample in the default voice")
     app.post("/navigate", {"route": "inbox"})
     app.wait_screen("inbox")
+
+
+def test_drive_full_answers_still_delegate(paired, fake):
+    app = paired
+    app.post("/drive/start", {"agent": "infra"})
+    app.wait_screen("drive")
+    if app.state()["drive"]["short_answers"]:
+        app.tap("drive.short")
+    app.post("/drive/say", {"text": "Check the alert"})
+    wait_for(lambda: app.state()["drive"]["last_answer"], timeout=15, what="full-answer reply")
+    prompt = fake.prompts()[-1]["prompt"]
+    assert "Drive mode: keep this conversation responsive" in prompt
+    assert "unique nonempty session" in prompt
+    assert "one or two short spoken sentences" not in prompt
+    app.tap("drive.short")
+    app.tap("drive.exit")
+
+
+def test_drive_reads_out_background_results_after_the_answer(paired, fake):
+    """Background work finishing mid-question isn't taken as the answer; it's
+    read out once the answer has been spoken."""
+    app = paired
+    app.post("/drive/start", {"agent": "infra"})
+    app.wait_screen("drive")
+    if app.state()["drive"]["short_answers"]:
+        app.tap("drive.short")  # full answers: the fake agent can hold
+    app.post("/drive/say", {"text": "Please hold"})
+    wait_for(lambda: app.state()["drive"]["phase"] == "thinking", what="waiting for the answer")
+
+    result = "The alert was a false positive."
+    fake.post("/admin/post", {"agent": "infra", "job": "background",
+                              "text": result + "\n---\nThe disk alarm fired on a stale metric."})
+    time.sleep(1)
+    s = app.state()
+    assert s["drive"]["last_answer"] is None, "a background result is not the answer"
+    assert result not in s["speech"]["spoken"], "nothing talks over the pending answer"
+
+    fake.post("/admin/release")
+    wait_for(lambda: app.state()["drive"]["last_answer"] == "Done holding.", timeout=15, what="the real answer")
+    spoken = wait_for(lambda: (sp := app.state()["speech"]["spoken"]) and result in sp and sp, timeout=10,
+                      what="background result read out")
+    assert spoken.index(result) > spoken.index("Done holding.")
+    wait_for(lambda: app.state()["drive"]["phase"] == "listening", what="back to listening")
+    app.tap("drive.short")
+    app.tap("drive.exit")

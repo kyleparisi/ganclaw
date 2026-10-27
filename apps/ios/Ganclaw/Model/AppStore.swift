@@ -16,6 +16,9 @@ final class AppStore {
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Every action applied, newest last; the control server exposes it.
     @ObservationIgnored private(set) var actionLog: [String] = []
+    /// Background results waiting to be read out in drive mode.
+    @ObservationIgnored private var announcements: [String] = []
+    @ObservationIgnored private var announced: Set<Int64> = []
 
     init(platform: Platform) {
         self.platform = platform
@@ -166,11 +169,11 @@ final class AppStore {
     }
 
     @discardableResult
-    func sendMessage(_ agent: String, text: String, fileIDs: [String], replyTo: Int64?, voice: Bool) async -> AppMessage? {
+    func sendMessage(_ agent: String, text: String, fileIDs: [String], replyTo: Int64?, voice: Bool, driveMode: Bool = false) async -> AppMessage? {
         guard let client else { return nil }
         send(.sending(agent, true))
         do {
-            let m = try await client.send(agent: agent, text: text, fileIDs: fileIDs, replyTo: replyTo, voice: voice)
+            let m = try await client.send(agent: agent, text: text, fileIDs: fileIDs, replyTo: replyTo, voice: voice, driveMode: driveMode)
             send(.sent(m))
             return m
         } catch {
@@ -264,6 +267,7 @@ final class AppStore {
     }
 
     func exitDrive() {
+        announcements = []
         platform.speech.stopListening()
         platform.speech.stopSpeaking()
         platform.device.setIdleTimerDisabled(false)
@@ -300,7 +304,7 @@ final class AppStore {
         let after = state.thread(agent).messages.last?.id ?? state.agent(agent)?.lastMessage?.id ?? 0
         send(.driveAsked(text, after: after))
         Task {
-            if await sendMessage(agent, text: text, fileIDs: [], replyTo: nil, voice: d.shortAnswers) == nil {
+            if await sendMessage(agent, text: text, fileIDs: [], replyTo: nil, voice: d.shortAnswers, driveMode: true) == nil {
                 send(.drivePhase(.listening))
             }
         }
@@ -308,16 +312,41 @@ final class AppStore {
 
     private func spokeReply() {
         if state.drive.active, state.drive.phase == .speaking { send(.drivePhase(.listening)) }
+        speakNextAnnouncement()
     }
 
-    /// Speaks a finished reply in the drive thread.
+    /// Speaks a finished reply in the drive thread. Job runs (scheduled
+    /// reports, background work) aren't answers to the question.
     private func speakIfDriveReply(_ m: AppMessage) {
         let d = state.drive
-        guard d.active, m.thread == d.agent, m.role != .user, m.status != .streaming, m.id > d.askedAfter, d.lastQuestion != nil, d.lastAnswer == nil else { return }
+        guard d.active, m.thread == d.agent, m.role != .user, m.status != .streaming, (m.job ?? "").isEmpty,
+              m.id > d.askedAfter, d.lastQuestion != nil, d.lastAnswer == nil else { return }
         let (spoken, details) = m.spokenPart
         let answer = spoken.isEmpty ? "Done." : spoken
         send(.driveAnswered(answer, details: details || !m.files.isEmpty || !m.actions.isEmpty))
         platform.speech.speak(answer) { [weak self] in self?.spokeReply() }
+    }
+
+    /// Job name of work handed off from drive mode (agenttools.BackgroundJob).
+    static let backgroundJob = "background"
+
+    /// Reads out background work finishing in the drive thread, once the
+    /// conversation is free (not while thinking about or speaking a reply).
+    private func announceIfBackgroundResult(_ m: AppMessage) {
+        let d = state.drive
+        guard d.active, m.thread == d.agent, m.role != .user, m.status != .streaming,
+              m.job == Self.backgroundJob, announced.insert(m.id).inserted else { return }
+        let spoken = m.spokenPart.spoken
+        announcements.append(spoken.isEmpty || spoken.count > 400
+            ? "A background task finished. The details are in the thread." : spoken)
+        speakNextAnnouncement()
+    }
+
+    private func speakNextAnnouncement() {
+        guard state.drive.active, state.drive.phase == .listening, !announcements.isEmpty else { return }
+        let text = announcements.removeFirst()
+        send(.drivePhase(.speaking))
+        platform.speech.speak(text) { [weak self] in self?.spokeReply() }
     }
 
     // MARK: Events
@@ -329,7 +358,10 @@ final class AppStore {
             return
         }
         send(.event(e))
-        if e.type == "message", let m = e.message { speakIfDriveReply(m) }
+        if e.type == "message", let m = e.message {
+            speakIfDriveReply(m)
+            announceIfBackgroundResult(m)
+        }
     }
 
     private func handle(status s: EventStream.Status) {

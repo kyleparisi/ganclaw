@@ -46,7 +46,10 @@ type RunRequest struct {
 	// context. Without To, empty means a one-off run. With To, empty means
 	// the chat's own conversation; a name keeps the work separate while
 	// still delivering the reply to the chat.
-	Session        string `json:"session,omitempty"`
+	Session string `json:"session,omitempty"`
+	// Job lists an app-delivered run under this job name instead of
+	// Session's (hand_off groups all background work under one name).
+	Job            string `json:"job,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 	// Quiet delivers the reply without streaming, and not at all if the
