@@ -92,6 +92,9 @@ func (c *Chain) Run(ctx context.Context, sessions Sessions, req Request) (string
 		}
 		r := req
 		r.Session = sessions[p.Name()]
+		if r.OnProgress != nil {
+			r.OnProgress("Provider attempt started")
+		}
 		res, err := p.Run(ctx, r)
 		if res.Session != "" {
 			sessions[p.Name()] = res.Session

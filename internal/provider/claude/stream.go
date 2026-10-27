@@ -56,7 +56,7 @@ type streamState struct {
 // parseStream reads events until EOF, forwarding top-level answer text to
 // onDelta. Text from sub-agents (non-null parent_tool_use_id) and thinking
 // is not forwarded.
-func parseStream(r io.Reader, onDelta func(string)) (*streamState, error) {
+func parseStream(r io.Reader, onDelta func(string), progress ...func(string)) (*streamState, error) {
 	st := &streamState{}
 	dec := json.NewDecoder(r)
 	for {
@@ -72,6 +72,14 @@ func parseStream(r io.Reader, onDelta func(string)) (*streamState, error) {
 		}
 		if e.SessionID != "" {
 			st.session = e.SessionID
+		}
+		if e.Type == "stream_event" && e.ParentToolUseID == nil && e.Event != nil && e.Event.Type == "content_block_start" && e.Event.ContentBlock != nil && len(progress) > 0 && progress[0] != nil {
+			switch e.Event.ContentBlock.Type {
+			case "tool_use":
+				progress[0]("Tool activity observed")
+			case "text":
+				progress[0]("Agent message activity observed")
+			}
 		}
 		switch e.Type {
 		case "stream_event":

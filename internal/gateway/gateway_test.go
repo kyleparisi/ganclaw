@@ -255,7 +255,9 @@ func TestGatewayQuietAndAsync(t *testing.T) {
 		res, err := subject.Run(ctx, api.RunRequest{Agent: "assistant", Prompt: "p", Async: true}, target)
 
 		require.NoError(t, err)
-		assert.Equal(t, router.TurnResult{}, res)
+		assert.NotEmpty(t, res.TaskID)
+		assert.Empty(t, res.Text)
+		assert.NoError(t, res.Err)
 		assert.Empty(t, sent.all())
 		close(release)
 		assert.Eventually(t, func() bool { return len(sent.all()) == 1 }, 2*time.Second, 5*time.Millisecond)

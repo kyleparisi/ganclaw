@@ -20,6 +20,6 @@ func cmdMCP(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	s := agenttools.NewServer(agenttools.Deps{Send: c.Send, Run: c.Run, Agents: c.Agents}, version)
+	s := agenttools.NewServer(agenttools.Deps{Send: c.Send, Run: c.Run, Agents: c.Agents, Tasks: c.Tasks}, version)
 	return s.Run(ctx, &mcp.StdioTransport{})
 }

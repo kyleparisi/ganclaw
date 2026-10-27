@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kyleparisi/ganclaw/internal/provider"
+	"github.com/kyleparisi/ganclaw/internal/store"
 )
 
 // SendRequest delivers a plain message, no agent involved.
@@ -63,6 +64,7 @@ type RunRequest struct {
 }
 
 type RunResponse struct {
+	TaskID   string `json:"task_id,omitempty"`
 	OK       bool   `json:"ok"`
 	Provider string `json:"provider"`
 	Text     string `json:"text"`
@@ -212,4 +214,8 @@ func ParseAddress(s string) (Target, bool) {
 		return Target{}, false
 	}
 	return Target{Channel: "telegram", Bot: parts[1], Chat: chat}, true
+}
+
+type TasksResponse struct {
+	Tasks []store.Task `json:"tasks"`
 }

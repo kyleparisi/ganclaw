@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,6 +58,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/send", s.handleSend)
 	mux.HandleFunc("POST /v1/run", s.handleRun)
 	mux.HandleFunc("GET /v1/status", s.handleStatus)
+	mux.HandleFunc("GET /v1/tasks", s.handleTasks)
+	mux.HandleFunc("GET /v1/tasks/{id}", s.handleTasks)
 	mux.HandleFunc("GET /v1/agents", s.handleAgents)
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
 	mux.HandleFunc("POST /v1/app/pair", s.handlePair)
@@ -182,7 +185,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		resp := RunResponse{OK: true, Provider: res.Provider, Text: res.Text}
+		resp := RunResponse{TaskID: res.TaskID, OK: true, Provider: res.Provider, Text: res.Text}
 		if target != nil {
 			resp.Target = target.String()
 		}
@@ -341,4 +344,30 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
+	if s.Store == nil {
+		writeErr(w, Errorf(CodeUnavailable, "task tracking unavailable"))
+		return
+	}
+	if id := r.PathValue("id"); id != "" {
+		task, err := s.Store.Task(r.Context(), id)
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: &Error{Code: "unknown_task", Message: "task not found"}})
+			return
+		}
+		if err != nil {
+			writeErr(w, Errorf(CodeFailed, "task lookup failed"))
+			return
+		}
+		writeJSON(w, http.StatusOK, task)
+		return
+	}
+	tasks, err := s.Store.RecentTasks(r.Context(), r.URL.Query().Get("agent"))
+	if err != nil {
+		writeErr(w, Errorf(CodeFailed, "task lookup failed"))
+		return
+	}
+	writeJSON(w, http.StatusOK, TasksResponse{Tasks: tasks})
 }

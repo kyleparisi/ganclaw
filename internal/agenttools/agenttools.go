@@ -15,6 +15,7 @@ import (
 
 // Deps are the gateway calls the tools make; *api.Client provides them.
 type Deps struct {
+	Tasks  func(context.Context, string, string) (api.TasksResponse, error)
 	Send   func(ctx context.Context, req api.SendRequest) (api.SendResponse, error)
 	Run    func(ctx context.Context, req api.RunRequest) (api.RunResponse, error)
 	Agents func(ctx context.Context) (api.AgentsResponse, error)
@@ -53,6 +54,7 @@ type HandOffIn struct {
 }
 
 type HandOffOut struct {
+	TaskID string `json:"task_id,omitempty"`
 	Queued bool   `json:"queued"`
 	Target string `json:"target"`
 }
@@ -93,7 +95,7 @@ func NewServer(d Deps, version string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "hand_off",
-		Description: "Hand a task to another agent; it works in the background and sends its reply straight to the contact. Returns immediately.",
+		Description: "Hand a task to another agent; it works in the background and sends its reply straight to the contact. Returns immediately with queued=true and task_id; queued does not mean running. Use task_status for later status questions.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in HandOffIn) (*mcp.CallToolResult, HandOffOut, error) {
 		if in.Agent == "" || in.Prompt == "" || in.To == "" {
 			return nil, HandOffOut{}, errors.New("agent, prompt and to are required")
@@ -105,7 +107,17 @@ func NewServer(d Deps, version string) *mcp.Server {
 			req.Job = BackgroundJob
 		}
 		resp, err := d.Run(ctx, req)
-		return nil, HandOffOut{Queued: resp.Queued, Target: resp.Target}, err
+		return nil, HandOffOut{TaskID: resp.TaskID, Queued: resp.Queued, Target: resp.Target}, err
+	})
+	mcp.AddTool(s, &mcp.Tool{Name: "task_status", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}, Description: "Read background task status by task_id. Omit task_id to discover the latest 50 tasks, optionally filtered by agent. Queued means waiting; running means the router is handling the turn, not continuous activity. Progress is the latest observed safe provider event, not reasoning or a guarantee of responsiveness. Completed includes reply delivery; failed after restart means outcome unknown."}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		TaskID string `json:"task_id,omitempty"`
+		Agent  string `json:"agent,omitempty"`
+	}) (*mcp.CallToolResult, api.TasksResponse, error) {
+		if d.Tasks == nil {
+			return nil, api.TasksResponse{}, errors.New("task tracking unavailable")
+		}
+		out, err := d.Tasks(ctx, in.TaskID, in.Agent)
+		return nil, out, err
 	})
 	return s
 }

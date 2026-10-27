@@ -214,14 +214,20 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 
 	log := logx.OrDiscard(g.Logger).With("agent", req.Agent, "chat", m.ChatKey)
 	if req.Async {
+		task, err := g.Router.CreateTask(ctx, req.Agent)
+		if err != nil {
+			return router.TurnResult{}, err
+		}
+		m.TaskID = task.ID
 		// The caller has gone by the time this runs; only shutdown stops it.
 		m.OnDone = chain(m.OnDone, func(res router.TurnResult) {
 			log.Info("queued run finished", "provider", res.Provider, "err", res.Err)
 		})
 		if !g.Router.Submit(m) {
+			g.Router.FailTask(task.ID)
 			return router.TurnResult{}, api.Errorf(api.CodeBusy, "that conversation has too many queued messages; try again later")
 		}
-		return router.TurnResult{}, nil
+		return router.TurnResult{TaskID: task.ID}, nil
 	}
 
 	done := make(chan router.TurnResult, 1)

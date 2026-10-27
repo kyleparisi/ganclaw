@@ -22,6 +22,7 @@ import (
 
 // Message is one incoming chat message, with callbacks into its channel.
 type Message struct {
+	TaskID string
 	// ChatKey identifies the conversation, e.g. "telegram:<bot>:<chat>".
 	ChatKey string
 	Agent   string
@@ -47,6 +48,7 @@ type Message struct {
 
 // TurnResult is the outcome of handling one message.
 type TurnResult struct {
+	TaskID   string
 	Provider string // empty for commands and failures
 	Text     string // the reply text, or the error message shown
 	Err      error
@@ -249,6 +251,16 @@ func (r *Router) process(m Message) {
 	}
 
 	var result TurnResult
+	if m.TaskID != "" {
+		r.taskUpdate(m.TaskID, "running", "Router started handling task")
+		defer func() {
+			state, progress := "completed", "Turn and reply delivery completed"
+			if result.Err != nil {
+				state, progress = "failed", "Turn or reply delivery failed; see destination for details"
+			}
+			r.taskUpdate(m.TaskID, state, progress)
+		}()
+	}
 	if m.OnDone != nil {
 		defer func() { m.OnDone(result) }()
 	}
@@ -259,9 +271,11 @@ func (r *Router) process(m Message) {
 		rctx, rcancel := context.WithTimeout(context.WithoutCancel(r.ctx), 30*time.Second)
 		defer rcancel()
 		if r.ctx.Err() != nil {
+			result.Err = r.ctx.Err()
 			return
 		}
 		if err := m.Reply(rctx, text); err != nil {
+			result.Err = err
 			log.Error("reply failed", "err", err)
 		}
 	}
@@ -273,6 +287,7 @@ func (r *Router) process(m Message) {
 	switch cmd {
 	case "new", "reset":
 		if err := r.cfg.Store.ResetSessions(ctx, m.ChatKey); err != nil {
+			result.Err = err
 			log.Error("reset sessions", "err", err)
 			reply("Couldn't reset the conversation: " + err.Error())
 			return
@@ -294,18 +309,21 @@ func (r *Router) process(m Message) {
 
 	a, ok := r.cfg.Agents[m.Agent]
 	if !ok {
+		result.Err = errors.New("task setup failed")
 		log.Error("unknown agent")
 		reply("This bot isn't connected to an agent.")
 		return
 	}
 	sessions, err := r.cfg.Store.Sessions(ctx, m.ChatKey)
 	if err != nil {
+		result.Err = errors.New("task setup failed")
 		log.Error("load sessions", "err", err)
 		reply("Couldn't load the conversation: " + err.Error())
 		return
 	}
 	instructions, err := a.Instructions()
 	if err != nil {
+		result.Err = errors.New("task setup failed")
 		log.Error("load instructions", "err", err)
 		reply("Couldn't load the agent's instructions: " + err.Error())
 		return
@@ -328,6 +346,7 @@ func (r *Router) process(m Message) {
 	if m.Fetch != nil {
 		if atts, err = m.Fetch(ctx, attachments.Dir(a.Workspace)); err != nil {
 			stopTyping()
+			result.Err = errors.New("task setup failed")
 			log.Warn("fetch attachments", "err", err)
 			reply("Couldn't get the attachment: " + truncate(err.Error(), 300))
 			return
@@ -343,6 +362,9 @@ func (r *Router) process(m Message) {
 		Attachments:  atts,
 		Settings:     a.Settings,
 	}
+	if m.TaskID != "" {
+		req.OnProgress = func(activity string) { r.taskUpdate(m.TaskID, "running", activity) }
+	}
 	var stream *ReplyStream
 	if m.Stream != nil {
 		stream = m.Stream(ctx)
@@ -354,9 +376,11 @@ func (r *Router) process(m Message) {
 			rctx, rcancel := context.WithTimeout(context.WithoutCancel(r.ctx), 30*time.Second)
 			defer rcancel()
 			if r.ctx.Err() != nil {
+				result.Err = r.ctx.Err()
 				return
 			}
 			if err := stream.Finish(rctx, text); err != nil {
+				result.Err = err
 				log.Error("reply failed", "err", err)
 			}
 		}
@@ -396,12 +420,13 @@ func (r *Router) process(m Message) {
 	}
 	reply(text)
 	result.Provider = used
-	r.sendMedia(ctx, log, m, a.Workspace, media)
+	result.Err = errors.Join(result.Err, r.sendMedia(ctx, log, m, a.Workspace, media))
 }
 
 // sendMedia uploads the files a reply named, resolving relative paths
 // against the agent's workspace. Failures are reported in the chat.
-func (r *Router) sendMedia(ctx context.Context, log *slog.Logger, m Message, workspace string, paths []string) {
+func (r *Router) sendMedia(ctx context.Context, log *slog.Logger, m Message, workspace string, paths []string) error {
+	var deliveryErr error
 	for _, p := range paths {
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(workspace, p)
@@ -410,6 +435,7 @@ func (r *Router) sendMedia(ctx context.Context, log *slog.Logger, m Message, wor
 		err := m.SendFile(fctx, p)
 		cancel()
 		if err != nil {
+			deliveryErr = errors.Join(deliveryErr, err)
 			log.Warn("send file", "path", p, "err", err)
 			if rerr := m.Reply(context.WithoutCancel(ctx), "Couldn't send "+filepath.Base(p)+": "+truncate(err.Error(), 300)); rerr != nil {
 				log.Error("reply failed", "err", rerr)
@@ -418,6 +444,7 @@ func (r *Router) sendMedia(ctx context.Context, log *slog.Logger, m Message, wor
 		}
 		log.Info("file sent", "path", p)
 	}
+	return deliveryErr
 }
 
 var mediaLineRe = regexp.MustCompile("^\\s*MEDIA:\\s*[`'\"]?(.+?)[`'\"]?\\s*$")

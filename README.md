@@ -246,6 +246,8 @@ service user and root are refused (checked with `SO_PEERCRED`).
 |---|---|
 | `POST /v1/send` | `{to, via?, text, idempotency_key?}` |
 | `POST /v1/run` | `{agent, prompt, to?, via?, session?, timeout_seconds?, quiet?, heartbeat?, async?, idempotency_key?}` |
+| `GET /v1/tasks/{id}` | persisted background task status |
+| `GET /v1/tasks?agent=support` | latest 50 tasks, optional agent filter |
 | `GET /v1/status` | provider availability and limits |
 | `GET /v1/agents` | agents, their bots, and contacts |
 | `GET /v1/health` | providers, bot polling state and probe results |
@@ -254,6 +256,31 @@ service user and root are refused (checked with `SO_PEERCRED`).
 
 Errors are `{"ok": false, "error": {"code", "message"}}` with stable codes
 (`unknown_contact`, `unavailable`, `busy`, …).
+
+Asynchronous runs (including MCP `hand_off`) return `task_id` alongside the
+existing `queued` and `target` fields. MCP `task_status` accepts `task_id`, or
+an optional `agent` filter when discovering recent tasks. These local tools
+share the socket's trust boundary; they are not isolated per agent.
+
+Task records contain an ID, agent, state, timestamps and a fixed activity
+label. They contain no prompts, answers, command arguments or reasoning.
+`queued` means waiting for the router; `running` means the router dequeued
+the task, including setup and provider waits. Codex item events and Claude
+text/tool block starts update activity labels when available. `updated_at`
+is the time of the latest observation, not a heartbeat or proof of continued
+activity. There is no percentage estimate or guarantee of responsiveness.
+`completed` means the turn and configured reply delivery returned without
+error (quiet replies may intentionally be suppressed); `failed` covers setup,
+provider and delivery errors. Failure details remain in the existing delivery
+path rather than being copied into status.
+
+Status is persisted in SQLite; the work queue is not. At gateway startup,
+unfinished records become `failed` with an explicit outcome-unknown message.
+Work is not resumed or retried automatically, since it may have had side
+effects. Historical records are retained; discovery returns only the latest
+50, while older IDs remain queryable. Older handoffs made before this feature
+have no task records. Status persistence failures are logged; a stale record
+must not be interpreted as proof that work is still active.
 
 ## App channel
 
