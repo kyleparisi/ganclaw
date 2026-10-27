@@ -323,7 +323,7 @@ def test_drive_full_answers_still_delegate(paired, fake):
     prompt = fake.prompts()[-1]["prompt"]
     assert "Drive mode: keep this conversation responsive" in prompt
     assert "unique nonempty session" in prompt
-    assert "one or two short spoken sentences" not in prompt
+    assert not prompt.startswith("[The user is driving"), "full answers aren't asked to be short"
     app.tap("drive.short")
     app.tap("drive.exit")
 
@@ -344,7 +344,7 @@ def test_drive_reads_out_background_results_after_the_answer(paired, fake):
                               "text": result + "\n---\nThe disk alarm fired on a stale metric."})
     time.sleep(1)
     s = app.state()
-    assert s["drive"]["last_answer"] is None, "a background result is not the answer"
+    assert s["drive"].get("last_answer") is None, "a background result is not the answer"
     assert result not in s["speech"]["spoken"], "nothing talks over the pending answer"
 
     fake.post("/admin/release")
