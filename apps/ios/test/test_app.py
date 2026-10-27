@@ -256,3 +256,20 @@ def test_reconnects_after_server_restart(paired, fake):
     wait_for(lambda: app.state()["connection"] == "connected", timeout=40, what="reconnected")
     fake.post("/admin/post", {"agent": "trader", "text": "Back online."})
     wait_for(lambda: app.agent("trader")["last_message"]["text"] == "Back online.", timeout=5, what="message after reconnect")
+
+
+def test_voice_settings_navigation(paired):
+    app = paired
+    app.tap("inbox.settings")
+    app.wait_screen("settings")
+    app.screenshot("settings")
+    app.tap("settings.voice")
+    app.wait_screen("settings:voice")
+    wait_for(lambda: app.element("voice.preview"), what="voice sample button")
+    assert "voice.picker" in app.ids()
+    assert "voice.speed" in app.ids()
+    app.screenshot("settings-voice")
+    app.tap("voice.preview")
+    app.tap("voice.stop")
+    app.post("/navigate", {"route": "inbox"})
+    app.wait_screen("inbox")

@@ -38,13 +38,8 @@ struct InboxView: View {
             Text("Agents").font(.system(size: 30, weight: .bold)).tracking(-0.6)
                 .accessibilityAddTraits(.isHeader)
             Spacer()
-            Menu {
-                if let name = store.state.deviceName { Text("Paired as \(name)") }
-                if let server = store.state.server { Text(server.host ?? server.absoluteString) }
-                Button("Refresh") { Task { await store.refresh() } }
-                Button("Unpair this phone", role: .destructive) { store.unpair() }
-            } label: {
-                Image(systemName: "ellipsis")
+            CButton("inbox.settings") { store.send(.push(.settings)) } label: {
+                Image(systemName: "gearshape")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(Theme.ink)
                     .frame(width: 44, height: 44)
@@ -52,7 +47,6 @@ struct InboxView: View {
                     .overlay(Circle().stroke(Theme.line))
             }
             .accessibilityLabel("Settings")
-            .control("inbox.menu")
         }
         .padding(.top, 8)
     }

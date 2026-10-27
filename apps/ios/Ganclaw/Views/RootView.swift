@@ -14,6 +14,8 @@ struct RootView: View {
                         .navigationDestination(for: Route.self) { route in
                             switch route {
                             case .thread(let a): ThreadView(agent: a)
+                            case .settings: SettingsView()
+                            case .voiceSettings: VoiceSettingsView()
                             case .jobs: JobsView()
                             case .job(let j): JobView(job: j)
                             }

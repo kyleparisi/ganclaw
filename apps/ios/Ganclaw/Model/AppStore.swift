@@ -19,6 +19,7 @@ final class AppStore {
 
     init(platform: Platform) {
         self.platform = platform
+        send(.speechPreferences(platform.speech.loadPreferences()))
         events.onEvent = { [weak self] e in self?.handle(event: e) }
         events.onStatus = { [weak self] s in self?.handle(status: s) }
         if let credentials = platform.keychain.load() { connect(credentials) }
@@ -31,6 +32,15 @@ final class AppStore {
     }
 
     var api: APIClient? { client }
+
+    func setSpeechPreferences(_ preferences: SpeechPreferences) {
+        send(.speechPreferences(preferences))
+        platform.speech.savePreferences(preferences)
+    }
+
+    func previewVoice() {
+        platform.speech.speak("Hello. This is how your agent replies will sound.") {}
+    }
 
     // MARK: Pairing
 

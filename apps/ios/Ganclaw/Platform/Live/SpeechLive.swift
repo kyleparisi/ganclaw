@@ -11,6 +11,14 @@ extension SpeechClient {
             stopListening: { engine.stopListening() },
             speak: { engine.speak($0, done: $1) },
             stopSpeaking: { engine.stopSpeaking() },
+            voices: {
+                AVSpeechSynthesisVoice.speechVoices().map {
+                    SpeechVoice(id: $0.identifier, name: $0.name, language: $0.language,
+                                quality: $0.quality == .premium ? "Premium" : $0.quality == .enhanced ? "Enhanced" : "")
+                }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            },
+            loadPreferences: { engine.preferences },
+            savePreferences: { engine.savePreferences($0) },
             isSpeaking: { engine.isSpeaking }
         )
     }
@@ -245,10 +253,26 @@ private final class LiveSpeech: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
+    var preferences: SpeechPreferences {
+        guard let data = UserDefaults.standard.data(forKey: "speech.preferences"),
+              let value = try? JSONDecoder().decode(SpeechPreferences.self, from: data) else { return SpeechPreferences() }
+        return value
+    }
+
+    func savePreferences(_ value: SpeechPreferences) {
+        if let data = try? JSONEncoder().encode(value) {
+            UserDefaults.standard.set(data, forKey: "speech.preferences")
+        }
+    }
+
     func speak(_ text: String, done: @escaping () -> Void) {
         stopSpeaking()
         let u = AVSpeechUtterance(string: text)
-        u.rate = AVSpeechUtteranceDefaultSpeechRate * 1.05
+        let settings = preferences
+        if !settings.voiceID.isEmpty { u.voice = AVSpeechSynthesisVoice(identifier: settings.voiceID) }
+        let speed = settings.speed.isFinite ? min(1.5, max(0.5, settings.speed)) : 1.05
+        u.rate = min(AVSpeechUtteranceMaximumSpeechRate, max(AVSpeechUtteranceMinimumSpeechRate,
+                     AVSpeechUtteranceDefaultSpeechRate * Float(speed)))
         isSpeaking = true
         speakingDone = done
         utterance = ObjectIdentifier(u)

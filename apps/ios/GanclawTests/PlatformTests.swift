@@ -149,3 +149,32 @@ final class RecognitionRestartTests: XCTestCase {
         XCTAssertEqual(r.ended(after: 0.01, failed: true), 0.25)
     }
 }
+
+@MainActor
+final class SpeechPreferencesTests: XCTestCase {
+    func testLoadsAndSavesVoicePreferencesThroughPlatform() {
+        var platform = Platform.inert
+        let saved = SpeechPreferences(voiceID: "sample-voice", speed: 0.85)
+        platform.speech.loadPreferences = { saved }
+        var written: SpeechPreferences?
+        platform.speech.savePreferences = { written = $0 }
+        let store = AppStore(platform: platform)
+        XCTAssertEqual(store.state.speechPreferences, saved)
+
+        let changed = SpeechPreferences(voiceID: "", speed: 1.2)
+        store.setSpeechPreferences(changed)
+        XCTAssertEqual(store.state.speechPreferences, changed)
+        XCTAssertEqual(written, changed)
+    }
+
+    func testPreviewUsesSpeechWithoutRequestingMicrophone() {
+        var platform = Platform.inert
+        platform.speech.requestAccess = { XCTFail("A preview does not need microphone access") }
+        var spoken = ""
+        platform.speech.speak = { text, done in spoken = text; done() }
+        let store = AppStore(platform: platform)
+        store.previewVoice()
+        XCTAssertFalse(spoken.isEmpty)
+        XCTAssertFalse(store.state.drive.active)
+    }
+}
