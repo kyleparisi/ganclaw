@@ -30,6 +30,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kyleparisi.ganclaw
         PRODUCT_NAME: Ganclaw
+        APNS_ENVIRONMENT: development
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": Ganclaw/Generated/Ganclaw-ios.entitlements
         INFOPLIST_FILE: Ganclaw/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"
         # The Mac app is this app built with Mac Catalyst.

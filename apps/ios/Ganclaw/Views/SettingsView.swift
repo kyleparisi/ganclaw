@@ -15,6 +15,15 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.ink)
                 }
             } header: { Text("Audio") }
+            #if !targetEnvironment(macCatalyst)
+            Section {
+                CButton("settings.notifications") { Task { await store.enableNotifications() } } label: {
+                    Label("Enable notifications", systemImage: "bell")
+                }
+            } header: { Text("Notifications") } footer: {
+                Text("Get agent replies and task results while Ganclaw is in the background. Change alerts in system Settings.")
+            }
+            #endif
             Section {
                 if let name = store.state.deviceName { LabeledContent("Device", value: name) }
                 if let server = store.state.server { LabeledContent("Server", value: server.host ?? server.absoluteString) }

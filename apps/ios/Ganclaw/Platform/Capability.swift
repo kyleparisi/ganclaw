@@ -19,6 +19,7 @@ enum Capability: String, CaseIterable, Codable, Sendable {
     case speechRecognition
     case camera
     case photoLibrary
+    case notifications
 
     /// Info.plist key whose string iOS and macOS show in the permission
     /// prompt. Using the API without it terminates the app.
@@ -28,6 +29,7 @@ enum Capability: String, CaseIterable, Codable, Sendable {
         case .speechRecognition: "NSSpeechRecognitionUsageDescription"
         case .camera: "NSCameraUsageDescription"
         case .photoLibrary: "NSPhotoLibraryUsageDescription"
+        case .notifications: "" // Authorization is managed by UserNotifications, no usage string.
         }
     }
 
@@ -37,6 +39,7 @@ enum Capability: String, CaseIterable, Codable, Sendable {
         case .speechRecognition: "Turn what you say in drive mode into messages for your agents."
         case .camera: "Take a photo to send to an agent."
         case .photoLibrary: "Choose photos to send to an agent."
+        case .notifications: ""
         }
     }
 
@@ -49,7 +52,7 @@ enum Capability: String, CaseIterable, Codable, Sendable {
         case .camera: "com.apple.security.device.camera"
         // Speech recognition records through the microphone entitlement;
         // the photo picker runs out of process and needs none.
-        case .speechRecognition, .photoLibrary: nil
+        case .speechRecognition, .photoLibrary, .notifications: nil
         }
     }
 
@@ -60,6 +63,11 @@ enum Capability: String, CaseIterable, Codable, Sendable {
         case .speechRecognition: [.microphone]
         default: []
         }
+    }
+
+    /// iOS remote notification signing entitlement. Xcode expands the build setting.
+    static var iosEntitlements: [String: String] {
+        ["aps-environment": "$(APNS_ENVIRONMENT)"]
     }
 
     /// Every entitlement the Mac build must be signed with.
@@ -96,6 +104,7 @@ extension Capability {
         case .speechRecognition: "speech recognition"
         case .camera: "camera"
         case .photoLibrary: "photo library"
+        case .notifications: "notifications"
         }
     }
 }

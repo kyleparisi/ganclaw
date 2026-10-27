@@ -43,6 +43,11 @@ final class CapabilityTests: XCTestCase {
         XCTAssertNil(check(info: allUsage, entitlements: nil).missing(.microphone))
     }
 
+    func testNotificationsUseSystemAuthorizationWithoutUsageText() {
+        XCTAssertNil(check(info: [:]).missing(.notifications))
+        XCTAssertEqual(Capability.iosEntitlements, ["aps-environment": "$(APNS_ENVIRONMENT)"])
+    }
+
     func testManifestEntitlements() {
         XCTAssertEqual(Capability.macEntitlements, ["com.apple.security.device.audio-input", "com.apple.security.device.camera"])
     }
@@ -106,6 +111,15 @@ final class PlatformClientTests: XCTestCase {
         store.exitDrive()
         XCTAssertFalse(fake.listening)
         XCTAssertEqual(idleDisabled, [true, false])
+    }
+
+    func testNotificationsAreNotRequestedBeforePairing() async {
+        var p = Platform.inert
+        var requested = false
+        p.notifications.enable = { requested = true }
+        let store = AppStore(platform: p)
+        await store.enableNotifications()
+        XCTAssertFalse(requested)
     }
 
     func testUnpairClearsTheKeychain() {

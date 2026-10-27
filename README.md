@@ -431,3 +431,5 @@ suppressed. History capture failures mark the task failed via the existing
 reply/file failure lifecycle, even if original delivery succeeded. Worker replies
 are delivered as final messages rather than streamed while task capture is on;
 this keeps background typing and intermediate worker content out of the inbox.
+
+Native iOS push setup and signing requirements: [notifications](apps/ios/docs/notifications.md).

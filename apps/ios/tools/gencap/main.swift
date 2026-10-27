@@ -42,7 +42,7 @@ else { fail("can't read \(infoURL.path)") }
 for key in info.keys where key.hasPrefix("NS") && key.hasSuffix("UsageDescription") {
     info[key] = nil
 }
-for c in Capability.allCases {
+for c in Capability.allCases where !c.usageKey.isEmpty {
     info[c.usageKey] = c.usageDescription
 }
 let newInfo = plistData(info)
@@ -51,6 +51,8 @@ let newInfo = plistData(info)
 var ent: [String: Any] = [:]
 for e in Capability.macEntitlements { ent[e] = true }
 let newEnt = plistData(ent)
+let iosEntURL = URL(fileURLWithPath: dir).appendingPathComponent("Ganclaw/Generated/Ganclaw-ios.entitlements")
+let newIOSEnt = plistData(Capability.iosEntitlements)
 
 /// Compares parsed contents, so formatting differences between tools
 /// (Xcode, Foundation on Linux) don't count as drift.
@@ -63,7 +65,7 @@ func same(_ url: URL, _ data: Data) -> Bool {
 }
 
 var stale: [String] = []
-for (url, data) in [(infoURL, newInfo), (entURL, newEnt)] {
+for (url, data) in [(infoURL, newInfo), (entURL, newEnt), (iosEntURL, newIOSEnt)] {
     if same(url, data) { continue }
     if check {
         stale.append(url.lastPathComponent)

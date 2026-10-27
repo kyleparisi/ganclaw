@@ -34,6 +34,9 @@ func (c *Channel) Handler(version string) http.Handler {
 
 	auth := http.NewServeMux()
 	auth.HandleFunc("GET /app/v1/me", c.handleMe)
+	auth.HandleFunc("PUT /app/v1/me/push", c.handlePush)
+	auth.HandleFunc("DELETE /app/v1/me/push", c.handleDeletePush)
+	auth.HandleFunc("DELETE /app/v1/me", c.handleUnpair)
 	auth.HandleFunc("GET /app/v1/agents", c.handleAgents)
 	auth.HandleFunc("GET /app/v1/threads/{agent}/messages", c.handleMessages)
 	auth.HandleFunc("POST /app/v1/threads/{agent}/messages", c.handleSend)

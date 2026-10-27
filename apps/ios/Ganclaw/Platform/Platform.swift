@@ -18,6 +18,7 @@ struct Platform {
     var recorder: RecorderClient
     var pasteboard: PasteboardClient
     var keychain: KeychainClient
+    var notifications: NotificationClient = .inert
     var device: DeviceClient
 
     static func live(check: CapabilityCheck = .live) -> Platform {
@@ -26,6 +27,7 @@ struct Platform {
             recorder: .live(check: check),
             pasteboard: .live,
             keychain: .live,
+            notifications: .live(check: check),
             device: .live(check: check)
         )
     }
@@ -118,5 +120,16 @@ extension KeychainClient {
 extension DeviceClient {
     static var inert: DeviceClient {
         DeviceClient(name: { "Test device" }, setIdleTimerDisabled: { _ in }, cameraAvailable: { false })
+    }
+}
+
+/// Permission is requested only from the Notifications setting, after pairing.
+@MainActor
+struct NotificationClient {
+    var enable: () async throws -> Void
+    var registerIfAuthorized: () async -> Bool
+    var observe: (@escaping @MainActor (String) -> Void, @escaping @MainActor (String) -> Void, @escaping @MainActor (String) -> Void) -> Void
+    static var inert: NotificationClient {
+        NotificationClient(enable: {}, registerIfAuthorized: { false }, observe: { _, _, _ in })
     }
 }

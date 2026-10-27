@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/kyleparisi/ganclaw/internal/apns"
 )
 
 type Config struct {
@@ -64,6 +65,7 @@ type Contact struct {
 // App configures the channel for ganclaw's native apps: HTTPS for requests
 // and a WebSocket for live updates. Off unless Listen is set.
 type App struct {
+	APNs apns.Config `toml:"apns"`
 	// Listen is the address to serve on, e.g. "0.0.0.0:8443". Without
 	// TLSCert/TLSKey it must be a loopback address, for use behind a
 	// reverse proxy that terminates TLS: device tokens never cross the
