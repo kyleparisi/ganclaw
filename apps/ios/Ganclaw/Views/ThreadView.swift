@@ -128,7 +128,7 @@ struct ThreadView: View {
                                 .id("unread")
                                 .control("thread.unreadDivider")
                             }
-                            MessageRow(message: m, streamed: t.streaming[m.id], replyTo: m.replyTo.flatMap { t.message($0) })
+                            MessageRow(message: m, streamed: t.streaming[m.id], replyTo: m.replyTo.flatMap { store.state.quoted($0, in: agent) })
                                 .id(m.id)
                         }
                         if store.state.agent(agent)?.state.working == true, t.streaming.isEmpty, t.messages.last?.role == .user {
@@ -208,7 +208,7 @@ struct ThreadView: View {
             Theme.blue.frame(width: 3).clipShape(Capsule())
             VStack(alignment: .leading, spacing: 1) {
                 Text("Replying to").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.blue)
-                Text(t.message(id)?.text ?? "a message").font(.system(size: 13)).foregroundStyle(Theme.text2).lineLimit(1)
+                Text(store.state.quoted(id, in: agent)?.text ?? "a message").font(.system(size: 13)).foregroundStyle(Theme.text2).lineLimit(1)
             }
             Spacer()
             CButton("thread.cancelReply") { store.send(.replyTo(agent, nil)) } label: { Image(systemName: "xmark").frame(width: 36, height: 36) }

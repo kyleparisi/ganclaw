@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/kyleparisi/ganclaw/internal/api"
+	"github.com/kyleparisi/ganclaw/internal/store"
 )
 
 // Deps are the gateway calls the tools make; *api.Client provides them.
@@ -44,7 +45,7 @@ type AskOut struct {
 }
 
 // BackgroundJob is the app job name for work handed off to its own session.
-const BackgroundJob = "background"
+const BackgroundJob = store.BackgroundJob
 
 type HandOffIn struct {
 	Session string `json:"session,omitempty" jsonschema:"separate named work session; use a unique name for background work so it does not occupy the destination chat"`

@@ -113,7 +113,7 @@ func ChatKey(agentName string) string { return "app:" + agentName }
 // Event is pushed to every connected client.
 type Event struct {
 	Read    *store.AppReadState `json:"read,omitempty"`
-	Type    string              `json:"type"` // message | delta | agent
+	Type    string              `json:"type"` // message | job | delta | agent | read
 	Message *store.AppMessage   `json:"message,omitempty"`
 	// Delta events carry the whole streamed text so far, so a client that
 	// missed one loses nothing.
@@ -125,6 +125,10 @@ type Event struct {
 }
 
 func (c *Channel) publishMessage(m store.AppMessage) {
+	if m.IsScheduledJob() {
+		c.hub.publish(Event{Type: "job", Message: &m})
+		return
+	}
 	c.hub.publish(Event{Type: "message", Message: &m})
 	if m.Role != store.RoleUser && m.Status != store.StatusStreaming {
 		c.publishRead(m.Thread)
@@ -337,7 +341,7 @@ func (t *turn) stream(ctx context.Context) *router.ReplyStream {
 	var last time.Time
 	var id int64
 	push := func(force bool) {
-		if id == 0 {
+		if id == 0 || (t.job != "" && t.job != backgroundJob) {
 			return
 		}
 		if !force && t.c.Now().Sub(last) < t.c.StreamInterval {

@@ -47,8 +47,10 @@ func (c *Channel) handleUnpair(w http.ResponseWriter, r *http.Request) {
 
 // Only deliberate, finalized visible replies call notify; never deltas or hidden task mirrors.
 // Work is bounded and best effort: APNs is a hint to reload durable history.
+// Scheduled job records stay quiet unless the run failed: a failure is what
+// the alert ("infra: daily-check failed.") is for.
 func (c *Channel) notify(m store.AppMessage) {
-	if c.Push == nil {
+	if c.Push == nil || (m.IsScheduledJob() && m.Status != store.StatusError) {
 		return
 	}
 	select {

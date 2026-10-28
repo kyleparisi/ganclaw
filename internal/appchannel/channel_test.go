@@ -372,8 +372,8 @@ func TestJobsAndPost(t *testing.T) {
 	assert.Len(t, runs.Runs, 1)
 
 	msgs := h.messages("infra")
-	require.Len(t, msgs, 2)
-	assert.Equal(t, "Plain notice", msgs[1].Text)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "Plain notice", msgs[0].Text)
 }
 
 func TestStopWhenIdle(t *testing.T) {
@@ -457,4 +457,48 @@ func TestBackgroundWorkIsNotAJob(t *testing.T) {
 	require.Equal(t, http.StatusOK, h.do("GET", "/app/v1/jobs", nil, &jobs))
 	require.Len(t, jobs.Jobs, 1, "handed-off work is listed under Tasks, not Jobs")
 	assert.Equal(t, "daily-check", jobs.Jobs[0].Name)
+}
+
+func TestJobEvents(t *testing.T) {
+	subject := (*Channel).PostMessage
+	t.Run("Job failures publish a Jobs event without a conversation or read event", func(t *testing.T) {
+		h := newHarness(t, func(provider.Request) string { return "Reply" })
+		pushed := make(chan store.AppMessage, 2)
+		h.ch.Push = func(_ context.Context, _ store.AppPush, m store.AppMessage) (bool, error) {
+			pushed <- m
+			return false, nil
+		}
+		require.NoError(t, h.ch.Store.AddAppDevice(context.Background(), "a", "phone", "token"))
+		require.NoError(t, h.ch.Store.SetAppPush(context.Background(), "a", "apns", "1"))
+		sub := h.ch.hub.subscribe()
+		defer h.ch.hub.unsubscribe(sub)
+		m, err := subject(h.ch, context.Background(), store.AppMessage{Thread: "infra", Role: store.RoleAgent, Job: "daily", Text: "Failed", Status: store.StatusError})
+		require.NoError(t, err)
+		select {
+		case e := <-sub.ch:
+			assert.Equal(t, "job", e.Type)
+			require.NotNil(t, e.Message)
+			assert.Equal(t, m.ID, e.Message.ID)
+		default:
+			t.Fatal("missing Jobs event")
+		}
+		select {
+		case e := <-sub.ch:
+			t.Fatalf("unexpected inbox event: %s", e.Type)
+		default:
+		}
+		select {
+		case got := <-pushed:
+			assert.Equal(t, m.ID, got.ID, "a failed run still alerts the phone")
+		case <-time.After(time.Second):
+			t.Fatal("no push for a failed job run")
+		}
+		_, err = subject(h.ch, context.Background(), store.AppMessage{Thread: "infra", Role: store.RoleAgent, Job: "daily", Text: "All clear"})
+		require.NoError(t, err)
+		select {
+		case got := <-pushed:
+			t.Fatalf("routine job report pushed: %q", got.Text)
+		case <-time.After(100 * time.Millisecond):
+		}
+	})
 }
