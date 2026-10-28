@@ -27,6 +27,9 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(state.totalUnread, 1)
         state.apply(.readState("support", ReadState(lastReadId: 15, unreadCount: 2)))
         XCTAssertEqual(state.totalUnread, 1)
+        state.apply(.agentsLoaded([summary])) // An older GET finishes after the read event.
+        XCTAssertEqual(state.agent("support")?.lastReadId, 20)
+        XCTAssertEqual(state.totalUnread, 1)
     }
 
     func testUnreadFieldsAreBackwardCompatible() throws {

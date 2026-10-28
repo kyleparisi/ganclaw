@@ -246,7 +246,17 @@ struct AppState: Codable, Equatable {
             if connection != .unpaired { connection = s }
 
         case .agentsLoaded(let list):
-            agents = list
+            // A GET started before a read event may finish after it. Preserve
+            // the newer shared cursor rather than restoring stale unread state.
+            agents = list.map { incoming in
+                var value = incoming
+                if let previous = agent(incoming.name),
+                   (previous.lastReadId ?? 0) > (incoming.lastReadId ?? 0) {
+                    value.lastReadId = previous.lastReadId
+                    value.unreadCount = previous.unreadCount
+                }
+                return value
+            }
             agentsLoaded = true
         case .threadLoading(let a):
             threads[a, default: ThreadState()].loading = true
