@@ -111,6 +111,9 @@ def test_approval_buttons(paired, fake):
     app.wait_screen("thread:infra")
     wait_for(lambda: app.thread("infra").get("loaded"), what="history")
     card = next(m for m in reversed(app.messages("infra")) if m["actions"] == ["Approve", "Not now"])
+    # Threads open at their unread boundary; this approval is at the latest end.
+    if app.element("thread.latest"):
+        app.tap("thread.latest")
     app.screenshot("07-thread-approval")
 
     app.tap(f"action.{card['id']}.Approve")
@@ -186,6 +189,8 @@ def test_drive_mode(paired, fake):
     assert s["drive"]["details_saved"], "the part after --- stays in the thread"
     assert answer in s["speech"]["spoken"]
     assert fake.prompts()[-1]["prompt"].startswith("[The user is driving")
+    wait_for(lambda: next(a for a in app.state()["agents"] if a["name"] == "infra").get("unread_count") == 0,
+             what="a reply heard in drive mode counts as read")
     app.screenshot("13-drive-answer")
     app.tap("drive.transcript")
     wait_for(lambda: app.element("drive.transcript.answer"), what="full reply sheet")
@@ -352,6 +357,8 @@ def test_drive_reads_out_background_results_after_the_answer(paired, fake):
     spoken = wait_for(lambda: (sp := app.state()["speech"]["spoken"]) and result in sp and sp, timeout=10,
                       what="background result read out")
     assert spoken.index(result) > spoken.index("Done holding.")
+    wait_for(lambda: next(a for a in app.state()["agents"] if a["name"] == "infra").get("unread_count") == 0,
+             what="background result read aloud counts as read")
     wait_for(lambda: app.state()["drive"]["phase"] == "listening", what="back to listening")
     app.tap("drive.short")
     app.tap("drive.exit")
@@ -366,3 +373,56 @@ def test_tasks_filter_keeps_ordinary_threads_out(paired):
     app.screenshot("inbox-tasks")
     app.tap("filter.all")
     wait_for(lambda: app.element("inbox.row.infra"), what="ordinary inbox restored")
+
+
+def test_unread_badge_and_last_read_divider(paired, fake):
+    app = paired
+    # A fresh conversation gets an incoming message while the inbox is visible.
+    fake.post("/admin/post", {"agent": "builder", "text": "Unread reporting check"})
+    wait_for(lambda: next((a for a in app.state()["agents"] if a["name"] == "builder"), {}).get("unread_count", 0) > 0,
+             what="unread inbox count")
+    app.tap("inbox.row.builder")
+    app.wait_screen("thread:builder")
+    wait_for(lambda: app.element("thread.unreadDivider"), what="new messages divider")
+    if app.element("thread.latest"):
+        app.tap("thread.latest")
+    wait_for(lambda: next(a for a in app.state()["agents"] if a["name"] == "builder").get("unread_count") == 0,
+             what="visible thread marked read")
+    app.screenshot("unread-divider")
+    app.tap("thread.back")
+
+
+def test_focusing_or_scrolling_a_thread_marks_it_read(paired, fake):
+    """Opening a long thread at its divider leaves it unread; typing or
+    scrolling counts as reading it."""
+    app = paired
+    agent = "mailbox"
+    app.post("/navigate", {"route": "inbox"})
+
+    def unread():
+        return next(a for a in app.state()["agents"] if a["name"] == agent).get("unread_count", 0)
+
+    def open_long_unread_thread(tag):
+        before = unread()
+        for i in range(25):  # tall enough that the bottom is off screen
+            fake.post("/admin/post", {"agent": agent, "text": f"{tag} report {i}\n" + "detail line\n" * 4})
+        wait_for(lambda: unread() >= before + 25, what=f"{tag} reports unread")
+        app.tap(f"inbox.row.{agent}")
+        app.wait_screen(f"thread:{agent}")
+        wait_for(lambda: app.element("thread.unreadDivider"), what="new messages divider")
+        count = unread()
+        time.sleep(1.5)
+        assert unread() == count > 0, "opening at the divider with the bottom off screen doesn't mark read"
+
+    open_long_unread_thread("focus")
+    app.tap("composer.text")
+    wait_for(lambda: unread() == 0, what="focusing the message box marks the thread read")
+    app.screenshot("unread-focus")
+    app.tap("thread.back")
+    app.wait_screen("inbox")
+
+    open_long_unread_thread("scroll")
+    app.post("/scroll", {"id": "thread.messages", "to": "top"})
+    wait_for(lambda: unread() == 0, what="scrolling marks the thread read")
+    app.tap("thread.back")
+    app.wait_screen("inbox")

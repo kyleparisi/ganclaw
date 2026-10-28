@@ -74,6 +74,8 @@ func TestNotificationSelection(t *testing.T) {
 		select {
 		case got := <-delivered:
 			assert.Equal(t, "complete", got.Text)
+			require.NotNil(t, got.Badge)
+			assert.Equal(t, 1, *got.Badge)
 		case <-time.After(time.Second):
 			t.Fatal("no push")
 		}

@@ -51,7 +51,9 @@ Routes (`Ganclaw/Control/ControlRoutes.swift`):
 
 - UI, acting like a user: `GET /ui-tree` (controls on screen with ids,
   labels, frames, enabled), `POST /tap {"id"|"label"}` (runs a button's
-  action), `GET /screenshot`, `GET /clipboard`.
+  action; on the message box it focuses it), `POST /scroll {"id","to":
+  "top"|"bottom"}` (scrolls a scroll view and runs what a user scroll
+  does), `GET /screenshot`, `GET /clipboard`.
 - State: `GET /state` (the whole `AppState` as snake_case JSON, plus
   `screen`, `inbox_rows`, and `speech` with fake speech), `GET /actions`.
 - Intents (the same AppStore methods views call, for what a simulator

@@ -82,6 +82,11 @@ struct APIClient {
         return try await send(request("GET", "/app/v1/agents"), as: R.self).agents
     }
 
+    func markRead(agent: String, messageID: Int64) async throws -> ReadState {
+        struct Body: Encodable { var messageId: Int64 }
+        return try await sendJSON("PUT", "/app/v1/threads/\(escape(agent))/read", body: Body(messageId: messageID), as: ReadState.self)
+    }
+
     struct ThreadPage: Decodable { var messages: [AppMessage]; var state: AgentState }
     func messages(agent: String, before: Int64? = nil, limit: Int = 100) async throws -> ThreadPage {
         var q = [URLQueryItem(name: "limit", value: String(limit))]

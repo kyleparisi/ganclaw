@@ -112,8 +112,9 @@ func ChatKey(agentName string) string { return "app:" + agentName }
 
 // Event is pushed to every connected client.
 type Event struct {
-	Type    string            `json:"type"` // message | delta | agent
-	Message *store.AppMessage `json:"message,omitempty"`
+	Read    *store.AppReadState `json:"read,omitempty"`
+	Type    string              `json:"type"` // message | delta | agent
+	Message *store.AppMessage   `json:"message,omitempty"`
 	// Delta events carry the whole streamed text so far, so a client that
 	// missed one loses nothing.
 	ID     int64       `json:"id,omitempty"`
@@ -125,6 +126,22 @@ type Event struct {
 
 func (c *Channel) publishMessage(m store.AppMessage) {
 	c.hub.publish(Event{Type: "message", Message: &m})
+	if m.Role != store.RoleUser && m.Status != store.StatusStreaming {
+		c.publishRead(m.Thread)
+	}
+}
+
+// publishRead sends a thread's read position and unread count to every
+// device, so clients update counts from events instead of refetching.
+func (c *Channel) publishRead(thread string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	state, err := c.Store.AppReadState(ctx, thread)
+	if err != nil {
+		c.log.Warn("load read state failed", "thread", thread, "err", err)
+		return
+	}
+	c.hub.publish(Event{Type: "read", Thread: thread, Read: &state})
 }
 
 func (c *Channel) setState(agentName string, s AgentState) {

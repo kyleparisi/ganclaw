@@ -28,6 +28,8 @@ struct ControlRoutes {
             return HTTPResponse(status: 200, contentType: "image/png", body: png)
         case ("POST", "/tap"):
             return tap(body)
+        case ("POST", "/scroll"):
+            return scroll(body)
         case ("GET", "/clipboard"):
             let text: Any = store.platform.pasteboard.string().map { $0 as Any } ?? NSNull()
             return .json(["text": text])
@@ -148,6 +150,18 @@ struct ControlRoutes {
         guard e.enabled else { return .json(["ok": false, "error": "\(e.id) is disabled"], status: 409) }
         action()
         return .json(["ok": true, "element": json(e)])
+    }
+
+    /// Scrolls a scroll view the way a user would: {"id", "to": "top"|"bottom"}.
+    private func scroll(_ body: [String: Any]) -> HTTPResponse {
+        let id = str(body, "id")
+        guard let to = ScrollTarget(rawValue: body["to"] as? String ?? "top") else { return .error("to must be top or bottom") }
+        guard let e = ControlRegistry.shared.visible().first(where: { $0.id == id }) else {
+            return .json(["ok": false, "error": "no control \(id) on screen", "screen": store.state.currentScreen], status: 404)
+        }
+        guard let scroll = e.scroll else { return .json(["ok": false, "error": "\(id) can't be scrolled"], status: 409) }
+        scroll(to)
+        return .json(["ok": true])
     }
 
     private func json(_ e: ControlRegistry.Entry) -> [String: Any] {

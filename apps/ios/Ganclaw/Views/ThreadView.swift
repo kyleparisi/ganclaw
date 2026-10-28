@@ -4,6 +4,10 @@ struct ThreadView: View {
     var agent: String
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var unreadBoundary: Int64?
+    @State private var capturedBoundary = false
+    @State private var atBottom = false
     @State private var recorder = VoiceRecorder()
     @FocusState private var composerFocused: Bool
 
@@ -17,7 +21,24 @@ struct ThreadView: View {
         }
         .background(Theme.ground.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .task(id: agent) { if !t.loaded { await store.loadThread(agent) } }
+        .task(id: agent) {
+            if !capturedBoundary {
+                if (store.state.agent(agent)?.unreadCount ?? 0) > 0 {
+                    unreadBoundary = store.state.agent(agent)?.lastReadId ?? 0
+                }
+                capturedBoundary = true
+            }
+            if !t.loaded { await store.loadThread(agent) }
+        }
+        // Re-run when the bottom comes into view, the app returns, or the
+        // newest message arrives or finishes streaming.
+        .task(id: "\(atBottom)-\(scenePhase)-\(t.messages.last?.id ?? 0)-\(t.messages.last?.status.rawValue ?? "")") {
+            guard atBottom, scenePhase == .active, let last = t.messages.last else { return }
+            do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            await store.markRead(agent, through: last.id)
+        }
+        // Starting to type counts as having read the conversation.
+        .onChange(of: composerFocused) { _, focused in if focused { markLatestRead(t) } }
     }
 
     // MARK: Header
@@ -77,49 +98,100 @@ struct ThreadView: View {
 
     private func messages(_ t: ThreadState) -> some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                // Not lazy: a lazy stack can't scroll to the newest message
-                // when history arrives after the view appears. Threads load
-                // a page of 100.
-                VStack(spacing: 10) {
-                    if t.loading && t.messages.isEmpty {
-                        ProgressView().padding(.top, 40)
-                    }
-                    if let e = t.error, t.messages.isEmpty {
-                        Text(e).font(.system(size: 14)).foregroundStyle(Theme.muted).padding(.top, 40)
-                    }
-                    if t.loaded && t.messages.isEmpty {
-                        Text("Say hello to \(Theme.displayName(agent)).").font(.system(size: 15)).foregroundStyle(Theme.muted).padding(.top, 40)
-                            .control("thread.empty")
-                    }
-                    ForEach(Array(t.messages.enumerated()), id: \.element.id) { i, m in
-                        if i == 0 || !Calendar.current.isDate(t.messages[i - 1].createdAt, equalTo: m.createdAt, toGranularity: .hour) {
-                            Text(dayLabel(m.createdAt)).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.muted).padding(.top, 4)
+            GeometryReader { viewport in
+                ScrollView {
+                    // Not lazy: a lazy stack can't scroll to the newest message
+                    // when history arrives after the view appears. Threads load
+                    // a page of 100.
+                    VStack(spacing: 10) {
+                        if t.loading && t.messages.isEmpty {
+                            ProgressView().padding(.top, 40)
                         }
-                        MessageRow(message: m, streamed: t.streaming[m.id], replyTo: m.replyTo.flatMap { t.message($0) })
-                            .id(m.id)
+                        if let e = t.error, t.messages.isEmpty {
+                            Text(e).font(.system(size: 14)).foregroundStyle(Theme.muted).padding(.top, 40)
+                        }
+                        if t.loaded && t.messages.isEmpty {
+                            Text("Say hello to \(Theme.displayName(agent)).").font(.system(size: 15)).foregroundStyle(Theme.muted).padding(.top, 40)
+                                .control("thread.empty")
+                        }
+                        ForEach(Array(t.messages.enumerated()), id: \.element.id) { i, m in
+                            if i == 0 || !Calendar.current.isDate(t.messages[i - 1].createdAt, equalTo: m.createdAt, toGranularity: .hour) {
+                                Text(dayLabel(m.createdAt)).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.muted).padding(.top, 4)
+                            }
+                            if m.id == firstUnread(t) {
+                                HStack {
+                                    Theme.blue.frame(height: 1)
+                                    Text("New messages").font(.system(size: 12, weight: .semibold)).fixedSize()
+                                    Theme.blue.frame(height: 1)
+                                }
+                                .foregroundStyle(Theme.blue)
+                                .id("unread")
+                                .control("thread.unreadDivider")
+                            }
+                            MessageRow(message: m, streamed: t.streaming[m.id], replyTo: m.replyTo.flatMap { t.message($0) })
+                                .id(m.id)
+                        }
+                        if store.state.agent(agent)?.state.working == true, t.streaming.isEmpty, t.messages.last?.role == .user {
+                            TypingBubble().frame(maxWidth: .infinity, alignment: .leading).id("typing")
+                        }
+                        Color.clear.frame(height: 4).id("bottom")
+                            .background(GeometryReader { geometry in
+                                let frame = geometry.frame(in: .named("thread-scroll"))
+                                Color.clear.preference(key: ThreadBottomVisible.self,
+                                    value: frame.minY >= 0 && frame.maxY <= viewport.size.height)
+                            })
                     }
-                    if store.state.agent(agent)?.state.working == true, t.streaming.isEmpty, t.messages.last?.role == .user {
-                        TypingBubble().frame(maxWidth: .infinity, alignment: .leading).id("typing")
-                    }
-                    Color.clear.frame(height: 4).id("bottom")
+                    .padding(.horizontal, 14)
+                    .padding(.top, 14)
                 }
-                .padding(.horizontal, 14)
-                .padding(.top, 14)
+                .scrollDismissesKeyboard(.interactively)
+                .defaultScrollAnchor(.bottom)
+                .coordinateSpace(name: "thread-scroll")
+                .onPreferenceChange(ThreadBottomVisible.self) { atBottom = $0 }
+                // Scrolling the conversation counts as reading it.
+                .simultaneousGesture(DragGesture(minimumDistance: 12).onEnded { _ in markLatestRead(t) })
+                .onAppear { scrollToEntry(proxy, t) }
+                .onChange(of: t.loaded) { _, _ in scrollToEntry(proxy, t) }
+                .onChange(of: capturedBoundary) { _, _ in scrollToEntry(proxy, t) }
+                .onChange(of: t.messages.last?.id) { _, _ in if atBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
+                .onChange(of: t.streaming) { _, _ in if atBottom { proxy.scrollTo("bottom", anchor: .bottom) } }
+                .overlay(alignment: .bottom) {
+                    if !atBottom && t.loaded && !t.messages.isEmpty {
+                        CButton("thread.latest", title: "Jump to latest") {
+                            withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                        .padding(10).background(Theme.card, in: Capsule())
+                        .padding(.bottom, 8)
+                    }
+                }
+                .control("thread.messages", scroll: { to in
+                    switch to {
+                    case .top: if let first = t.messages.first { proxy.scrollTo(first.id, anchor: .top) }
+                    case .bottom: proxy.scrollTo("bottom", anchor: .bottom)
+                    }
+                    markLatestRead(t) // what the drag gesture does
+                })
             }
-            .scrollDismissesKeyboard(.interactively)
-            .defaultScrollAnchor(.bottom)
-            .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
-            .onChange(of: t.loaded) { _, _ in scrollToBottom(proxy) }
-            .onChange(of: t.messages.last?.id) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
-            .onChange(of: t.streaming) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
-            .control("thread.messages")
         }
     }
 
-    /// Waits a frame so freshly loaded messages are laid out first.
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
+    /// Marks everything loaded as read: the user is engaging with the thread.
+    private func markLatestRead(_ t: ThreadState) {
+        guard scenePhase == .active, let last = t.messages.last else { return }
+        Task { await store.markRead(agent, through: last.id) }
+    }
+
+    private func firstUnread(_ t: ThreadState) -> Int64? {
+        guard let boundary = unreadBoundary else { return nil }
+        return t.messages.first { $0.id > boundary && $0.role != .user && $0.status != .streaming }?.id
+    }
+
+    private func scrollToEntry(_ proxy: ScrollViewProxy, _ t: ThreadState) {
+        DispatchQueue.main.async {
+            if firstUnread(t) != nil { proxy.scrollTo("unread", anchor: .top) }
+            else { proxy.scrollTo("bottom", anchor: .bottom) }
+        }
     }
 
     private func dayLabel(_ d: Date) -> String {
@@ -176,7 +248,8 @@ struct ThreadView: View {
                         .padding(.leading, 16).padding(.vertical, 11)
                         .focused($composerFocused)
                         .accessibilityLabel("Message")
-                        .control("composer.text")
+                        // /tap focuses the field, as a finger would.
+                        .control("composer.text", action: { composerFocused = true })
                 }
                 CButton("composer.mic") { toggleRecording() } label: {
                     Image(systemName: recorder.recording ? "stop.fill" : "mic")
@@ -371,4 +444,9 @@ struct TypingBubble: View {
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.line))
             .control("thread.typing")
     }
+}
+
+private struct ThreadBottomVisible: PreferenceKey {
+    static var defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
 }

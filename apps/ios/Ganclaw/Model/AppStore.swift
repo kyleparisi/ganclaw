@@ -17,7 +17,8 @@ final class AppStore {
     /// Every action applied, newest last; the control server exposes it.
     @ObservationIgnored private(set) var actionLog: [String] = []
     /// Background results waiting to be read out in drive mode.
-    @ObservationIgnored private var announcements: [String] = []
+    @ObservationIgnored private var announcements: [Announcement] = []
+    private struct Announcement { var thread: String; var id: Int64; var text: String }
     @ObservationIgnored private var announced: Set<Int64> = []
 
     init(platform: Platform) {
@@ -43,7 +44,12 @@ final class AppStore {
     }
 
     func send(_ action: AppState.Action) {
+        let oldUnread = state.totalUnread
         state.apply(action)
+        if state.totalUnread != oldUnread {
+            let count = state.totalUnread
+            Task { await platform.notifications.setBadge(count) }
+        }
         actionLog.append(String(describing: action).prefix(200).description)
         if actionLog.count > 500 { actionLog.removeFirst(actionLog.count - 500) }
     }
@@ -151,6 +157,7 @@ final class AppStore {
             async let jobs = client.jobs()
             let (a, j) = try await (agents, jobs)
             send(.agentsLoaded(a))
+            await platform.notifications.setBadge(state.totalUnread)
             send(.jobsLoaded(j))
             send(.banner(nil))
             for case .thread(let name) in state.path { await loadThread(name) }
@@ -178,6 +185,17 @@ final class AppStore {
         } catch {
             fail(error)
         }
+    }
+
+    /// Marks a thread read through `id`. Views call it when the user is
+    /// looking at the conversation (bottom visible, typing, scrolling); drive
+    /// mode calls it with `heard: true` for a reply it read aloud, since the
+    /// thread isn't on screen then.
+    func markRead(_ agent: String, through id: Int64, heard: Bool = false) async {
+        guard let client, id > (state.agent(agent)?.lastReadId ?? 0),
+              heard || state.currentScreen == "thread:\(agent)" else { return }
+        do { send(.readState(agent, try await client.markRead(agent: agent, messageID: id))) }
+        catch { fail(error, quiet: true) }
     }
 
     // MARK: Navigation
@@ -365,6 +383,7 @@ final class AppStore {
         let answer = spoken.isEmpty ? "Done." : spoken
         send(.driveAnswered(answer, details: details || !m.files.isEmpty || !m.actions.isEmpty))
         platform.speech.speak(answer) { [weak self] in self?.spokeReply() }
+        Task { await markRead(m.thread, through: m.id, heard: true) }
     }
 
     /// Job name of work handed off from drive mode (agenttools.BackgroundJob).
@@ -377,16 +396,17 @@ final class AppStore {
         guard d.active, m.thread == d.agent, m.role != .user, m.status != .streaming,
               m.job == Self.backgroundJob, announced.insert(m.id).inserted else { return }
         let spoken = m.spokenPart.spoken
-        announcements.append(spoken.isEmpty || spoken.count > 400
-            ? "A background task finished. The details are in the thread." : spoken)
+        announcements.append(Announcement(thread: m.thread, id: m.id, text: spoken.isEmpty || spoken.count > 400
+            ? "A background task finished. The details are in the thread." : spoken))
         speakNextAnnouncement()
     }
 
     private func speakNextAnnouncement() {
         guard state.drive.active, state.drive.phase == .listening, !announcements.isEmpty else { return }
-        let text = announcements.removeFirst()
+        let next = announcements.removeFirst()
         send(.drivePhase(.speaking))
-        platform.speech.speak(text) { [weak self] in self?.spokeReply() }
+        platform.speech.speak(next.text) { [weak self] in self?.spokeReply() }
+        Task { await markRead(next.thread, through: next.id, heard: true) }
     }
 
     // MARK: Events

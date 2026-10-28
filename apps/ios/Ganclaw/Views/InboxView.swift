@@ -146,6 +146,15 @@ struct AgentRow: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(idle ? Theme.text2 : Theme.ink)
                     Spacer()
+                    if let unread = agent.unreadCount, unread > 0 {
+                        Text(unread > 99 ? "99+" : String(unread))
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(Theme.blue, in: Capsule())
+                            .accessibilityLabel("\(unread) unread messages")
+                            .control("inbox.unread.\(agent.name)")
+                    }
                     if agent.state.working {
                         Text("Running").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.blue)
                     } else if let last = agent.lastMessage, !idle {

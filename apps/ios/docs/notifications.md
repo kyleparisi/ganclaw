@@ -91,3 +91,37 @@ an alert: Focus, user settings and OS delivery policy can suppress it.
 Apple references: [register with APNs](https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns),
 [send notification requests](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns),
 [handle APNs responses](https://developer.apple.com/documentation/usernotifications/handling-notification-responses-from-apns).
+
+## Unread messages and read positions
+
+Read positions are stored in SQLite per agent conversation, shared by all
+paired devices. `GET /app/v1/agents` includes `last_read_id` and `unread_count`.
+`PUT /app/v1/threads/{agent}/read` accepts `{"message_id":42}` and returns those
+two fields. It requires an existing message in that conversation and advances
+monotonically. A `read` WebSocket event broadcasts a thread's position and
+count to every connected device, both after a read and after each finished
+incoming message, so clients update counts without refetching the inbox;
+reconnecting clients reload the counts from the server.
+
+Unread counts include finalized incoming messages, job reports, files and
+system errors. User messages, streaming drafts and hidden task mirror threads
+are excluded. An unfinished reply blocks advancing beyond it, so its eventual
+completion cannot be silently marked read. Upgrading from a version without
+read state marks existing history read once, so the badge starts at zero.
+
+The app shows per-agent unread counts and a New messages divider at the entry
+read position. It opens at the first unread message in the loaded history page
+(up to 100 messages); earlier unread history is not automatically paginated.
+The divider stays in place for that visit. The loaded conversation is marked
+read when its bottom is visible (after a short delay), when you scroll it, or
+when you focus the message box. In drive mode, a reply or background result
+read aloud is marked read. Jump to latest returns
+to the bottom. Reading a job detail alone does not advance the conversation's
+cursor past other unseen messages.
+
+APNs alerts carry the total unread count for configured agents as their badge.
+The foreground app refreshes its icon badge on reload and read updates and
+requests badge authorization along with alerts and sound. APNs is best effort:
+a suspended second device's badge may stay stale until its next alert or app
+refresh; a read update does not send a separate silent push. Mac Catalyst has
+no APNs badge integration; its inbox uses the same shared unread counts.
