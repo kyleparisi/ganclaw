@@ -32,6 +32,17 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(state.totalUnread, 1)
     }
 
+    func testAStaleInboxLoadKeepsANewerLastMessage() {
+        var state = AppState()
+        state.apply(.agentsLoaded([agent("trader", last: msg(5, "trader"))]))
+        state.apply(.event(ServerEvent(type: "message", message: msg(9, "trader", text: "Back online."))))
+        // The reconnect refresh started before message 9 and finishes after it.
+        state.apply(.agentsLoaded([agent("trader", last: msg(5, "trader"))]))
+        XCTAssertEqual(state.agent("trader")?.lastMessage?.text, "Back online.")
+        state.apply(.agentsLoaded([agent("trader", last: msg(12, "trader", text: "Newer"))]))
+        XCTAssertEqual(state.agent("trader")?.lastMessage?.id, 12)
+    }
+
     func testUnreadFieldsAreBackwardCompatible() throws {
         let old = try JSON.decoder.decode(AgentSummary.self,
             from: Data(#"{"name":"support","state":{"working":false},"needs_you":false}"#.utf8))

@@ -255,6 +255,12 @@ struct AppState: Codable, Equatable {
                     value.lastReadId = previous.lastReadId
                     value.unreadCount = previous.unreadCount
                 }
+                // Likewise a message event newer than the snapshot (e.g. one
+                // arriving while the reconnect refresh is in flight) wins.
+                if let previous = agent(incoming.name)?.lastMessage,
+                   previous.id > (incoming.lastMessage?.id ?? 0) {
+                    value.lastMessage = previous
+                }
                 return value
             }
             agentsLoaded = true
