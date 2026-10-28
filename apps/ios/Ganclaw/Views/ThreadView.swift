@@ -8,6 +8,7 @@ struct ThreadView: View {
     @State private var unreadBoundary: Int64?
     @State private var capturedBoundary = false
     @State private var atBottom = false
+    @State private var nearBottom = false
     @State private var recorder = VoiceRecorder()
     @FocusState private var composerFocused: Bool
 
@@ -139,6 +140,10 @@ struct ThreadView: View {
                                 let frame = geometry.frame(in: .named("thread-scroll"))
                                 Color.clear.preference(key: ThreadBottomVisible.self,
                                     value: frame.minY >= 0 && frame.maxY <= viewport.size.height)
+                                    // Hide the jump control within 48 points of the bottom.
+                                    // Read visibility still requires the actual bottom.
+                                    .preference(key: ThreadNearBottom.self,
+                                        value: frame.minY >= -48 && frame.maxY <= viewport.size.height + 48)
                             })
                     }
                     .padding(.horizontal, 14)
@@ -148,6 +153,7 @@ struct ThreadView: View {
                 .defaultScrollAnchor(.bottom)
                 .coordinateSpace(name: "thread-scroll")
                 .onPreferenceChange(ThreadBottomVisible.self) { atBottom = $0 }
+                .onPreferenceChange(ThreadNearBottom.self) { nearBottom = $0 }
                 // Scrolling the conversation counts as reading it.
                 .simultaneousGesture(DragGesture(minimumDistance: 12).onEnded { _ in markLatestRead(t) })
                 .onAppear { scrollToEntry(proxy, t) }
@@ -156,7 +162,7 @@ struct ThreadView: View {
                 .onChange(of: t.messages.last?.id) { _, _ in if atBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
                 .onChange(of: t.streaming) { _, _ in if atBottom { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .overlay(alignment: .bottom) {
-                    if !atBottom && t.loaded && !t.messages.isEmpty {
+                    if !nearBottom && t.loaded && !t.messages.isEmpty {
                         CButton("thread.latest", title: "Jump to latest") {
                             withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                         }
@@ -447,6 +453,11 @@ struct TypingBubble: View {
 }
 
 private struct ThreadBottomVisible: PreferenceKey {
+    static var defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
+private struct ThreadNearBottom: PreferenceKey {
     static var defaultValue = false
     static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
 }
