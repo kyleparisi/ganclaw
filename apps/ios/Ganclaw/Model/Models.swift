@@ -47,6 +47,13 @@ struct AppMessage: Codable, Hashable, Identifiable {
 
     /// Buttons the user still has to pick from.
     var pendingActions: [String] { (answer ?? "").isEmpty ? actions : [] }
+
+    /// Job name of work handed off from drive mode (store.BackgroundJob):
+    /// its results stay in the conversation.
+    static let backgroundJob = "background"
+
+    /// A scheduled job's record: listed in Jobs, not in the conversation.
+    var isScheduledJob: Bool { !(job ?? "").isEmpty && job != Self.backgroundJob }
 }
 
 struct AgentState: Codable, Hashable {

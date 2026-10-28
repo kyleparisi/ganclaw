@@ -17,8 +17,8 @@ type AppReadState struct {
 // the (thread, id) index serves it instead of a scan of all history.
 const readStateQuery = `SELECT t.thread, COALESCE(r.message_id, 0),
  (SELECT COUNT(*) FROM app_messages m WHERE m.thread = t.thread AND m.id > COALESCE(r.message_id, 0)
-  AND (m.job = '' OR m.job = 'background') AND m.role != 'user' AND m.status != 'streaming')
- FROM (SELECT DISTINCT thread FROM app_messages WHERE thread NOT LIKE 'task:%' AND (job = '' OR job = 'background')) t
+  AND (m.job = '' OR m.job = '` + BackgroundJob + `') AND m.role != 'user' AND m.status != 'streaming')
+ FROM (SELECT DISTINCT thread FROM app_messages WHERE thread NOT LIKE 'task:%' AND ` + conversation + `) t
  LEFT JOIN app_reads r ON r.thread = t.thread`
 
 // AppReadState is one thread's read position and unread count.
@@ -62,7 +62,7 @@ func (s *Store) MarkAppRead(ctx context.Context, thread string, id int64) error 
 		return err
 	}
 	var streaming sql.NullInt64
-	if err := tx.QueryRowContext(ctx, `SELECT MIN(id) FROM app_messages WHERE thread = ? AND (job = '' OR job = 'background') AND status = 'streaming' AND id <= ?`, thread, id).Scan(&streaming); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT MIN(id) FROM app_messages WHERE thread = ? AND `+conversation+` AND status = 'streaming' AND id <= ?`, thread, id).Scan(&streaming); err != nil {
 		return err
 	}
 	if streaming.Valid {

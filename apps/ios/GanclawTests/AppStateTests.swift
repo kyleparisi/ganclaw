@@ -139,6 +139,21 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(s.thread("infra").messages.map(\.id), [5])
     }
 
+    func testAThreadCanQuoteAJobRunItAsksAbout() {
+        var s = AppState()
+        s.apply(.agentsLoaded([agent("infra")]))
+        s.apply(.threadLoaded("infra", [msg(1)], .idle))
+        let run = msg(8, text: "2 timeouts overnight.", job: "nightly")
+        s.apply(.jobsLoaded([JobSummary(name: "nightly", agent: "infra", lastRun: run, runs: 1, problems: 0)]))
+        XCTAssertNil(s.thread("infra").message(8), "job runs aren't in the conversation")
+        XCTAssertEqual(s.quoted(8, in: "infra")?.text, "2 timeouts overnight.")
+        s.apply(.jobRunsLoaded("nightly", [msg(6, text: "Older run", job: "nightly"), run]))
+        XCTAssertEqual(s.quoted(6, in: "infra")?.text, "Older run")
+        XCTAssertEqual(s.quoted(1, in: "infra")?.id, 1)
+        XCTAssertFalse(msg(9, job: "background").isScheduledJob)
+        XCTAssertTrue(run.isScheduledJob)
+    }
+
     func testJobRunsUpdateFromEvents() {
         var s = AppState()
         s.apply(.agentsLoaded([agent("infra")]))

@@ -444,7 +444,7 @@ type JobSummary struct {
 
 // backgroundJob tags work handed off to its own session
 // (agenttools.BackgroundJob); drive mode reads those results aloud.
-const backgroundJob = "background"
+const backgroundJob = store.BackgroundJob
 
 func (c *Channel) handleJobs(w http.ResponseWriter, r *http.Request) {
 	runs, err := c.Store.AppJobRuns(r.Context(), "", 500)

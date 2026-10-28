@@ -386,15 +386,12 @@ final class AppStore {
         Task { await markRead(m.thread, through: m.id, heard: true) }
     }
 
-    /// Job name of work handed off from drive mode (agenttools.BackgroundJob).
-    static let backgroundJob = "background"
-
     /// Reads out background work finishing in the drive thread, once the
     /// conversation is free (not while thinking about or speaking a reply).
     private func announceIfBackgroundResult(_ m: AppMessage) {
         let d = state.drive
         guard d.active, m.thread == d.agent, m.role != .user, m.status != .streaming,
-              m.job == Self.backgroundJob, announced.insert(m.id).inserted else { return }
+              m.job == AppMessage.backgroundJob, announced.insert(m.id).inserted else { return }
         let spoken = m.spokenPart.spoken
         announcements.append(Announcement(thread: m.thread, id: m.id, text: spoken.isEmpty || spoken.count > 400
             ? "A background task finished. The details are in the thread." : spoken))

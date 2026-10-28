@@ -97,8 +97,16 @@ type AppMessage struct {
 	Updated  time.Time `json:"updated_at"`
 }
 
+// BackgroundJob tags results of work handed off to its own session. Unlike
+// scheduled jobs, they stay in the conversation (drive mode reads them out).
+const BackgroundJob = "background"
+
+// conversation selects the messages that belong in a conversation: not
+// scheduled job records, which live in Jobs history.
+const conversation = `(job = '' OR job = '` + BackgroundJob + `')`
+
 // IsScheduledJob distinguishes Jobs history from conversation and background task replies.
-func (m AppMessage) IsScheduledJob() bool { return m.Job != "" && m.Job != "background" }
+func (m AppMessage) IsScheduledJob() bool { return m.Job != "" && m.Job != BackgroundJob }
 
 // Message roles and statuses.
 const (
@@ -123,7 +131,7 @@ func (s *Store) initApp() error {
 		// Upgrading from before read state: history up to now counts as read,
 		// rather than every past message turning unread at once.
 		if _, err := s.db.Exec(`INSERT OR IGNORE INTO app_reads (thread, message_id)
-			SELECT thread, MAX(id) FROM app_messages WHERE thread NOT LIKE 'task:%' AND (job = '' OR job = 'background') GROUP BY thread`); err != nil {
+			SELECT thread, MAX(id) FROM app_messages WHERE thread NOT LIKE 'task:%' AND ` + conversation + ` GROUP BY thread`); err != nil {
 			return err
 		}
 	}
@@ -280,7 +288,7 @@ func (s *Store) AppMessages(ctx context.Context, thread string, before int64, li
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	q := `SELECT ` + msgCols + ` FROM app_messages WHERE thread = ? AND (job = '' OR job = 'background')`
+	q := `SELECT ` + msgCols + ` FROM app_messages WHERE thread = ? AND ` + conversation
 	args := []any{thread}
 	if before > 0 {
 		q += ` AND id < ?`
@@ -306,7 +314,7 @@ func (s *Store) AppMessages(ctx context.Context, thread string, before int64, li
 // thread.
 func (s *Store) LastAppMessages(ctx context.Context) (map[string]AppMessage, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+msgCols+` FROM app_messages
-		WHERE id IN (SELECT MAX(id) FROM app_messages WHERE thread NOT LIKE 'task:%' AND (job = '' OR job = 'background') GROUP BY thread)`)
+		WHERE id IN (SELECT MAX(id) FROM app_messages WHERE thread NOT LIKE 'task:%' AND `+conversation+` GROUP BY thread)`)
 	if err != nil {
 		return nil, err
 	}

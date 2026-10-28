@@ -161,6 +161,14 @@ struct AppState: Codable, Equatable {
         }
     }
 
+    /// A message a thread quotes. "Ask about this run" replies to a job run,
+    /// which lives in Jobs rather than in the conversation.
+    func quoted(_ id: Int64, in agent: String) -> AppMessage? {
+        thread(agent).message(id)
+            ?? jobRuns.values.lazy.flatMap { $0 }.first { $0.id == id }
+            ?? jobs.first { $0.lastRun.id == id }?.lastRun
+    }
+
     var totalUnread: Int { agents.reduce(0) { $0 + ($1.unreadCount ?? 0) } }
 
     var jobProblems: Int { jobs.reduce(0) { $0 + ($1.problems > 0 ? 1 : 0) } }
@@ -392,7 +400,7 @@ struct AppState: Codable, Equatable {
     }
 
     private mutating func upsert(_ m: AppMessage) {
-        if (m.job ?? "").isEmpty || m.job == "background" {
+        if !m.isScheduledJob {
             var t = thread(m.thread)
             if let i = t.messages.firstIndex(where: { $0.id == m.id }) {
                 t.messages[i] = m
