@@ -165,7 +165,13 @@ struct ThreadView: View {
                         .padding(.bottom, 8)
                     }
                 }
-                .control("thread.messages")
+                .control("thread.messages", scroll: { to in
+                    switch to {
+                    case .top: if let first = t.messages.first { proxy.scrollTo(first.id, anchor: .top) }
+                    case .bottom: proxy.scrollTo("bottom", anchor: .bottom)
+                    }
+                    markLatestRead(t) // what the drag gesture does
+                })
             }
         }
     }
@@ -242,7 +248,8 @@ struct ThreadView: View {
                         .padding(.leading, 16).padding(.vertical, 11)
                         .focused($composerFocused)
                         .accessibilityLabel("Message")
-                        .control("composer.text")
+                        // /tap focuses the field, as a finger would.
+                        .control("composer.text", action: { composerFocused = true })
                 }
                 CButton("composer.mic") { toggleRecording() } label: {
                     Image(systemName: recorder.recording ? "stop.fill" : "mic")

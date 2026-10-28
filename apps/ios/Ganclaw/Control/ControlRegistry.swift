@@ -5,13 +5,20 @@ import SwiftUI
 // identifier. With the control server, the view also registers its id,
 // label, on-screen frame and (for buttons) the same action closure the
 // button runs, while it is on screen. /ui-tree lists what's registered;
-// /tap runs a registered action.
+// /tap runs a registered action. A scroll view can register what a user
+// scroll does; /scroll runs it.
 
 extension View {
     /// Marks a view for the control server and accessibility.
-    func control(_ id: String, label: String? = nil, action: (() -> Void)? = nil) -> some View {
-        modifier(ControlModifier(id: id, label: label, action: action))
+    func control(_ id: String, label: String? = nil, action: (() -> Void)? = nil,
+                 scroll: ((ScrollTarget) -> Void)? = nil) -> some View {
+        modifier(ControlModifier(id: id, label: label, action: action, scroll: scroll))
     }
+}
+
+/// Where /scroll moves a scroll view.
+enum ScrollTarget: String {
+    case top, bottom
 }
 
 /// A Button the control server can tap.
@@ -42,6 +49,7 @@ struct ControlModifier: ViewModifier {
     let id: String
     let label: String?
     let action: (() -> Void)?
+    let scroll: ((ScrollTarget) -> Void)?
     @State private var entry = ControlRegistry.Entry()
     @Environment(\.isEnabled) private var enabled
 
@@ -50,6 +58,7 @@ struct ControlModifier: ViewModifier {
         entry.id = id
         entry.label = label
         entry.action = action
+        entry.scroll = scroll
         entry.enabled = enabled
         return content
             .accessibilityIdentifier(id)
@@ -72,6 +81,7 @@ final class ControlRegistry {
         var id = ""
         var label: String?
         var action: (() -> Void)?
+        var scroll: ((ScrollTarget) -> Void)?
         var enabled = true
         var frame: CGRect = .zero
     }
@@ -94,6 +104,7 @@ struct ControlModifier: ViewModifier {
     let id: String
     let label: String?
     let action: (() -> Void)?
+    let scroll: ((ScrollTarget) -> Void)?
 
     func body(content: Content) -> some View {
         content.accessibilityIdentifier(id)
