@@ -141,9 +141,13 @@ final class AppStateTests: XCTestCase {
 
     func testJobRunsUpdateFromEvents() {
         var s = AppState()
+        s.apply(.agentsLoaded([agent("infra")]))
+        s.apply(.threadLoaded("infra", [msg(1)], .idle))
         s.apply(.jobsLoaded([JobSummary(name: "nightly", agent: "infra", lastRun: msg(3, job: "nightly"), runs: 1, problems: 0)]))
         s.apply(.jobRunsLoaded("nightly", [msg(3, job: "nightly")]))
-        s.apply(.event(ServerEvent(type: "message", message: msg(8, job: "nightly"))))
+        s.apply(.event(ServerEvent(type: "job", message: msg(8, job: "nightly"))))
+        XCTAssertEqual(s.thread("infra").messages.map(\.id), [1])
+        XCTAssertNotEqual(s.agent("infra")?.lastMessage?.id, 8)
         XCTAssertEqual(s.jobs[0].runs, 2)
         XCTAssertEqual(s.jobs[0].lastRun.id, 8)
         XCTAssertEqual(s.jobRuns["nightly"]?.map(\.id), [8, 3])

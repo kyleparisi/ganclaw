@@ -377,7 +377,7 @@ struct AppState: Codable, Equatable {
         switch e.type {
         case "read":
             if let a = e.thread, let read = e.read { applyRead(a, read) }
-        case "message":
+        case "message", "job":
             guard let m = e.message else { return }
             upsert(m)
         case "delta":
@@ -392,17 +392,19 @@ struct AppState: Codable, Equatable {
     }
 
     private mutating func upsert(_ m: AppMessage) {
-        var t = thread(m.thread)
-        if let i = t.messages.firstIndex(where: { $0.id == m.id }) {
-            t.messages[i] = m
-        } else if t.loaded || !t.messages.isEmpty {
-            // Unloaded threads fetch full history when opened.
-            let i = t.messages.firstIndex(where: { $0.id > m.id }) ?? t.messages.endIndex
-            t.messages.insert(m, at: i)
+        if (m.job ?? "").isEmpty || m.job == "background" {
+            var t = thread(m.thread)
+            if let i = t.messages.firstIndex(where: { $0.id == m.id }) {
+                t.messages[i] = m
+            } else if t.loaded || !t.messages.isEmpty {
+                // Unloaded threads fetch full history when opened.
+                let i = t.messages.firstIndex(where: { $0.id > m.id }) ?? t.messages.endIndex
+                t.messages.insert(m, at: i)
+            }
+            if m.status != .streaming { t.streaming[m.id] = nil }
+            threads[m.thread] = t
+            noteLast(m)
         }
-        if m.status != .streaming { t.streaming[m.id] = nil }
-        threads[m.thread] = t
-        noteLast(m)
         if m.job != nil, m.role != .user, let i = jobs.firstIndex(where: { $0.name == m.job }) {
             if m.id >= jobs[i].lastRun.id {
                 if m.id > jobs[i].lastRun.id { jobs[i].runs += 1 }

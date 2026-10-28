@@ -56,7 +56,7 @@ func TestReadEventsWithMessages(t *testing.T) {
 		h.pair()
 		sub := h.ch.hub.subscribe()
 		defer h.ch.hub.unsubscribe(sub)
-		_, err := h.ch.Post(context.Background(), "infra", store.RoleAgent, "Report", "nightly")
+		_, err := h.ch.Post(context.Background(), "infra", store.RoleAgent, "Report", "")
 		require.NoError(t, err)
 		var read *Event
 		for read == nil {

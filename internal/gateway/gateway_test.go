@@ -534,7 +534,7 @@ func TestGatewayApp(t *testing.T) {
 		assert.Equal(t, store.StatusError, runs[0].Status, "a failed run shows as failed")
 	})
 
-	t.Run("Scheduled run lands in the agent's thread tagged as a job", func(t *testing.T) {
+	t.Run("Scheduled run stays in Jobs history", func(t *testing.T) {
 		subject, db := newGateway(t, &sentMessages{}, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
 			sessions["codex"] = "t-1"
 			return "codex", provider.Result{Text: "2 timeouts overnight."}, nil
@@ -547,6 +547,9 @@ func TestGatewayApp(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "2 timeouts overnight.", res.Text)
 		msgs, err := db.AppMessages(ctx, "assistant", 0, 10)
+		require.NoError(t, err)
+		assert.Empty(t, msgs)
+		msgs, err = db.AppJobRuns(ctx, "nightly", 10)
 		require.NoError(t, err)
 		require.Len(t, msgs, 1)
 		assert.Equal(t, "nightly", msgs[0].Job)

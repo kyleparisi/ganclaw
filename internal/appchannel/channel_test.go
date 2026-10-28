@@ -372,8 +372,8 @@ func TestJobsAndPost(t *testing.T) {
 	assert.Len(t, runs.Runs, 1)
 
 	msgs := h.messages("infra")
-	require.Len(t, msgs, 2)
-	assert.Equal(t, "Plain notice", msgs[1].Text)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "Plain notice", msgs[0].Text)
 }
 
 func TestStopWhenIdle(t *testing.T) {
@@ -457,4 +457,32 @@ func TestBackgroundWorkIsNotAJob(t *testing.T) {
 	require.Equal(t, http.StatusOK, h.do("GET", "/app/v1/jobs", nil, &jobs))
 	require.Len(t, jobs.Jobs, 1, "handed-off work is listed under Tasks, not Jobs")
 	assert.Equal(t, "daily-check", jobs.Jobs[0].Name)
+}
+
+func TestJobEvents(t *testing.T) {
+	subject := (*Channel).PostMessage
+	t.Run("Job failures publish a Jobs event without a conversation or read event", func(t *testing.T) {
+		h := newHarness(t, func(provider.Request) string { return "Reply" })
+		h.ch.Push = func(context.Context, store.AppPush, store.AppMessage) (bool, error) {
+			t.Error("Jobs must not send conversation notifications")
+			return false, nil
+		}
+		sub := h.ch.hub.subscribe()
+		defer h.ch.hub.unsubscribe(sub)
+		m, err := subject(h.ch, context.Background(), store.AppMessage{Thread: "infra", Role: store.RoleAgent, Job: "daily", Text: "Failed", Status: store.StatusError})
+		require.NoError(t, err)
+		select {
+		case e := <-sub.ch:
+			assert.Equal(t, "job", e.Type)
+			require.NotNil(t, e.Message)
+			assert.Equal(t, m.ID, e.Message.ID)
+		default:
+			t.Fatal("missing Jobs event")
+		}
+		select {
+		case e := <-sub.ch:
+			t.Fatalf("unexpected inbox event: %s", e.Type)
+		default:
+		}
+	})
 }
