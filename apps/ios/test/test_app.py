@@ -111,6 +111,9 @@ def test_approval_buttons(paired, fake):
     app.wait_screen("thread:infra")
     wait_for(lambda: app.thread("infra").get("loaded"), what="history")
     card = next(m for m in reversed(app.messages("infra")) if m["actions"] == ["Approve", "Not now"])
+    # Threads open at their unread boundary; this approval is at the latest end.
+    if app.element("thread.latest"):
+        app.tap("thread.latest")
     app.screenshot("07-thread-approval")
 
     app.tap(f"action.{card['id']}.Approve")
