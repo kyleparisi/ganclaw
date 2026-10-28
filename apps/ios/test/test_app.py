@@ -189,6 +189,8 @@ def test_drive_mode(paired, fake):
     assert s["drive"]["details_saved"], "the part after --- stays in the thread"
     assert answer in s["speech"]["spoken"]
     assert fake.prompts()[-1]["prompt"].startswith("[The user is driving")
+    wait_for(lambda: next(a for a in app.state()["agents"] if a["name"] == "infra").get("unread_count") == 0,
+             what="a reply heard in drive mode counts as read")
     app.screenshot("13-drive-answer")
     app.tap("drive.transcript")
     wait_for(lambda: app.element("drive.transcript.answer"), what="full reply sheet")
@@ -355,6 +357,8 @@ def test_drive_reads_out_background_results_after_the_answer(paired, fake):
     spoken = wait_for(lambda: (sp := app.state()["speech"]["spoken"]) and result in sp and sp, timeout=10,
                       what="background result read out")
     assert spoken.index(result) > spoken.index("Done holding.")
+    wait_for(lambda: next(a for a in app.state()["agents"] if a["name"] == "infra").get("unread_count") == 0,
+             what="background result read aloud counts as read")
     wait_for(lambda: app.state()["drive"]["phase"] == "listening", what="back to listening")
     app.tap("drive.short")
     app.tap("drive.exit")

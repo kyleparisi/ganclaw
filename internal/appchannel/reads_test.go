@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/kyleparisi/ganclaw/internal/provider"
 	"github.com/kyleparisi/ganclaw/internal/store"
@@ -46,5 +47,29 @@ func TestReadPositions(t *testing.T) {
 		require.Equal(t, 400, subject(h, "PUT", "/app/v1/threads/"+name+"/read", map[string]int64{"message_id": 0}, nil))
 		h.token = ""
 		assert.Equal(t, http.StatusUnauthorized, subject(h, "PUT", "/app/v1/threads/"+name+"/read", map[string]int64{"message_id": m.ID}, nil))
+	})
+}
+
+func TestReadEventsWithMessages(t *testing.T) {
+	t.Run("A finished incoming message carries the thread's new unread count", func(t *testing.T) {
+		h := newHarness(t, func(provider.Request) string { return "Reply" })
+		h.pair()
+		sub := h.ch.hub.subscribe()
+		defer h.ch.hub.unsubscribe(sub)
+		_, err := h.ch.Post(context.Background(), "infra", store.RoleAgent, "Report", "nightly")
+		require.NoError(t, err)
+		var read *Event
+		for read == nil {
+			select {
+			case e := <-sub.ch:
+				if e.Type == "read" {
+					read = &e
+				}
+			case <-time.After(time.Second):
+				t.Fatal("no read event")
+			}
+		}
+		assert.Equal(t, "infra", read.Thread)
+		assert.Equal(t, 1, read.Read.UnreadCount)
 	})
 }

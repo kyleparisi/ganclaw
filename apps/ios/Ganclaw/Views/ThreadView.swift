@@ -30,11 +30,15 @@ struct ThreadView: View {
             }
             if !t.loaded { await store.loadThread(agent) }
         }
-        .task(id: "\(atBottom)-\(scenePhase)-\(t.messages.last?.id ?? 0)-\(String(describing: t.messages.map(\.status)))") {
+        // Re-run when the bottom comes into view, the app returns, or the
+        // newest message arrives or finishes streaming.
+        .task(id: "\(atBottom)-\(scenePhase)-\(t.messages.last?.id ?? 0)-\(t.messages.last?.status.rawValue ?? "")") {
             guard atBottom, scenePhase == .active, let last = t.messages.last else { return }
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
             await store.markRead(agent, through: last.id)
         }
+        // Starting to type counts as having read the conversation.
+        .onChange(of: composerFocused) { _, focused in if focused { markLatestRead(t) } }
     }
 
     // MARK: Header
@@ -144,6 +148,8 @@ struct ThreadView: View {
                 .defaultScrollAnchor(.bottom)
                 .coordinateSpace(name: "thread-scroll")
                 .onPreferenceChange(ThreadBottomVisible.self) { atBottom = $0 }
+                // Scrolling the conversation counts as reading it.
+                .simultaneousGesture(DragGesture(minimumDistance: 12).onEnded { _ in markLatestRead(t) })
                 .onAppear { scrollToEntry(proxy, t) }
                 .onChange(of: t.loaded) { _, _ in scrollToEntry(proxy, t) }
                 .onChange(of: capturedBoundary) { _, _ in scrollToEntry(proxy, t) }
@@ -162,6 +168,12 @@ struct ThreadView: View {
                 .control("thread.messages")
             }
         }
+    }
+
+    /// Marks everything loaded as read: the user is engaging with the thread.
+    private func markLatestRead(_ t: ThreadState) {
+        guard scenePhase == .active, let last = t.messages.last else { return }
+        Task { await store.markRead(agent, through: last.id) }
     }
 
     private func firstUnread(_ t: ThreadState) -> Int64? {

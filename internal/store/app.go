@@ -109,8 +109,22 @@ const (
 )
 
 func (s *Store) initApp() error {
-	_, err := s.db.Exec(appSchema)
-	return err
+	var hadReads int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'app_reads'`).Scan(&hadReads); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(appSchema); err != nil {
+		return err
+	}
+	if hadReads == 0 {
+		// Upgrading from before read state: history up to now counts as read,
+		// rather than every past message turning unread at once.
+		if _, err := s.db.Exec(`INSERT OR IGNORE INTO app_reads (thread, message_id)
+			SELECT thread, MAX(id) FROM app_messages WHERE thread NOT LIKE 'task:%' GROUP BY thread`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // HashToken is how device tokens are stored: a leaked database doesn't

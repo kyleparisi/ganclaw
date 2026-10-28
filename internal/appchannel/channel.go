@@ -126,6 +126,22 @@ type Event struct {
 
 func (c *Channel) publishMessage(m store.AppMessage) {
 	c.hub.publish(Event{Type: "message", Message: &m})
+	if m.Role != store.RoleUser && m.Status != store.StatusStreaming {
+		c.publishRead(m.Thread)
+	}
+}
+
+// publishRead sends a thread's read position and unread count to every
+// device, so clients update counts from events instead of refetching.
+func (c *Channel) publishRead(thread string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	state, err := c.Store.AppReadState(ctx, thread)
+	if err != nil {
+		c.log.Warn("load read state failed", "thread", thread, "err", err)
+		return
+	}
+	c.hub.publish(Event{Type: "read", Thread: thread, Read: &state})
 }
 
 func (c *Channel) setState(agentName string, s AgentState) {

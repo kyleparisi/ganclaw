@@ -13,11 +13,26 @@ type AppReadState struct {
 	UnreadCount int   `json:"unread_count"`
 }
 
+// readStateQuery counts only messages past each thread's read position, so
+// the (thread, id) index serves it instead of a scan of all history.
+const readStateQuery = `SELECT t.thread, COALESCE(r.message_id, 0),
+ (SELECT COUNT(*) FROM app_messages m WHERE m.thread = t.thread AND m.id > COALESCE(r.message_id, 0)
+  AND m.role != 'user' AND m.status != 'streaming')
+ FROM (SELECT DISTINCT thread FROM app_messages WHERE thread NOT LIKE 'task:%') t
+ LEFT JOIN app_reads r ON r.thread = t.thread`
+
+// AppReadState is one thread's read position and unread count.
+func (s *Store) AppReadState(ctx context.Context, thread string) (AppReadState, error) {
+	states, err := s.readStates(ctx, readStateQuery+` WHERE t.thread = ?`, thread)
+	return states[thread], err
+}
+
 func (s *Store) AppReadStates(ctx context.Context) (map[string]AppReadState, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT m.thread, COALESCE(r.message_id,0),
- SUM(CASE WHEN m.id > COALESCE(r.message_id,0) AND m.role != 'user' AND m.status != 'streaming' THEN 1 ELSE 0 END)
- FROM app_messages m LEFT JOIN app_reads r ON r.thread = m.thread
- WHERE m.thread NOT LIKE 'task:%' GROUP BY m.thread`)
+	return s.readStates(ctx, readStateQuery)
+}
+
+func (s *Store) readStates(ctx context.Context, q string, args ...any) (map[string]AppReadState, error) {
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

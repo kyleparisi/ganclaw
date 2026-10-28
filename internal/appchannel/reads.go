@@ -29,12 +29,11 @@ func (c *Channel) handleRead(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	states, err := c.Store.AppReadStates(r.Context())
+	state, err := c.Store.AppReadState(r.Context(), thread)
 	if err != nil {
 		writeErr(w, 500, "failed", "could not load read positions")
 		return
 	}
-	state := states[thread]
 	c.hub.publish(Event{Type: "read", Thread: thread, Read: &state})
 	writeJSON(w, 200, state)
 }
