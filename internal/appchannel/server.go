@@ -38,6 +38,7 @@ func (c *Channel) Handler(version string) http.Handler {
 	auth.HandleFunc("DELETE /app/v1/me/push", c.handleDeletePush)
 	auth.HandleFunc("DELETE /app/v1/me", c.handleUnpair)
 	auth.HandleFunc("GET /app/v1/agents", c.handleAgents)
+	auth.HandleFunc("PUT /app/v1/threads/{agent}/read", c.handleRead)
 	auth.HandleFunc("GET /app/v1/threads/{agent}/messages", c.handleMessages)
 	auth.HandleFunc("POST /app/v1/threads/{agent}/messages", c.handleSend)
 	auth.HandleFunc("POST /app/v1/threads/{agent}/stop", c.handleStop)
@@ -163,6 +164,7 @@ func (c *Channel) handleMe(w http.ResponseWriter, r *http.Request) {
 
 // AgentSummary is one inbox row.
 type AgentSummary struct {
+	store.AppReadState
 	Name  string            `json:"name"`
 	State AgentState        `json:"state"`
 	Last  *store.AppMessage `json:"last_message,omitempty"`
@@ -177,9 +179,14 @@ func (c *Channel) handleAgents(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed", err.Error())
 		return
 	}
+	reads, err := c.Store.AppReadStates(r.Context())
+	if err != nil {
+		writeErr(w, 500, "failed", "could not load read positions")
+		return
+	}
 	out := []AgentSummary{}
 	for _, n := range c.agentNames() {
-		s := AgentSummary{Name: n, State: c.agentState(n)}
+		s := AgentSummary{Name: n, State: c.agentState(n), AppReadState: reads[n]}
 		if m, ok := last[n]; ok {
 			s.Last = &m
 			s.NeedsYou = len(m.Actions) > 0 && m.Answer == ""

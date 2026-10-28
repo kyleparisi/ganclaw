@@ -13,6 +13,32 @@ final class AppStateTests: XCTestCase {
         AgentSummary(name: name, state: AgentState(working: working, detail: nil, since: nil), lastMessage: last, needsYou: needsYou)
     }
 
+    func testReadEventsUpdateSharedCountsWithoutMovingBackward() throws {
+        var state = AppState()
+        var summary = agent("support")
+        summary.lastReadId = 10
+        summary.unreadCount = 3
+        state.apply(.agentsLoaded([summary]))
+        XCTAssertEqual(state.totalUnread, 3)
+        let event = try JSON.decoder.decode(ServerEvent.self,
+            from: Data(#"{"type":"read","thread":"support","read":{"last_read_id":20,"unread_count":1}}"#.utf8))
+        state.apply(.event(event))
+        XCTAssertEqual(state.agent("support")?.lastReadId, 20)
+        XCTAssertEqual(state.totalUnread, 1)
+        state.apply(.readState("support", ReadState(lastReadId: 15, unreadCount: 2)))
+        XCTAssertEqual(state.totalUnread, 1)
+    }
+
+    func testUnreadFieldsAreBackwardCompatible() throws {
+        let old = try JSON.decoder.decode(AgentSummary.self,
+            from: Data(#"{"name":"support","state":{"working":false},"needs_you":false}"#.utf8))
+        XCTAssertNil(old.unreadCount)
+        let current = try JSON.decoder.decode(AgentSummary.self,
+            from: Data(#"{"name":"support","state":{"working":false},"needs_you":false,"last_read_id":42,"unread_count":5}"#.utf8))
+        XCTAssertEqual(current.lastReadId, 42)
+        XCTAssertEqual(current.unreadCount, 5)
+    }
+
     func testTasksFilterDoesNotReuseOrdinaryAgentRows() {
         var state = AppState()
         state.apply(.agentsLoaded([agent("support", working: true)]))

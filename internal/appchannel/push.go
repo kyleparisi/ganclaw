@@ -61,6 +61,16 @@ func (c *Channel) notify(m store.AppMessage) {
 		defer func() { <-c.pushSlots }()
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
+		reads, err := c.Store.AppReadStates(ctx)
+		if err != nil {
+			c.log.Warn("load notification unread counts failed")
+			return
+		}
+		total := 0
+		for name := range c.Agents {
+			total += reads[name].UnreadCount
+		}
+		m.Badge = &total
 		devices, err := c.Store.AppPushes(ctx)
 		if err != nil {
 			c.log.Warn("load notification registrations failed")

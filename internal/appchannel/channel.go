@@ -112,8 +112,9 @@ func ChatKey(agentName string) string { return "app:" + agentName }
 
 // Event is pushed to every connected client.
 type Event struct {
-	Type    string            `json:"type"` // message | delta | agent
-	Message *store.AppMessage `json:"message,omitempty"`
+	Read    *store.AppReadState `json:"read,omitempty"`
+	Type    string              `json:"type"` // message | delta | agent
+	Message *store.AppMessage   `json:"message,omitempty"`
 	// Delta events carry the whole streamed text so far, so a client that
 	// missed one loses nothing.
 	ID     int64       `json:"id,omitempty"`

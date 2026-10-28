@@ -44,6 +44,19 @@ func TestSend(t *testing.T) {
 		}
 		assert.Equal(t, 1, signed)
 	})
+	t.Run("Includes the unread badge including zero", func(t *testing.T) {
+		c := makeClient()
+		c.Do = func(r *http.Request) (*http.Response, error) {
+			body, err := io.ReadAll(r.Body)
+			require.NoError(t, err)
+			assert.Contains(t, string(body), `"badge":0`)
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(""))}, nil
+		}
+		count := 0
+		_, err := subject(c, context.Background(), store.AppPush{Token: "example"}, store.AppMessage{Badge: &count})
+		require.NoError(t, err)
+	})
+
 	t.Run("Revokes inactive tokens without deleting newer registrations", func(t *testing.T) {
 		c := makeClient()
 		c.Do = func(*http.Request) (*http.Response, error) {

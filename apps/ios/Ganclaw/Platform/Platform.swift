@@ -126,6 +126,7 @@ extension DeviceClient {
 /// Permission is requested only from the Notifications setting, after pairing.
 @MainActor
 struct NotificationClient {
+    var setBadge: (Int) async -> Void = { _ in }
     var enable: () async throws -> Void
     var registerIfAuthorized: () async -> Bool
     var observe: (@escaping @MainActor (String) -> Void, @escaping @MainActor (String) -> Void, @escaping @MainActor (String) -> Void) -> Void

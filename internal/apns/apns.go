@@ -128,7 +128,11 @@ func (c *Client) Send(ctx context.Context, device store.AppPush, m store.AppMess
 	if c.Config.Environment == "sandbox" {
 		host = "https://api.sandbox.push.apple.com"
 	}
-	body, _ := json.Marshal(map[string]any{"aps": map[string]any{"alert": map[string]string{"title": "Ganclaw", "body": AlertText(m)}, "sound": "default"}, "thread": m.Thread})
+	aps := map[string]any{"alert": map[string]string{"title": "Ganclaw", "body": AlertText(m)}, "sound": "default"}
+	if m.Badge != nil {
+		aps["badge"] = *m.Badge
+	}
+	body, _ := json.Marshal(map[string]any{"aps": aps, "thread": m.Thread})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, host+"/3/device/"+device.Token, bytes.NewReader(body))
 	if err != nil {
 		return false, errors.New("APNs request failed")

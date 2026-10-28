@@ -43,7 +43,12 @@ final class AppStore {
     }
 
     func send(_ action: AppState.Action) {
+        let oldUnread = state.totalUnread
         state.apply(action)
+        if state.totalUnread != oldUnread {
+            let count = state.totalUnread
+            Task { await platform.notifications.setBadge(count) }
+        }
         actionLog.append(String(describing: action).prefix(200).description)
         if actionLog.count > 500 { actionLog.removeFirst(actionLog.count - 500) }
     }
@@ -151,6 +156,7 @@ final class AppStore {
             async let jobs = client.jobs()
             let (a, j) = try await (agents, jobs)
             send(.agentsLoaded(a))
+            await platform.notifications.setBadge(state.totalUnread)
             send(.jobsLoaded(j))
             send(.banner(nil))
             for case .thread(let name) in state.path { await loadThread(name) }
@@ -178,6 +184,14 @@ final class AppStore {
         } catch {
             fail(error)
         }
+    }
+
+    /// A view calls this only when the bottom of the conversation is visible.
+    func markRead(_ agent: String, through id: Int64) async {
+        guard let client, id > (state.agent(agent)?.lastReadId ?? 0),
+              state.currentScreen == "thread:\(agent)" else { return }
+        do { send(.readState(agent, try await client.markRead(agent: agent, messageID: id))) }
+        catch { fail(error, quiet: true) }
     }
 
     // MARK: Navigation
@@ -399,6 +413,12 @@ final class AppStore {
         }
         send(.event(e))
         if e.type == "message", let m = e.message {
+            if m.status != .streaming {
+                Task {
+                    guard let client else { return }
+                    if let agents = try? await client.agents() { send(.agentsLoaded(agents)) }
+                }
+            }
             speakIfDriveReply(m)
             announceIfBackgroundResult(m)
         }

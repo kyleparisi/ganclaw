@@ -15,6 +15,10 @@ import (
 // The app channel keeps its own message history: unlike Telegram, the
 // phone has no server-side record of the conversation to fall back on.
 const appSchema = `
+CREATE TABLE IF NOT EXISTS app_reads (
+ thread TEXT PRIMARY KEY,
+ message_id INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS app_devices (
 	id         TEXT PRIMARY KEY,
 	name       TEXT NOT NULL,
@@ -76,6 +80,8 @@ type AppFile struct {
 
 // AppMessage is one message in an app thread.
 type AppMessage struct {
+	// Badge is transient notification metadata, not part of message history.
+	Badge    *int      `json:"-"`
 	ID       int64     `json:"id"`
 	Thread   string    `json:"thread"`
 	Role     string    `json:"role"`

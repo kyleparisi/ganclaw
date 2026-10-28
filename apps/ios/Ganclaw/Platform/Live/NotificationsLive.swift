@@ -44,9 +44,11 @@ extension NotificationClient {
         #if targetEnvironment(macCatalyst)
         return .inert
         #else
-        return NotificationClient(enable: {
+        return NotificationClient(setBadge: { count in
+            try? await UNUserNotificationCenter.current().setBadgeCount(count)
+        }, enable: {
             try check.require(.notifications)
-            guard try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) else {
+            guard try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) else {
                 throw PlatformError.denied(.notifications)
             }
             UIApplication.shared.registerForRemoteNotifications()

@@ -366,3 +366,20 @@ def test_tasks_filter_keeps_ordinary_threads_out(paired):
     app.screenshot("inbox-tasks")
     app.tap("filter.all")
     wait_for(lambda: app.element("inbox.row.infra"), what="ordinary inbox restored")
+
+
+def test_unread_badge_and_last_read_divider(paired, fake):
+    app = paired
+    # A fresh conversation gets an incoming message while the inbox is visible.
+    fake.post("/admin/post", {"agent": "builder", "text": "Unread reporting check"})
+    wait_for(lambda: next((a for a in app.state()["agents"] if a["name"] == "builder"), {}).get("unread_count", 0) > 0,
+             what="unread inbox count")
+    app.tap("inbox.row.builder")
+    app.wait_screen("thread:builder")
+    wait_for(lambda: app.element("thread.unreadDivider"), what="new messages divider")
+    if app.element("thread.latest"):
+        app.tap("thread.latest")
+    wait_for(lambda: next(a for a in app.state()["agents"] if a["name"] == "builder").get("unread_count") == 0,
+             what="visible thread marked read")
+    app.screenshot("unread-divider")
+    app.tap("thread.back")

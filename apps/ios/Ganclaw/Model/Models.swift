@@ -57,11 +57,18 @@ struct AgentState: Codable, Hashable {
     static let idle = AgentState(working: false, detail: nil, since: nil)
 }
 
+struct ReadState: Codable, Equatable {
+    var lastReadId: Int64
+    var unreadCount: Int
+}
+
 struct AgentSummary: Codable, Hashable, Identifiable {
     var name: String
     var state: AgentState
     var lastMessage: AppMessage?
     var needsYou: Bool
+    var lastReadId: Int64?
+    var unreadCount: Int?
 
     var id: String { name }
 }
@@ -83,6 +90,7 @@ struct Device: Codable, Hashable {
 
 /// A WebSocket event from /app/v1/events.
 struct ServerEvent: Codable, Equatable {
+    var read: ReadState?
     var type: String // hello | message | delta | agent
     var message: AppMessage?
     var id: Int64?

@@ -161,6 +161,8 @@ struct AppState: Codable, Equatable {
         }
     }
 
+    var totalUnread: Int { agents.reduce(0) { $0 + ($1.unreadCount ?? 0) } }
+
     var jobProblems: Int { jobs.reduce(0) { $0 + ($1.problems > 0 ? 1 : 0) } }
 
     // MARK: Actions
@@ -175,6 +177,7 @@ struct AppState: Codable, Equatable {
         case connection(ConnectionStatus)
 
         case agentsLoaded([AgentSummary])
+        case readState(String, ReadState)
         case threadLoading(String)
         case threadLoaded(String, [AppMessage], AgentState)
         case threadFailed(String, String)
@@ -259,6 +262,8 @@ struct AppState: Codable, Equatable {
         case let .threadFailed(a, msg):
             threads[a, default: ThreadState()].loading = false
             threads[a, default: ThreadState()].error = msg
+        case let .readState(agent, read):
+            applyRead(agent, read)
         case .jobsLoaded(let j):
             jobs = j
         case let .jobRunsLoaded(job, runs):
@@ -354,6 +359,8 @@ struct AppState: Codable, Equatable {
 
     private mutating func applyEvent(_ e: ServerEvent) {
         switch e.type {
+        case "read":
+            if let a = e.thread, let read = e.read { applyRead(a, read) }
         case "message":
             guard let m = e.message else { return }
             upsert(m)
@@ -399,6 +406,13 @@ struct AppState: Codable, Equatable {
                 agents[i].lastMessage = m
                 agents[i].needsYou = !m.pendingActions.isEmpty
             }
+        }
+    }
+
+    private mutating func applyRead(_ agent: String, _ read: ReadState) {
+        if let i = agents.firstIndex(where: { $0.name == agent }), read.lastReadId >= (agents[i].lastReadId ?? 0) {
+            agents[i].lastReadId = read.lastReadId
+            agents[i].unreadCount = read.unreadCount
         }
     }
 
