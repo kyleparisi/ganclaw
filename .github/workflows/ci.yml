@@ -20,6 +20,8 @@ jobs:
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./...
       - run: go test -race ./...
+      - name: Dagu reporting adapter
+        run: python3 -m unittest discover -s deploy/dagu -v
 
   secrets:
     runs-on: ubuntu-latest

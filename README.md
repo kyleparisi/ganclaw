@@ -219,6 +219,10 @@ run group under one job. Add `--failed` when the report is a failure, or the
 app shows the run as "No issues". To keep a Telegram copy, send that
 separately as before.
 
+For Dagu, the optional [reporting adapter](deploy/dagu/README.md) keeps actual
+notifications visible in bot conversations while recording routine completion
+receipts separately in Jobs.
+
 Client commands find the gateway through `-socket`, `$GANCLAW_SOCKET`, or the
 `api_socket` in the config. Exit codes are meant for schedulers:
 
