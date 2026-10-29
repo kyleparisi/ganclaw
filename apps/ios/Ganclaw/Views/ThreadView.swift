@@ -140,8 +140,8 @@ struct ThreadView: View {
                                 let frame = geometry.frame(in: .named("thread-scroll"))
                                 Color.clear.preference(key: ThreadBottomVisible.self,
                                     value: frame.minY >= 0 && frame.maxY <= viewport.size.height)
-                                    // Hide the jump control within 48 points of the bottom.
-                                    // Read visibility still requires the actual bottom.
+                                    // Hide the jump control and keep following new content within
+                                    // 48 points of the bottom. Read visibility still requires the actual bottom.
                                     .preference(key: ThreadNearBottom.self,
                                         value: frame.minY >= -48 && frame.maxY <= viewport.size.height + 48)
                             })
@@ -159,8 +159,8 @@ struct ThreadView: View {
                 .onAppear { scrollToEntry(proxy, t) }
                 .onChange(of: t.loaded) { _, _ in scrollToEntry(proxy, t) }
                 .onChange(of: capturedBoundary) { _, _ in scrollToEntry(proxy, t) }
-                .onChange(of: t.messages.last?.id) { _, _ in if atBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
-                .onChange(of: t.streaming) { _, _ in if atBottom { proxy.scrollTo("bottom", anchor: .bottom) } }
+                .onChange(of: t.messages.last?.id) { _, _ in if nearBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
+                .onChange(of: t.streaming) { _, _ in if nearBottom { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .overlay(alignment: .bottom) {
                     if !nearBottom && t.loaded && !t.messages.isEmpty {
                         CButton("thread.latest", title: "Jump to latest") {
