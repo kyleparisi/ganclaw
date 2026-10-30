@@ -323,21 +323,33 @@ func (c *Channel) handleSend(w http.ResponseWriter, r *http.Request) {
 // maxReplyContext caps how much of a replied-to message is quoted.
 const maxReplyContext = 2000
 
-// withReply tells the agent which message the user is answering, the same
-// way the Telegram channel does.
+// withReply tells the agent which message the user is answering. The quote
+// matches the Telegram channel's format; the reference line after it is
+// app-only, since app messages have stable IDs the agent can refer back to.
 func withReply(orig store.AppMessage, text string) string {
-	who := "the user's earlier message"
-	if orig.Role != store.RoleUser {
-		who = "your earlier message"
+	who := "your earlier message"
+	switch orig.Role {
+	case store.RoleUser:
+		who = "the user's earlier message"
+	case store.RoleSystem:
+		who = "an earlier system notice"
 	}
 	quoted := orig.Text
 	if quoted == "" {
 		quoted = "(a message without text)"
+		if len(orig.Files) > 0 {
+			names := make([]string, 0, len(orig.Files))
+			for _, f := range orig.Files {
+				names = append(names, fmt.Sprintf("%q", f.Name))
+			}
+			quoted = "(attachments: " + strings.Join(names, ", ") + ")"
+		}
 	}
 	if runes := []rune(quoted); len(runes) > maxReplyContext {
 		quoted = string(runes[:maxReplyContext]) + " …"
 	}
-	return "[Replying to " + who + ":]\n> " + strings.ReplaceAll(quoted, "\n", "\n> ") + "\n\n" + text
+	return "[Replying to " + who + ":]\n> " + strings.ReplaceAll(quoted, "\n", "\n> ") +
+		fmt.Sprintf("\n[App message reference: thread=%q, id=%d]\n\n", orig.Thread, orig.ID) + text
 }
 
 func containsFold(list []string, s string) bool {

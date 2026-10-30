@@ -47,6 +47,13 @@ ganclaw run --agent infra --to app:infra --session nightly-log-check --quiet \
 The run shows up under Jobs, and "Ask about this run" replies to it in the
 agent's thread. `ganclaw send --to app:infra "text"` posts a plain message.
 
+## Reply to a message
+
+Swipe a message to the left to select it, then type your reply. The composer
+shows a quoted preview you can cancel. You can also use the message's **Reply**
+context-menu or accessibility action. The bot receives the original message's
+ID, thread, and a bounded quote; the sent message keeps its `reply_to` reference.
+
 ## Reply buttons
 
 An agent can end a reply with a line like

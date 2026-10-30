@@ -132,7 +132,10 @@ struct ThreadView: View {
                                 .id("unread")
                                 .control("thread.unreadDivider")
                             }
-                            MessageRow(message: m, streamed: t.streaming[m.id], replyTo: m.replyTo.flatMap { store.state.quoted($0, in: agent) })
+                            MessageRow(message: m, streamed: t.streaming[m.id], replyTo: m.replyTo.flatMap { store.state.quoted($0, in: agent) }) {
+                                store.send(.replyTo(agent, m.id))
+                                composerFocused = true
+                            }
                                 .id(m.id)
                         }
                         if store.state.agent(agent)?.state.working == true, t.streaming.isEmpty, t.messages.last?.role == .user {
@@ -217,7 +220,7 @@ struct ThreadView: View {
             Theme.blue.frame(width: 3).clipShape(Capsule())
             VStack(alignment: .leading, spacing: 1) {
                 Text("Replying to").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.blue)
-                Text(store.state.quoted(id, in: agent)?.text ?? "a message").font(.system(size: 13)).foregroundStyle(Theme.text2).lineLimit(1)
+                Text(store.state.quoted(id, in: agent)?.replyPreview ?? "a message").font(.system(size: 13)).foregroundStyle(Theme.text2).lineLimit(1)
             }
             Spacer()
             CButton("thread.cancelReply") { store.send(.replyTo(agent, nil)) } label: { Image(systemName: "xmark").frame(width: 36, height: 36) }
@@ -337,10 +340,56 @@ struct MessageRow: View {
     var message: AppMessage
     var streamed: String?
     var replyTo: AppMessage?
+    var onReply: () -> Void
 
     @Environment(AppStore.self) private var store
+    /// Tracks the finger without animation; only the snap back on release animates.
+    @GestureState(resetTransaction: Transaction(animation: .easeOut(duration: 0.18)))
+    private var swipeTranslation: CGSize = .zero
+
+    /// System notices are status lines, not something to answer.
+    private var canReply: Bool { message.status != .streaming && message.role != .system }
+    private var swipeOffset: CGFloat { canReply ? ReplySwipe.offset(swipeTranslation) : 0 }
+    private var swipeArmed: Bool { canReply && ReplySwipe.selectsReply(swipeTranslation) }
 
     var body: some View {
+        ZStack(alignment: .trailing) {
+            Image(systemName: "arrowshape.turn.up.left.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Theme.blue)
+                .frame(width: 36, height: 36)
+                .background(Theme.card, in: Circle())
+                .padding(.trailing, 12)
+                .opacity(min(-swipeOffset / 64, 1))
+                .accessibilityHidden(true)
+            content.offset(x: swipeOffset)
+        }
+        .contentShape(Rectangle())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .updating($swipeTranslation) { value, state, _ in state = value.translation }
+                .onEnded { selectReply($0.translation) }
+        )
+        // Tick when a release would select the reply.
+        .sensoryFeedback(.impact(weight: .light), trigger: swipeArmed) { _, armed in armed }
+        .contextMenu {
+            if canReply {
+                Button("Reply", systemImage: "arrowshape.turn.up.left", action: onReply)
+            }
+            // The row's long-press menu can preempt text selection, so copying stays here too.
+            if !message.text.isEmpty, message.status != .streaming {
+                Button("Copy", systemImage: "doc.on.doc") {
+                    store.copy(message.text, block: "message.\(message.id)", label: "Message")
+                }
+            }
+        }
+    }
+
+    private func selectReply(_ translation: CGSize) {
+        if canReply && ReplySwipe.selectsReply(translation) { onReply() }
+    }
+
+    @ViewBuilder private var content: some View {
         switch message.role {
         case .user: user
         case .agent: agent
@@ -352,7 +401,7 @@ struct MessageRow: View {
         VStack(alignment: .trailing, spacing: 6) {
             ForEach(message.files) { FileView(file: $0, onUser: true) }
             if let r = replyTo, !r.actions.contains(message.text) {
-                Text(r.text).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
+                Text(r.replyPreview).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
                     .padding(.horizontal, 10).padding(.vertical, 4)
                     .overlay(alignment: .leading) { Theme.line.frame(width: 2) }
             }
@@ -365,7 +414,8 @@ struct MessageRow: View {
         .frame(maxWidth: 300, alignment: .trailing)
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .contain)
-        .control("message.\(message.id)")
+        .accessibilityAction(named: Text("Reply")) { if canReply { onReply() } }
+        .control("message.\(message.id)", swipe: selectReply)
     }
 
     private var agent: some View {
@@ -396,7 +446,8 @@ struct MessageRow: View {
         .frame(maxWidth: 310, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
-        .control("message.\(message.id)")
+        .accessibilityAction(named: Text("Reply")) { if canReply { onReply() } }
+        .control("message.\(message.id)", swipe: selectReply)
     }
 
     private var system: some View {
