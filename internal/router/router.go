@@ -355,6 +355,8 @@ func (r *Router) process(m Message) {
 		r.transcribe(ctx, log, atts)
 	}
 
+	instructions += "\n\n" + turnBudgetInstructions(r.cfg.TurnTimeout)
+
 	req := provider.Request{
 		Cwd:          a.Workspace,
 		Instructions: instructions,
@@ -421,6 +423,28 @@ func (r *Router) process(m Message) {
 	reply(text)
 	result.Provider = used
 	result.Err = errors.Join(result.Err, r.sendMedia(ctx, log, m, a.Workspace, media))
+}
+
+// turnBudgetInstructions guides agents to keep work within the turn timeout.
+// It depends only on config, never on per-turn state like the deadline, so
+// the instructions stay identical across turns and providers' prompt caches
+// keep hitting on resumed conversations.
+func turnBudgetInstructions(budget time.Duration) string {
+	return fmt.Sprintf(`# Long-running work
+
+Each turn is limited to about %s. Break anything that might take a while (builds, test suites, migrations, waiting on CI) into small units of safe, resumable work. Save progress as you go, and if work remains, end with a clear handoff: what's done, what's left, and the next step. Don't claim unfinished work is complete.`, shortDuration(budget))
+}
+
+// shortDuration formats d without trailing zero units: 20m, 1h, 1m30s.
+func shortDuration(d time.Duration) string {
+	s := d.String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
 }
 
 // sendMedia uploads the files a reply named, resolving relative paths

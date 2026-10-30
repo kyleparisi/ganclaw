@@ -80,7 +80,7 @@ func TestRouterSubmit(t *testing.T) {
 			Store:  db,
 			Run: func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
 				assert.Equal(t, "/ws/assistant", req.Cwd)
-				assert.Equal(t, "# SOUL.md\n\nBe helpful.", req.Instructions)
+				assert.Equal(t, "# SOUL.md\n\nBe helpful.\n\n"+turnBudgetInstructions(20*time.Minute), req.Instructions)
 				assert.Equal(t, "hello", req.Prompt)
 				assert.Empty(t, sessions)
 				sessions["codex"] = "c-1"
@@ -853,5 +853,14 @@ func TestExtractMedia(t *testing.T) {
 
 		assert.Equal(t, "Report attached.", text)
 		assert.Equal(t, []string{"/srv/my report.pdf"}, paths)
+	})
+}
+
+func TestTurnBudgetInstructions(t *testing.T) {
+	subject := turnBudgetInstructions
+	t.Run("States the configured budget in short form", func(t *testing.T) {
+		assert.Contains(t, subject(20*time.Minute), "limited to about 20m.")
+		assert.Contains(t, subject(time.Hour), "limited to about 1h.")
+		assert.Contains(t, subject(90*time.Second), "limited to about 1m30s.")
 	})
 }
