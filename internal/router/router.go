@@ -355,6 +355,9 @@ func (r *Router) process(m Message) {
 		r.transcribe(ctx, log, atts)
 	}
 
+	deadline, _ := ctx.Deadline()
+	instructions += "\n\n" + turnBudgetInstructions(r.cfg.TurnTimeout, deadline)
+
 	req := provider.Request{
 		Cwd:          a.Workspace,
 		Instructions: instructions,
@@ -421,6 +424,17 @@ func (r *Router) process(m Message) {
 	reply(text)
 	result.Provider = used
 	result.Err = errors.Join(result.Err, r.sendMedia(ctx, log, m, a.Workspace, media))
+}
+
+// turnBudgetInstructions uses the same budget and deadline as process, including
+// time spent preparing attachments before the provider starts.
+func turnBudgetInstructions(budget time.Duration, deadline time.Time) string {
+	return fmt.Sprintf(`# Turn time budget
+
+Ganclaw bounds this entire turn to %s across all providers, including setup time. The turn deadline is %s; cancellation or shutdown may end it earlier.
+Plan bounded chunks that fit comfortably within the remaining time. Preserve the user's full objective: split execution into smaller steps rather than discard the larger task. Do not start operations or wait for CI longer than the remaining budget allows.
+Reserve time before the deadline to save durable progress and checkpoints using permitted tools and locations. If work remains, give an honest handoff with completed work, outstanding work, and concrete next steps; do not claim unfinished work is complete. Do not assume you can start another turn or that continuation happens automatically.
+Continue authorized work without repetitive approval requests. Existing authorization, tool, and safety constraints still apply.`, budget, deadline.UTC().Format(time.RFC3339Nano))
 }
 
 // sendMedia uploads the files a reply named, resolving relative paths

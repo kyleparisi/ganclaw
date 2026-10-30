@@ -80,7 +80,10 @@ func TestRouterSubmit(t *testing.T) {
 			Store:  db,
 			Run: func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
 				assert.Equal(t, "/ws/assistant", req.Cwd)
-				assert.Equal(t, "# SOUL.md\n\nBe helpful.", req.Instructions)
+				deadline, ok := ctx.Deadline()
+				assert.True(t, ok)
+				assert.Equal(t, "# SOUL.md\n\nBe helpful.\n\n"+turnBudgetInstructions(20*time.Minute, deadline), req.Instructions)
+				assert.Contains(t, req.Instructions, "entire turn to 20m0s across all providers")
 				assert.Equal(t, "hello", req.Prompt)
 				assert.Empty(t, sessions)
 				sessions["codex"] = "c-1"
@@ -853,5 +856,39 @@ func TestExtractMedia(t *testing.T) {
 
 		assert.Equal(t, "Report attached.", text)
 		assert.Equal(t, []string{"/srv/my report.pdf"}, paths)
+	})
+}
+
+func TestTurnBudgetInstructions(t *testing.T) {
+	subject := (*Router).process
+	t.Run("Background turns receive the configured budget and shared deadline after setup", func(t *testing.T) {
+		db := store.NewTestStore(t)
+		task, err := db.CreateTask(context.Background(), "assistant")
+		require.NoError(t, err)
+		var setupDeadline time.Time
+		r := New(context.Background(), Config{
+			Store: db, Agents: testAgents(), TurnTimeout: 7 * time.Minute,
+			Run: func(ctx context.Context, _ provider.Sessions, req provider.Request) (string, provider.Result, error) {
+				deadline, ok := ctx.Deadline()
+				assert.True(t, ok)
+				assert.Equal(t, setupDeadline, deadline)
+				assert.Contains(t, req.Instructions, "# SOUL.md\n\nBe helpful.")
+				assert.Contains(t, req.Instructions, "entire turn to 7m0s across all providers, including setup time")
+				assert.Contains(t, req.Instructions, deadline.UTC().Format(time.RFC3339Nano))
+				assert.NotContains(t, req.Instructions, "20m")
+				assert.Contains(t, req.Instructions, "save durable progress and checkpoints")
+				assert.Contains(t, req.Instructions, "completed work, outstanding work, and concrete next steps")
+				assert.Contains(t, req.Instructions, "Existing authorization, tool, and safety constraints still apply")
+				return "codex", provider.Result{Text: "Saved progress"}, nil
+			},
+		})
+		subject(r, Message{
+			TaskID: task.ID, ChatKey: "job:support:task", Agent: "assistant", Text: "Continue the objective",
+			Fetch: func(ctx context.Context, _ string) ([]provider.Attachment, error) {
+				setupDeadline, _ = ctx.Deadline()
+				return nil, nil
+			},
+			Reply: func(_ context.Context, text string) error { assert.Equal(t, "Saved progress", text); return nil },
+		})
 	})
 }
