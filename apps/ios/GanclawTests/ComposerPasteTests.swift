@@ -30,7 +30,8 @@ final class ComposerPasteTests: XCTestCase {
         view.paste(nil)
 
         let decoded = try XCTUnwrap(UIImage(data: XCTUnwrap(pasted)))
-        XCTAssertEqual(decoded.size, image.size)
+        XCTAssertEqual(decoded.cgImage?.width, image.cgImage?.width)
+        XCTAssertEqual(decoded.cgImage?.height, image.cgImage?.height)
         XCTAssertEqual(view.text, "Draft caption")
         XCTAssertEqual(view.selectedRange, NSRange(location: 6, length: 7))
     }
