@@ -2,11 +2,16 @@ import SwiftUI
 import UIKit
 
 /// A plain-text editor that routes pasted images into the attachment flow.
+///
+/// Focus is a plain `Bool` binding, not `FocusState`: no SwiftUI focusable
+/// view owns it, so the text view is the single source of first-responder
+/// changes and the binding only ever reports what UIKit did.
 struct ComposerTextView: UIViewRepresentable {
     @Binding var text: String
-    var focused: FocusState<Bool>.Binding
+    @Binding var focused: Bool
+    var placeholder: String
     var pasteboard: PasteboardClient
-    var onImage: (Data) -> Void
+    var onImage: (PastedImage) -> Void
 
     func makeUIView(context: Context) -> ImagePasteTextView {
         let view = ImagePasteTextView()
@@ -21,12 +26,17 @@ struct ComposerTextView: UIViewRepresentable {
     }
 
     func updateUIView(_ view: ImagePasteTextView, context: Context) {
-        context.coordinator.parent = self
+        let coordinator = context.coordinator
+        coordinator.parent = self
         view.pasteboard = pasteboard
         view.onImage = onImage
-        if view.text != text { view.text = text }
-        if focused.wrappedValue && !view.isFirstResponder { view.becomeFirstResponder() }
-        if !focused.wrappedValue && view.isFirstResponder { view.resignFirstResponder() }
+        view.accessibilityHint = placeholder
+        // Don't replace text mid-composition (IME, dictation): it would
+        // commit or drop the marked text and move the caret.
+        if view.markedTextRange == nil, view.text != text { view.text = text }
+        coordinator.syncing = true
+        view.setWantsFocus(focused)
+        coordinator.syncing = false
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ImagePasteTextView, context: Context) -> CGSize? {
@@ -40,16 +50,46 @@ struct ComposerTextView: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ComposerTextView
+        /// True while updateUIView applies the binding to the view, so the
+        /// delegate callbacks that causes don't write back mid-update.
+        var syncing = false
+
         init(_ parent: ComposerTextView) { self.parent = parent }
-        func textViewDidChange(_ textView: UITextView) { parent.text = textView.text }
-        func textViewDidBeginEditing(_ textView: UITextView) { parent.focused.wrappedValue = true }
-        func textViewDidEndEditing(_ textView: UITextView) { parent.focused.wrappedValue = false }
+
+        func textViewDidChange(_ textView: UITextView) {
+            if parent.text != textView.text { parent.text = textView.text }
+        }
+        func textViewDidBeginEditing(_ textView: UITextView) { report(true) }
+        func textViewDidEndEditing(_ textView: UITextView) { report(false) }
+
+        func report(_ focused: Bool) {
+            guard !syncing, parent.focused != focused else { return }
+            parent.focused = focused
+        }
     }
 }
 
 final class ImagePasteTextView: UITextView {
     var pasteboard: PasteboardClient = .inert
-    var onImage: (Data) -> Void = { _ in }
+    var onImage: (PastedImage) -> Void = { _ in }
+    private(set) var wantsFocus = false
+
+    /// Becomes or resigns first responder to match `focused`. A request made
+    /// before the view is in a window is applied when it gets one.
+    func setWantsFocus(_ focused: Bool) {
+        wantsFocus = focused
+        applyFocus()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        applyFocus()
+    }
+
+    private func applyFocus() {
+        if wantsFocus, !isFirstResponder, window != nil { becomeFirstResponder() }
+        if !wantsFocus, isFirstResponder { resignFirstResponder() }
+    }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         // Checking types does not read clipboard contents or prompt for access.
@@ -62,7 +102,7 @@ final class ImagePasteTextView: UITextView {
             super.paste(sender)
             return
         }
-        guard let image = pasteboard.image(), let data = image.pngData() else { return }
-        onImage(data)
+        guard let image = pasteboard.pastedImage() else { return }
+        onImage(image)
     }
 }

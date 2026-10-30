@@ -10,7 +10,7 @@ struct ThreadView: View {
     @State private var atBottom = false
     @State private var nearBottom = false
     @State private var recorder = VoiceRecorder()
-    @FocusState private var composerFocused: Bool
+    @State private var composerFocused = false
 
     var body: some View {
         let t = store.state.thread(agent)
@@ -254,11 +254,12 @@ struct ThreadView: View {
                     ComposerTextView(
                         text: Binding(get: { store.state.thread(agent).draft }, set: { store.send(.draft(agent, $0)) }),
                         focused: $composerFocused,
+                        placeholder: "Message \(Theme.displayName(agent))",
                         pasteboard: store.platform.pasteboard,
-                        onImage: { data in
+                        onImage: { image in
                             composerFocused = false
                             store.send(.attachOpen(agent))
-                            store.addAttachment(name: "pasted.png", mime: "image/png", data: data)
+                            store.addAttachment(name: image.name, mime: image.mime, data: image.data)
                         }
                     )
                         .overlay(alignment: .topLeading) {
