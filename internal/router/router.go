@@ -355,8 +355,7 @@ func (r *Router) process(m Message) {
 		r.transcribe(ctx, log, atts)
 	}
 
-	deadline, _ := ctx.Deadline()
-	instructions += "\n\n" + turnBudgetInstructions(r.cfg.TurnTimeout, deadline)
+	instructions += "\n\n" + turnBudgetInstructions(r.cfg.TurnTimeout)
 
 	req := provider.Request{
 		Cwd:          a.Workspace,
@@ -426,15 +425,26 @@ func (r *Router) process(m Message) {
 	result.Err = errors.Join(result.Err, r.sendMedia(ctx, log, m, a.Workspace, media))
 }
 
-// turnBudgetInstructions uses the same budget and deadline as process, including
-// time spent preparing attachments before the provider starts.
-func turnBudgetInstructions(budget time.Duration, deadline time.Time) string {
-	return fmt.Sprintf(`# Turn time budget
+// turnBudgetInstructions guides agents to keep work within the turn timeout.
+// It depends only on config, never on per-turn state like the deadline, so
+// the instructions stay identical across turns and providers' prompt caches
+// keep hitting on resumed conversations.
+func turnBudgetInstructions(budget time.Duration) string {
+	return fmt.Sprintf(`# Long-running work
 
-Ganclaw bounds this entire turn to %s across all providers, including setup time. The turn deadline is %s; cancellation or shutdown may end it earlier.
-Plan bounded chunks that fit comfortably within the remaining time. Preserve the user's full objective: split execution into smaller steps rather than discard the larger task. Do not start operations or wait for CI longer than the remaining budget allows.
-Reserve time before the deadline to save durable progress and checkpoints using permitted tools and locations. If work remains, give an honest handoff with completed work, outstanding work, and concrete next steps; do not claim unfinished work is complete. Do not assume you can start another turn or that continuation happens automatically.
-Continue authorized work without repetitive approval requests. Existing authorization, tool, and safety constraints still apply.`, budget, deadline.UTC().Format(time.RFC3339Nano))
+Each turn is limited to about %s. Break anything that might take a while (builds, test suites, migrations, waiting on CI) into small units of safe, resumable work. Save progress as you go, and if work remains, end with a clear handoff: what's done, what's left, and the next step. Don't claim unfinished work is complete.`, shortDuration(budget))
+}
+
+// shortDuration formats d without trailing zero units: 20m, 1h, 1m30s.
+func shortDuration(d time.Duration) string {
+	s := d.String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
 }
 
 // sendMedia uploads the files a reply named, resolving relative paths
