@@ -253,6 +253,34 @@ def test_jobs_and_ask_about_a_run(paired, fake):
     assert app.thread("infra").get("reply_to") is None
 
 
+def test_swipe_to_reply_quotes_the_selected_message(paired, fake):
+    app = paired
+    fake.post("/admin/post", {"agent": "builder", "text": "The deployment finished successfully."})
+    app.post("/navigate", {"route": "thread", "agent": "builder"})
+    app.wait_screen("thread:builder")
+    message = wait_for(lambda: next((m for m in app.messages("builder")
+                                    if m["text"] == "The deployment finished successfully."), None),
+                       what="message to reply to")
+    row = f"message.{message['id']}"
+    wait_for(lambda: app.element(row), what="message row")
+    app.post("/swipe", {"id": row, "dx": -30, "dy": -150})
+    assert app.thread("builder").get("reply_to") is None
+    app.post("/swipe", {"id": row, "dx": -80, "dy": 4})
+    wait_for(lambda: app.thread("builder").get("reply_to") == message["id"], what="selected reply")
+    wait_for(lambda: app.element("thread.replyBar"), what="quoted composer preview")
+    app.screenshot("reply-preview")
+    app.tap("thread.cancelReply")
+    assert app.thread("builder").get("reply_to") is None
+    app.post("/swipe", {"id": row, "dx": -80, "dy": 0})
+    app.post("/send", {"agent": "builder", "text": "What changed?"})
+    wait_for(lambda: any(f'id={message["id"]}]' in p["prompt"] and "What changed?" in p["prompt"]
+                        for p in fake.prompts()), what="exact reply reference delivered to bot")
+    assert app.thread("builder").get("reply_to") is None
+    sent = next(m for m in app.messages("builder") if m["role"] == "user" and m["text"] == "What changed?")
+    assert sent["reply_to"] == message["id"]
+    app.screenshot("reply-sent")
+
+
 def test_server_pushes_reach_the_inbox(paired, fake):
     app = paired
     fake.post("/admin/post", {"agent": "builder", "text": "Deploy finished."})

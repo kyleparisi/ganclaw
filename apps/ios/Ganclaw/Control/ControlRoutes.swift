@@ -30,6 +30,8 @@ struct ControlRoutes {
             return tap(body)
         case ("POST", "/scroll"):
             return scroll(body)
+        case ("POST", "/swipe"):
+            return swipe(body)
         case ("GET", "/clipboard"):
             let text: Any = store.platform.pasteboard.string().map { $0 as Any } ?? NSNull()
             return .json(["text": text])
@@ -124,6 +126,15 @@ struct ControlRoutes {
     }
 
     // MARK: Helpers
+
+    /// Runs the same swipe-completion handler as the gesture, on a visible row.
+    private func swipe(_ body: [String: Any]) -> HTTPResponse {
+        let id = str(body, "id")
+        guard let e = ControlRegistry.shared.visible().first(where: { $0.id == id }), e.enabled,
+              let action = e.swipe else { return .error("no swipeable control \(id) on screen", status: 404) }
+        action(CGSize(width: body["dx"] as? Double ?? 0, height: body["dy"] as? Double ?? 0))
+        return .ok
+    }
 
     private func state() -> HTTPResponse {
         guard let data = try? JSON.encoder.encode(store.state),

@@ -11,8 +11,8 @@ import SwiftUI
 extension View {
     /// Marks a view for the control server and accessibility.
     func control(_ id: String, label: String? = nil, action: (() -> Void)? = nil,
-                 scroll: ((ScrollTarget) -> Void)? = nil) -> some View {
-        modifier(ControlModifier(id: id, label: label, action: action, scroll: scroll))
+                 scroll: ((ScrollTarget) -> Void)? = nil, swipe: ((CGSize) -> Void)? = nil) -> some View {
+        modifier(ControlModifier(id: id, label: label, action: action, scroll: scroll, swipe: swipe))
     }
 }
 
@@ -50,6 +50,7 @@ struct ControlModifier: ViewModifier {
     let label: String?
     let action: (() -> Void)?
     let scroll: ((ScrollTarget) -> Void)?
+    let swipe: ((CGSize) -> Void)?
     @State private var entry = ControlRegistry.Entry()
     @Environment(\.isEnabled) private var enabled
 
@@ -59,6 +60,7 @@ struct ControlModifier: ViewModifier {
         entry.label = label
         entry.action = action
         entry.scroll = scroll
+        entry.swipe = swipe
         entry.enabled = enabled
         return content
             .accessibilityIdentifier(id)
@@ -81,6 +83,7 @@ final class ControlRegistry {
         var label: String?
         var action: (() -> Void)?
         var scroll: ((ScrollTarget) -> Void)?
+        var swipe: ((CGSize) -> Void)?
         var enabled = true
         var frame: CGRect = .zero
     }
@@ -104,6 +107,7 @@ struct ControlModifier: ViewModifier {
     let label: String?
     let action: (() -> Void)?
     let scroll: ((ScrollTarget) -> Void)?
+    let swipe: ((CGSize) -> Void)?
 
     func body(content: Content) -> some View {
         content.accessibilityIdentifier(id)

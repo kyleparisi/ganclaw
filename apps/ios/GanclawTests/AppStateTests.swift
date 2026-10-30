@@ -139,6 +139,23 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(s.thread("infra").messages.map(\.id), [5])
     }
 
+    func testCancellingReplyPreservesDraftAndOtherThreadsSelection() {
+        var s = AppState()
+        s.apply(.draft("infra", "My unfinished reply"))
+        s.apply(.replyTo("infra", 4))
+        s.apply(.replyTo("research", 8))
+        s.apply(.replyTo("infra", nil))
+        XCTAssertNil(s.thread("infra").replyTo)
+        XCTAssertEqual(s.thread("infra").draft, "My unfinished reply")
+        XCTAssertEqual(s.thread("research").replyTo, 8)
+    }
+
+    func testFileOnlyReplyPreviewNamesTheAttachment() {
+        var original = msg(4, text: "")
+        original.files = [AppFile(id: "file", name: "summary.pdf", mime: "application/pdf", size: 12)]
+        XCTAssertEqual(original.replyPreview, "summary.pdf")
+    }
+
     func testAThreadCanQuoteAJobRunItAsksAbout() {
         var s = AppState()
         s.apply(.agentsLoaded([agent("infra")]))

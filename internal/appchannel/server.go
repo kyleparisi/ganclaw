@@ -333,11 +333,19 @@ func withReply(orig store.AppMessage, text string) string {
 	quoted := orig.Text
 	if quoted == "" {
 		quoted = "(a message without text)"
+		if len(orig.Files) > 0 {
+			names := make([]string, 0, len(orig.Files))
+			for _, f := range orig.Files {
+				names = append(names, fmt.Sprintf("%q", f.Name))
+			}
+			quoted = "(attachments: " + strings.Join(names, ", ") + ")"
+		}
 	}
 	if runes := []rune(quoted); len(runes) > maxReplyContext {
 		quoted = string(runes[:maxReplyContext]) + " …"
 	}
-	return "[Replying to " + who + ":]\n> " + strings.ReplaceAll(quoted, "\n", "\n> ") + "\n\n" + text
+	return "[Replying to " + who + ":]\n> " + strings.ReplaceAll(quoted, "\n", "\n> ") +
+		fmt.Sprintf("\n[App message reference: thread=%q, id=%d]\n\n", orig.Thread, orig.ID) + text
 }
 
 func containsFold(list []string, s string) bool {

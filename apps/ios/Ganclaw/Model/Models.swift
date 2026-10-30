@@ -45,6 +45,11 @@ struct AppMessage: Codable, Hashable, Identifiable {
     var createdAt: Date
     var updatedAt: Date
 
+    var replyPreview: String {
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return text }
+        return files.isEmpty ? "Message" : files.map(\.name).joined(separator: ", ")
+    }
+
     /// Buttons the user still has to pick from.
     var pendingActions: [String] { (answer ?? "").isEmpty ? actions : [] }
 
