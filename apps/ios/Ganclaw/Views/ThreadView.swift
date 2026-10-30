@@ -251,11 +251,27 @@ struct ThreadView: View {
                     }
                     .padding(.leading, 16).frame(minHeight: 42)
                 } else {
-                    TextField("Message \(Theme.displayName(agent))", text: Binding(get: { store.state.thread(agent).draft }, set: { store.send(.draft(agent, $0)) }), axis: .vertical)
-                        .font(.system(size: 15))
-                        .lineLimit(1...6)
+                    ComposerTextView(
+                        text: Binding(get: { store.state.thread(agent).draft }, set: { store.send(.draft(agent, $0)) }),
+                        focused: $composerFocused,
+                        pasteboard: store.platform.pasteboard,
+                        onImage: { data in
+                            composerFocused = false
+                            store.send(.attachOpen(agent))
+                            store.addAttachment(name: "pasted.png", mime: "image/png", data: data)
+                        }
+                    )
+                        .overlay(alignment: .topLeading) {
+                            if t.draft.isEmpty {
+                                Text("Message \(Theme.displayName(agent))")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
+                        }
                         .padding(.leading, 16).padding(.vertical, 11)
-                        .focused($composerFocused)
                         .accessibilityLabel("Message")
                         // /tap focuses the field, as a finger would.
                         .control("composer.text", action: { composerFocused = true })

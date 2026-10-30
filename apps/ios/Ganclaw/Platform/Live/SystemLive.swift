@@ -9,7 +9,8 @@ extension PasteboardClient {
             setString: { UIPasteboard.general.string = $0 },
             image: { UIPasteboard.general.image },
             url: { UIPasteboard.general.url },
-            hasContent: { UIPasteboard.general.hasImages || UIPasteboard.general.hasURLs || UIPasteboard.general.hasStrings }
+            hasContent: { UIPasteboard.general.hasImages || UIPasteboard.general.hasURLs || UIPasteboard.general.hasStrings },
+            hasImages: { UIPasteboard.general.hasImages }
         )
     }
 }

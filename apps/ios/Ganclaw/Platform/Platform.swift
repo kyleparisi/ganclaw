@@ -67,6 +67,7 @@ struct PasteboardClient {
     var image: () -> UIImage?
     var url: () -> URL?
     var hasContent: () -> Bool
+    var hasImages: () -> Bool = { false }
 }
 
 /// Stores the pairing (server + device token).
