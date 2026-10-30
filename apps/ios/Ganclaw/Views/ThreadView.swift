@@ -55,7 +55,10 @@ struct ThreadView: View {
             .accessibilityLabel("Back to agents")
             AgentAvatar(name: agent, size: 36)
             VStack(alignment: .leading, spacing: 1) {
-                Text(Theme.displayName(agent)).font(.system(size: 16, weight: .semibold))
+                Text(Theme.displayName(agent))
+                    .font(.system(size: 16, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 let status = st.working ? "Working · \((st.detail ?? "working").lowercased())" : statusLine(summary)
                 Text(status)
                     .font(.system(size: 12, weight: st.working ? .medium : .regular))
