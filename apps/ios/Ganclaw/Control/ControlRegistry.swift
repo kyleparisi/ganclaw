@@ -62,14 +62,13 @@ struct ControlModifier: ViewModifier {
         entry.enabled = enabled
         return content
             .accessibilityIdentifier(id)
-            .background {
-                GeometryReader { p in
-                    Color.clear
-                        .onAppear { entry.frame = p.frame(in: .global); ControlRegistry.shared.add(entry) }
-                        .onChange(of: p.frame(in: .global)) { _, f in entry.frame = f }
-                        .onDisappear { ControlRegistry.shared.remove(entry) }
-                }
+            // Observe geometry directly: watching GeometryProxy.frame with
+            // onChange can fire repeatedly in one render during navigation.
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                entry.frame = frame
             }
+            .onAppear { ControlRegistry.shared.add(entry) }
+            .onDisappear { ControlRegistry.shared.remove(entry) }
     }
 }
 
