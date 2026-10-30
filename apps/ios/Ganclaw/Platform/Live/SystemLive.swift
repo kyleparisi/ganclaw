@@ -1,15 +1,21 @@
 import Foundation
 import Security
 import UIKit
+import UniformTypeIdentifiers
 
 extension PasteboardClient {
     static var live: PasteboardClient {
         PasteboardClient(
             string: { UIPasteboard.general.string },
             setString: { UIPasteboard.general.string = $0 },
-            image: { UIPasteboard.general.image },
+            pastedImage: {
+                let pb = UIPasteboard.general
+                guard pb.hasImages else { return nil }
+                return PastedImage.make(png: pb.data(forPasteboardType: UTType.png.identifier), image: pb.image)
+            },
             url: { UIPasteboard.general.url },
-            hasContent: { UIPasteboard.general.hasImages || UIPasteboard.general.hasURLs || UIPasteboard.general.hasStrings }
+            hasContent: { UIPasteboard.general.hasImages || UIPasteboard.general.hasURLs || UIPasteboard.general.hasStrings },
+            hasImages: { UIPasteboard.general.hasImages }
         )
     }
 }

@@ -168,8 +168,8 @@ struct AttachSheet: View {
 
     private func paste() {
         let pb = store.platform.pasteboard
-        if let img = pb.image(), let data = img.pngData() {
-            store.addAttachment(name: "pasted.png", mime: "image/png", data: data)
+        if let img = pb.pastedImage() {
+            store.addAttachment(name: img.name, mime: img.mime, data: img.data)
         } else if let url = pb.url() {
             addLink(url.absoluteString)
         } else if let s = pb.string() {

@@ -10,7 +10,7 @@ struct ThreadView: View {
     @State private var atBottom = false
     @State private var nearBottom = false
     @State private var recorder = VoiceRecorder()
-    @FocusState private var composerFocused: Bool
+    @State private var composerFocused = false
 
     var body: some View {
         let t = store.state.thread(agent)
@@ -251,11 +251,28 @@ struct ThreadView: View {
                     }
                     .padding(.leading, 16).frame(minHeight: 42)
                 } else {
-                    TextField("Message \(Theme.displayName(agent))", text: Binding(get: { store.state.thread(agent).draft }, set: { store.send(.draft(agent, $0)) }), axis: .vertical)
-                        .font(.system(size: 15))
-                        .lineLimit(1...6)
+                    ComposerTextView(
+                        text: Binding(get: { store.state.thread(agent).draft }, set: { store.send(.draft(agent, $0)) }),
+                        focused: $composerFocused,
+                        placeholder: "Message \(Theme.displayName(agent))",
+                        pasteboard: store.platform.pasteboard,
+                        onImage: { image in
+                            composerFocused = false
+                            store.send(.attachOpen(agent))
+                            store.addAttachment(name: image.name, mime: image.mime, data: image.data)
+                        }
+                    )
+                        .overlay(alignment: .topLeading) {
+                            if t.draft.isEmpty {
+                                Text("Message \(Theme.displayName(agent))")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
+                        }
                         .padding(.leading, 16).padding(.vertical, 11)
-                        .focused($composerFocused)
                         .accessibilityLabel("Message")
                         // /tap focuses the field, as a finger would.
                         .control("composer.text", action: { composerFocused = true })
