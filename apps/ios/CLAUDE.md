@@ -57,6 +57,9 @@ Routes (`Ganclaw/Control/ControlRoutes.swift`):
 - Reply gestures: `POST /swipe {"id":"message.<id>","dx":-80,"dy":0}`
   runs the visible row's swipe-completion handler. Unit tests cover direction
   and distance thresholds; this route does not synthesize UIKit touch events.
+  It returns 200 whenever the row is swipeable, even if the drag is too short
+  to select it: read `reply_to` from `/state` to see whether it did. System
+  notices aren't swipeable (404).
 - State: `GET /state` (the whole `AppState` as snake_case JSON, plus
   `screen`, `inbox_rows`, and `speech` with fake speech), `GET /actions`.
 - Intents (the same AppStore methods views call, for what a simulator

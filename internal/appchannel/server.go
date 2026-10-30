@@ -323,12 +323,16 @@ func (c *Channel) handleSend(w http.ResponseWriter, r *http.Request) {
 // maxReplyContext caps how much of a replied-to message is quoted.
 const maxReplyContext = 2000
 
-// withReply tells the agent which message the user is answering, the same
-// way the Telegram channel does.
+// withReply tells the agent which message the user is answering. The quote
+// matches the Telegram channel's format; the reference line after it is
+// app-only, since app messages have stable IDs the agent can refer back to.
 func withReply(orig store.AppMessage, text string) string {
-	who := "the user's earlier message"
-	if orig.Role != store.RoleUser {
-		who = "your earlier message"
+	who := "your earlier message"
+	switch orig.Role {
+	case store.RoleUser:
+		who = "the user's earlier message"
+	case store.RoleSystem:
+		who = "an earlier system notice"
 	}
 	quoted := orig.Text
 	if quoted == "" {

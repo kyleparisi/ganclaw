@@ -343,10 +343,14 @@ struct MessageRow: View {
     var onReply: () -> Void
 
     @Environment(AppStore.self) private var store
-    @GestureState private var swipeTranslation: CGSize = .zero
+    /// Tracks the finger without animation; only the snap back on release animates.
+    @GestureState(resetTransaction: Transaction(animation: .easeOut(duration: 0.18)))
+    private var swipeTranslation: CGSize = .zero
 
-    private var canReply: Bool { message.status != .streaming }
+    /// System notices are status lines, not something to answer.
+    private var canReply: Bool { message.status != .streaming && message.role != .system }
     private var swipeOffset: CGFloat { canReply ? ReplySwipe.offset(swipeTranslation) : 0 }
+    private var swipeArmed: Bool { canReply && ReplySwipe.selectsReply(swipeTranslation) }
 
     var body: some View {
         ZStack(alignment: .trailing) {
@@ -366,13 +370,19 @@ struct MessageRow: View {
                 .updating($swipeTranslation) { value, state, _ in state = value.translation }
                 .onEnded { selectReply($0.translation) }
         )
-        .animation(.easeOut(duration: 0.18), value: swipeOffset == 0)
+        // Tick when a release would select the reply.
+        .sensoryFeedback(.impact(weight: .light), trigger: swipeArmed) { _, armed in armed }
         .contextMenu {
             if canReply {
                 Button("Reply", systemImage: "arrowshape.turn.up.left", action: onReply)
             }
+            // The row's long-press menu can preempt text selection, so copying stays here too.
+            if !message.text.isEmpty, message.status != .streaming {
+                Button("Copy", systemImage: "doc.on.doc") {
+                    store.copy(message.text, block: "message.\(message.id)", label: "Message")
+                }
+            }
         }
-        .accessibilityAction(named: Text("Reply")) { if canReply { onReply() } }
     }
 
     private func selectReply(_ translation: CGSize) {
@@ -404,6 +414,7 @@ struct MessageRow: View {
         .frame(maxWidth: 300, alignment: .trailing)
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .contain)
+        .accessibilityAction(named: Text("Reply")) { if canReply { onReply() } }
         .control("message.\(message.id)", swipe: selectReply)
     }
 
@@ -435,6 +446,7 @@ struct MessageRow: View {
         .frame(maxWidth: 310, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
+        .accessibilityAction(named: Text("Reply")) { if canReply { onReply() } }
         .control("message.\(message.id)", swipe: selectReply)
     }
 
@@ -445,7 +457,7 @@ struct MessageRow: View {
             .multilineTextAlignment(.center)
             .padding(.horizontal, 24)
             .frame(maxWidth: .infinity)
-            .control("message.\(message.id)", swipe: selectReply)
+            .control("message.\(message.id)")
     }
 }
 

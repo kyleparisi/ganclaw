@@ -66,4 +66,10 @@ func TestReplyContextIsBoundedAndIdentifiesAttachments(t *testing.T) {
 		assert.Contains(t, prompt, `attachments: "summary.pdf"`)
 		assert.Contains(t, prompt, `id=8]`)
 	})
+	t.Run("Replies to system notices are not attributed to the agent", func(t *testing.T) {
+		prompt := subject(store.AppMessage{ID: 9, Thread: "support", Role: store.RoleSystem,
+			Text: "I'm busy with earlier messages — please try again in a bit."}, "Retry")
+		assert.Contains(t, prompt, "[Replying to an earlier system notice:]")
+		assert.NotContains(t, prompt, "your earlier message")
+	})
 }
