@@ -30,5 +30,14 @@ func TestOpenItems(t *testing.T) {
 		require.Len(t, page.Items, 1)
 		assert.Equal(t, 400, h.do("POST", "/app/v1/open-items", store.OpenItem{Title: "Missing dependency", State: "waiting"}, nil))
 		assert.Equal(t, 404, h.do("PUT", "/app/v1/open-items/missing", store.OpenItem{Title: "Review"}, nil))
+		stale := item
+		stale.Version--
+		assert.Equal(t, 409, h.do("PUT", "/app/v1/open-items/"+item.ID, stale, nil))
+		var got store.OpenItem
+		require.Equal(t, 200, h.do("GET", "/app/v1/open-items/"+item.ID, nil, &got))
+		assert.Equal(t, item, got)
+		require.Equal(t, 200, h.do("DELETE", "/app/v1/open-items/"+item.ID, nil, nil))
+		assert.Equal(t, 404, h.do("GET", "/app/v1/open-items/"+item.ID, nil, nil))
+		assert.Equal(t, 404, h.do("DELETE", "/app/v1/open-items/"+item.ID, nil, nil))
 	})
 }

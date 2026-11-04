@@ -143,6 +143,13 @@ func (c *Client) OpenItems(ctx context.Context, done bool) ([]store.OpenItem, er
 	err := c.do(ctx, http.MethodGet, fmt.Sprintf("/v1/open-items?done=%t", done), nil, &out)
 	return out.Items, err
 }
+
+func (c *Client) OpenItem(ctx context.Context, id string) (store.OpenItem, error) {
+	var out store.OpenItem
+	err := c.do(ctx, http.MethodGet, "/v1/open-items/"+url.PathEscape(id), nil, &out)
+	return out, err
+}
+
 func (c *Client) SaveOpenItem(ctx context.Context, item store.OpenItem) (store.OpenItem, error) {
 	method, path := http.MethodPost, "/v1/open-items"
 	if item.ID != "" {

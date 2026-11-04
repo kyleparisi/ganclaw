@@ -183,4 +183,6 @@ struct OpenItem: Codable, Equatable, Identifiable {
     var waitingOn = ""
     var agent = ""
     var followUp = ""
+    /// Server-assigned; sent back on save so a concurrent edit is rejected instead of overwritten.
+    var version: Int64 = 0
 }

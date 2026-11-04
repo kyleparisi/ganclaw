@@ -354,8 +354,9 @@ struct OpenItemsView: View {
                                 Spacer()
                                 CButton("items.complete.\(item.id)", title: done ? "Reopen" : "Complete") {
                                     var updated = item
-                                    updated.state = done ? "todo" : "done"
-                                    Task { await save(updated) }
+                                    // Reopening returns a dependency to Waiting on rather than dropping it to To do.
+                                    updated.state = done ? (item.waitingOn.isEmpty ? "todo" : "waiting") : "done"
+                                    Task { if let message = await save(updated) { error = message } }
                                 }.disabled(busy)
                             }.font(.subheadline)
                         }
@@ -383,9 +384,7 @@ struct OpenItemsView: View {
             }
         }
         .sheet(item: $editing) { item in
-            OpenItemEditor(item: item, agents: store.state.agents.map(\.name)) { updated in
-                await save(updated)
-            }
+            OpenItemEditor(item: item, agents: store.state.agents.map(\.name), save: { await save($0) }, delete: { await delete($0) })
         }
     }
 
@@ -400,15 +399,28 @@ struct OpenItemsView: View {
         } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
     }
 
-    @MainActor private func save(_ item: OpenItem) async -> Bool {
-        guard let api = store.api, !busy else { return false }
+    /// Returns an error message, or nil on success. Saves may overlap (a list
+    /// action while the editor is open); `busy` only disables list buttons.
+    @MainActor private func save(_ item: OpenItem) async -> String? {
+        await mutate { _ = try await $0.saveOpenItem(item) }
+    }
+
+    @MainActor private func delete(_ item: OpenItem) async -> String? {
+        await mutate { try await $0.deleteOpenItem(item.id) }
+    }
+
+    @MainActor private func mutate(_ body: (APIClient) async throws -> Void) async -> String? {
+        guard let api = store.api else { return "Not connected" }
         busy = true
         defer { busy = false }
         do {
-            _ = try await api.saveOpenItem(item)
+            try await body(api)
             await load()
-            return true
-        } catch { self.error = error.localizedDescription; return false }
+            return nil
+        } catch {
+            if (error as? APIError)?.status == 409 { await load() }
+            return error.localizedDescription
+        }
     }
 }
 
@@ -416,9 +428,11 @@ struct OpenItemEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State var item: OpenItem
     var agents: [String]
-    var save: (OpenItem) async -> Bool
+    var save: (OpenItem) async -> String?
+    var delete: (OpenItem) async -> String?
     @State private var saving = false
-    @State private var failed = false
+    @State private var failure: String?
+    @State private var confirmDelete = false
     @State private var hasFollowUp = false
     @State private var followUp = Date()
 
@@ -439,7 +453,11 @@ struct OpenItemEditor: View {
                 Toggle("Follow-up date", isOn: $hasFollowUp)
                 if hasFollowUp { DatePicker("Follow up", selection: $followUp, displayedComponents: .date) }
                 Text("Follow-up dates appear on the list; they don't send reminders.").font(.caption)
-                if failed { Text("Could not save. Please try again.").foregroundStyle(Theme.red) }
+                if let failure { Text(failure).foregroundStyle(Theme.red) }
+                if !item.id.isEmpty {
+                    CButton("items.delete", title: "Delete item") { confirmDelete = true }
+                        .foregroundStyle(Theme.red).disabled(saving)
+                }
             }
             .navigationTitle(item.id.isEmpty ? "Add item" : "Edit item")
             .toolbar {
@@ -449,8 +467,9 @@ struct OpenItemEditor: View {
                         saving = true
                         item.followUp = hasFollowUp ? Self.dateFormatter.string(from: followUp) : ""
                         Task {
-                            if await save(item) { dismiss() } else { failed = true }
+                            failure = await save(item)
                             saving = false
+                            if failure == nil { dismiss() }
                         }
                     }.disabled(saving || item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (item.state == "waiting" && item.waitingOn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
                 }
@@ -461,6 +480,16 @@ struct OpenItemEditor: View {
             followUp = Self.dateFormatter.date(from: item.followUp) ?? Date()
         }
         .interactiveDismissDisabled(saving)
+        .confirmationDialog("Delete this item?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                saving = true
+                Task {
+                    failure = await delete(item)
+                    saving = false
+                    if failure == nil { dismiss() }
+                }
+            }
+        } message: { Text("It will be removed for you and your agents. To keep it in history, mark it Completed instead.") }
     }
 
     private static var dateFormatter: DateFormatter {
