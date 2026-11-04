@@ -120,6 +120,16 @@ struct APIClient {
         _ = try await send(request("POST", "/app/v1/threads/\(escape(agent))/reset"), as: R.self)
     }
 
+    func openItems(done: Bool) async throws -> [OpenItem] {
+        struct R: Decodable { var items: [OpenItem] }
+        return try await send(request("GET", "/app/v1/open-items", query: [URLQueryItem(name: "done", value: String(done))]), as: R.self).items
+    }
+
+    func saveOpenItem(_ item: OpenItem) async throws -> OpenItem {
+        let path = "/app/v1/open-items" + (item.id.isEmpty ? "" : "/\(escape(item.id))")
+        return try await sendJSON(item.id.isEmpty ? "POST" : "PUT", path, body: item, as: OpenItem.self)
+    }
+
     func tasks(archived: Bool, before: Int64? = nil) async throws -> [WorkerTask] {
         struct R: Decodable { var tasks: [WorkerTask] }
         var query = [URLQueryItem(name: "archived", value: String(archived))]

@@ -174,3 +174,13 @@ struct WorkerTask: Codable, Identifiable, Equatable {
     var updatedAt: Date
     var isActive: Bool { state == "queued" || state == "running" }
 }
+
+
+struct OpenItem: Codable, Equatable, Identifiable {
+    var id = ""
+    var title = ""
+    var state = "todo"
+    var waitingOn = ""
+    var agent = ""
+    var followUp = ""
+}

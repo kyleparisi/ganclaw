@@ -135,3 +135,20 @@ func (c *Client) Tasks(ctx context.Context, id, agent string) (TasksResponse, er
 	err := c.do(ctx, http.MethodGet, path, nil, &out)
 	return out, err
 }
+
+func (c *Client) OpenItems(ctx context.Context, done bool) ([]store.OpenItem, error) {
+	var out struct {
+		Items []store.OpenItem `json:"items"`
+	}
+	err := c.do(ctx, http.MethodGet, fmt.Sprintf("/v1/open-items?done=%t", done), nil, &out)
+	return out.Items, err
+}
+func (c *Client) SaveOpenItem(ctx context.Context, item store.OpenItem) (store.OpenItem, error) {
+	method, path := http.MethodPost, "/v1/open-items"
+	if item.ID != "" {
+		method, path = http.MethodPut, path+"/"+url.PathEscape(item.ID)
+	}
+	var out store.OpenItem
+	err := c.do(ctx, method, path, item, &out)
+	return out, err
+}

@@ -95,3 +95,18 @@ This is a prompt policy, not a scheduling guarantee: it depends on the
 provider following the instruction and having the ganclaw handoff tool.
 Worker capacity and service limits can still delay work. Background workers
 are asked to perform the task directly, without recursively delegating.
+
+### Open items
+
+The **Open items** tab keeps persistent **To do** and **Waiting on** lists.
+Add or edit a next step, link an agent conversation, name the external
+person or dependency, and optionally set a follow-up date. Dates are displayed
+on the list; they do not schedule notifications. Complete items to move them
+to Completed, or reopen them later. Background runs (formerly Tasks) and
+pending reply-button decisions remain accessible here.
+
+Agents share this list through `list_open_items` and `save_open_item` in the
+ganclaw MCP server. List first to avoid duplicates, and supply all fields when
+updating an existing ID. States are `todo`, `waiting` and `done`; `waiting`
+requires `waiting_on`, and `follow_up` is an optional `YYYY-MM-DD` date.
+Items survive new messages, completed worker runs and gateway restarts.

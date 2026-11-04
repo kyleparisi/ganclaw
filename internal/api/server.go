@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kyleparisi/ganclaw/internal/logx"
+	"github.com/kyleparisi/ganclaw/internal/openitems"
 	"github.com/kyleparisi/ganclaw/internal/provider"
 	"github.com/kyleparisi/ganclaw/internal/router"
 	"github.com/kyleparisi/ganclaw/internal/store"
@@ -58,6 +59,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/send", s.handleSend)
 	mux.HandleFunc("POST /v1/run", s.handleRun)
 	mux.HandleFunc("GET /v1/status", s.handleStatus)
+	mux.HandleFunc("GET /v1/open-items", openitems.Handler(s.Store))
+	mux.HandleFunc("POST /v1/open-items", openitems.Handler(s.Store))
+	mux.HandleFunc("PUT /v1/open-items/{item}", openitems.Handler(s.Store))
 	mux.HandleFunc("GET /v1/tasks", s.handleTasks)
 	mux.HandleFunc("GET /v1/tasks/{id}", s.handleTasks)
 	mux.HandleFunc("GET /v1/agents", s.handleAgents)

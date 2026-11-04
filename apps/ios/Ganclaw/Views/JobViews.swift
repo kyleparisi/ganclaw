@@ -320,3 +320,154 @@ struct TaskList: View {
         } catch { self.error = error.localizedDescription }
     }
 }
+
+struct OpenItemsView: View {
+    @Environment(AppStore.self) private var store
+    @State private var items: [OpenItem] = []
+    @State private var done = false
+    @State private var editing: OpenItem?
+    @State private var error: String?
+    @State private var busy = false
+    @State private var showRuns = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Toggle("Completed", isOn: $done)
+                CButton("items.add", title: "Add item") { editing = OpenItem() }
+            }
+            if let error { Text(error).foregroundStyle(Theme.red) }
+            if items.isEmpty { Text(done ? "No completed items." : "No open items. Add a next step or something you're waiting on.").foregroundStyle(Theme.muted) }
+            ForEach(done ? ["done"] : ["todo", "waiting"], id: \.self) { group in
+                let grouped = items.filter { $0.state == group }
+                if !grouped.isEmpty {
+                    Text(group == "todo" ? "To do" : group == "waiting" ? "Waiting on" : "Completed").font(.headline)
+                    ForEach(grouped) { item in
+                        VStack(alignment: .leading, spacing: 8) {
+                            CButton("items.edit.\(item.id)", title: item.title) { editing = item }.font(.headline).foregroundStyle(Theme.ink)
+                            if !item.waitingOn.isEmpty { Text("Waiting on: \(item.waitingOn)").font(.subheadline) }
+                            if !item.followUp.isEmpty { Text("Follow up: \(item.followUp)").font(.caption) }
+                            HStack {
+                                if store.state.agent(item.agent) != nil {
+                                    CButton("items.thread.\(item.id)", title: Theme.displayName(item.agent)) { store.openThread(item.agent) }
+                                }
+                                Spacer()
+                                CButton("items.complete.\(item.id)", title: done ? "Reopen" : "Complete") {
+                                    var updated = item
+                                    updated.state = done ? "todo" : "done"
+                                    Task { await save(updated) }
+                                }.disabled(busy)
+                            }.font(.subheadline)
+                        }
+                        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
+                    }
+                }
+            }
+            if !done {
+                let approvals = store.state.sortedAgents.filter { $0.needsYou }
+                if !approvals.isEmpty {
+                    Text("Decisions").font(.headline)
+                    ForEach(approvals) { agent in
+                        CButton("inbox.row.\(agent.name)") { store.openThread(agent.name) } label: { AgentRow(agent: agent) }
+                    }
+                }
+            }
+            CButton("items.runs", title: showRuns ? "Hide background runs" : "Background runs") { showRuns.toggle() }
+            if showRuns { TaskList() }
+        }
+        .task(id: done) {
+            while !Task.isCancelled {
+                await load()
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
+        .sheet(item: $editing) { item in
+            OpenItemEditor(item: item, agents: store.state.agents.map(\.name)) { updated in
+                await save(updated)
+            }
+        }
+    }
+
+    @MainActor private func load() async {
+        guard let api = store.api else { return }
+        let mode = done
+        do {
+            let loaded = try await api.openItems(done: mode)
+            guard mode == done, !Task.isCancelled else { return }
+            items = loaded
+            error = nil
+        } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+    }
+
+    @MainActor private func save(_ item: OpenItem) async -> Bool {
+        guard let api = store.api, !busy else { return false }
+        busy = true
+        defer { busy = false }
+        do {
+            _ = try await api.saveOpenItem(item)
+            await load()
+            return true
+        } catch { self.error = error.localizedDescription; return false }
+    }
+}
+
+struct OpenItemEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State var item: OpenItem
+    var agents: [String]
+    var save: (OpenItem) async -> Bool
+    @State private var saving = false
+    @State private var failed = false
+    @State private var hasFollowUp = false
+    @State private var followUp = Date()
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Next step", text: $item.title)
+                Picker("Status", selection: $item.state) {
+                    Text("To do").tag("todo")
+                    Text("Waiting on").tag("waiting")
+                    Text("Completed").tag("done")
+                }
+                if item.state == "waiting" { TextField("Who or what are we waiting on?", text: $item.waitingOn) }
+                Picker("Conversation", selection: $item.agent) {
+                    Text("None").tag("")
+                    ForEach(Array(Set(agents + (item.agent.isEmpty ? [] : [item.agent]))).sorted(), id: \.self) { Text(Theme.displayName($0)).tag($0) }
+                }
+                Toggle("Follow-up date", isOn: $hasFollowUp)
+                if hasFollowUp { DatePicker("Follow up", selection: $followUp, displayedComponents: .date) }
+                Text("Follow-up dates appear on the list; they don't send reminders.").font(.caption)
+                if failed { Text("Could not save. Please try again.").foregroundStyle(Theme.red) }
+            }
+            .navigationTitle(item.id.isEmpty ? "Add item" : "Edit item")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { CButton("items.cancel", title: "Cancel") { dismiss() }.disabled(saving) }
+                ToolbarItem(placement: .confirmationAction) {
+                    CButton("items.save", title: "Save") {
+                        saving = true
+                        item.followUp = hasFollowUp ? Self.dateFormatter.string(from: followUp) : ""
+                        Task {
+                            if await save(item) { dismiss() } else { failed = true }
+                            saving = false
+                        }
+                    }.disabled(saving || item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (item.state == "waiting" && item.waitingOn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                }
+            }
+        }
+        .onAppear {
+            hasFollowUp = !item.followUp.isEmpty
+            followUp = Self.dateFormatter.date(from: item.followUp) ?? Date()
+        }
+        .interactiveDismissDisabled(saving)
+    }
+
+    private static var dateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }
+}

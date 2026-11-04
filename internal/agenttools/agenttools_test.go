@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kyleparisi/ganclaw/internal/api"
+	"github.com/kyleparisi/ganclaw/internal/store"
 )
 
 // connect runs the server in memory and returns a client session.
@@ -49,7 +50,7 @@ func TestTools(t *testing.T) {
 		for _, tl := range res.Tools {
 			names = append(names, tl.Name)
 		}
-		assert.ElementsMatch(t, []string{"list_agents", "send_message", "ask_agent", "hand_off", "task_status"}, names)
+		assert.ElementsMatch(t, []string{"list_agents", "send_message", "ask_agent", "hand_off", "task_status", "list_open_items", "save_open_item"}, names)
 	})
 
 	t.Run("send_message sends through the API", func(t *testing.T) {
@@ -136,5 +137,28 @@ func TestTaskStatus(t *testing.T) {
 		}})
 		_, isErr := call(t, cs, "task_status", map[string]any{"task_id": "task-1"})
 		assert.False(t, isErr)
+	})
+}
+
+func TestOpenItemTools(t *testing.T) {
+	subject := connect
+	t.Run("Passes persistent dependencies to the API and lists them", func(t *testing.T) {
+		item := store.OpenItem{ID: "item-1", Title: "Review draft", State: "waiting", WaitingOn: "alex", Agent: "support", FollowUp: "2026-12-01"}
+		cs := subject(t, Deps{
+			SaveOpenItem: func(ctx context.Context, in store.OpenItem) (store.OpenItem, error) {
+				assert.Equal(t, item, in)
+				return in, nil
+			},
+			OpenItems: func(ctx context.Context, done bool) ([]store.OpenItem, error) {
+				assert.False(t, done)
+				return []store.OpenItem{item}, nil
+			},
+		})
+		out, failed := call(t, cs, "save_open_item", map[string]any{"id": item.ID, "title": item.Title, "state": item.State, "waiting_on": item.WaitingOn, "agent": item.Agent, "follow_up": item.FollowUp})
+		assert.False(t, failed)
+		assert.Equal(t, item.ID, out["id"])
+		out, failed = call(t, cs, "list_open_items", map[string]any{})
+		assert.False(t, failed)
+		assert.Len(t, out["items"], 1)
 	})
 }
