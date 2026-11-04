@@ -392,13 +392,18 @@ def test_drive_reads_out_background_results_after_the_answer(paired, fake):
     app.tap("drive.exit")
 
 
-def test_tasks_filter_keeps_ordinary_threads_out(paired):
+def test_open_items_keeps_background_runs_accessible(paired):
     app = paired
-    app.tap("filter.tasks")
+    app.tap("filter.needsYou")
+    wait_for(lambda: app.element("items.add"), what="open items list")
+    app.tap("items.add")
+    wait_for(lambda: app.element("items.cancel"), what="new item editor")
+    app.screenshot("open-item-editor")
+    app.tap("items.cancel")
+    app.tap("items.runs")
     wait_for(lambda: app.element("tasks.empty"), what="empty active tasks")
-    assert not any(value.startswith("inbox.row.") for value in app.ids())
     assert "tasks.archived" in app.ids()
-    app.screenshot("inbox-tasks")
+    app.screenshot("open-items-background-runs")
     app.tap("filter.all")
     wait_for(lambda: app.element("inbox.row.infra"), what="ordinary inbox restored")
 

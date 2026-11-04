@@ -16,6 +16,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/kyleparisi/ganclaw/internal/openitems"
 	"github.com/kyleparisi/ganclaw/internal/store"
 )
 
@@ -45,6 +46,7 @@ func (c *Channel) Handler(version string) http.Handler {
 	auth.HandleFunc("POST /app/v1/threads/{agent}/reset", c.handleReset)
 	auth.HandleFunc("POST /app/v1/threads/{agent}/files", c.handleUpload)
 	auth.HandleFunc("GET /app/v1/files/{id}", c.handleFile)
+	openitems.Register(auth, "/app/v1/open-items", c.Store)
 	auth.HandleFunc("GET /app/v1/tasks", c.handleTasks)
 	auth.HandleFunc("GET /app/v1/tasks/{task}/messages", c.handleTaskMessages)
 	auth.HandleFunc("GET /app/v1/jobs", c.handleJobs)

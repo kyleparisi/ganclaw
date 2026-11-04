@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kyleparisi/ganclaw/internal/api"
+	"github.com/kyleparisi/ganclaw/internal/store"
 )
 
 // connect runs the server in memory and returns a client session.
@@ -49,7 +50,7 @@ func TestTools(t *testing.T) {
 		for _, tl := range res.Tools {
 			names = append(names, tl.Name)
 		}
-		assert.ElementsMatch(t, []string{"list_agents", "send_message", "ask_agent", "hand_off", "task_status"}, names)
+		assert.ElementsMatch(t, []string{"list_agents", "send_message", "ask_agent", "hand_off", "task_status", "list_open_items", "save_open_item"}, names)
 	})
 
 	t.Run("send_message sends through the API", func(t *testing.T) {
@@ -136,5 +137,53 @@ func TestTaskStatus(t *testing.T) {
 		}})
 		_, isErr := call(t, cs, "task_status", map[string]any{"task_id": "task-1"})
 		assert.False(t, isErr)
+	})
+}
+
+func TestOpenItemTools(t *testing.T) {
+	subject := connect
+	t.Run("Creates items and lists them", func(t *testing.T) {
+		var saved store.OpenItem
+		cs := subject(t, Deps{
+			OpenItem: func(context.Context, string) (store.OpenItem, error) {
+				t.Fatal("create must not load an existing item")
+				return store.OpenItem{}, nil
+			},
+			SaveOpenItem: func(ctx context.Context, in store.OpenItem) (store.OpenItem, error) {
+				saved = in
+				in.ID = "item-1"
+				return in, nil
+			},
+			OpenItems: func(ctx context.Context, done bool) ([]store.OpenItem, error) {
+				assert.False(t, done)
+				return []store.OpenItem{saved}, nil
+			},
+		})
+		out, failed := call(t, cs, "save_open_item", map[string]any{"title": "Review draft", "state": "waiting", "waiting_on": "alex", "agent": "support", "follow_up": "2026-12-01"})
+		assert.False(t, failed)
+		assert.Equal(t, "item-1", out["id"])
+		assert.Equal(t, store.OpenItem{Title: "Review draft", State: "waiting", WaitingOn: "alex", Agent: "support", FollowUp: "2026-12-01"}, saved)
+		out, failed = call(t, cs, "list_open_items", map[string]any{})
+		assert.False(t, failed)
+		assert.Len(t, out["items"], 1)
+	})
+	t.Run("Updates keep omitted fields and clear empty ones", func(t *testing.T) {
+		existing := store.OpenItem{ID: "item-1", Title: "Review draft", State: "waiting", WaitingOn: "alex", Agent: "support", FollowUp: "2026-12-01", Version: 3}
+		var saved store.OpenItem
+		cs := subject(t, Deps{
+			OpenItem: func(ctx context.Context, id string) (store.OpenItem, error) {
+				assert.Equal(t, "item-1", id)
+				return existing, nil
+			},
+			SaveOpenItem: func(ctx context.Context, in store.OpenItem) (store.OpenItem, error) {
+				saved = in
+				return in, nil
+			},
+		})
+		_, failed := call(t, cs, "save_open_item", map[string]any{"id": "item-1", "title": "Review final draft", "follow_up": ""})
+		assert.False(t, failed)
+		want := existing
+		want.Title, want.FollowUp = "Review final draft", ""
+		assert.Equal(t, want, saved, "version is carried so a concurrent edit is rejected")
 	})
 }

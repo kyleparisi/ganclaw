@@ -16,10 +16,13 @@ import (
 
 // Deps are the gateway calls the tools make; *api.Client provides them.
 type Deps struct {
-	Tasks  func(context.Context, string, string) (api.TasksResponse, error)
-	Send   func(ctx context.Context, req api.SendRequest) (api.SendResponse, error)
-	Run    func(ctx context.Context, req api.RunRequest) (api.RunResponse, error)
-	Agents func(ctx context.Context) (api.AgentsResponse, error)
+	OpenItems    func(context.Context, bool) ([]store.OpenItem, error)
+	OpenItem     func(context.Context, string) (store.OpenItem, error)
+	SaveOpenItem func(context.Context, store.OpenItem) (store.OpenItem, error)
+	Tasks        func(context.Context, string, string) (api.TasksResponse, error)
+	Send         func(ctx context.Context, req api.SendRequest) (api.SendResponse, error)
+	Run          func(ctx context.Context, req api.RunRequest) (api.RunResponse, error)
+	Agents       func(ctx context.Context) (api.AgentsResponse, error)
 }
 
 type SendIn struct {
@@ -120,5 +123,57 @@ func NewServer(d Deps, version string) *mcp.Server {
 		out, err := d.Tasks(ctx, in.TaskID, in.Agent)
 		return nil, out, err
 	})
+	mcp.AddTool(s, &mcp.Tool{Name: "list_open_items", Description: "List persistent todos and external dependencies. Use done=true to find completed items.", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		Done bool `json:"done,omitempty"`
+	}) (*mcp.CallToolResult, struct {
+		Items []store.OpenItem `json:"items"`
+	}, error) {
+		var out struct {
+			Items []store.OpenItem `json:"items"`
+		}
+		if d.OpenItems == nil {
+			return nil, out, errors.New("open items unavailable")
+		}
+		var err error
+		out.Items, err = d.OpenItems(ctx, in.Done)
+		return nil, out, err
+	})
+	mcp.AddTool(s, &mcp.Tool{Name: "save_open_item", Description: "Create or update a persistent next step. Use state todo, waiting, or done; waiting requires waiting_on. Optional agent links its conversation; follow_up is YYYY-MM-DD, a displayed date, not an automatic reminder. Omit id to create (title required). To update, pass id plus only the fields to change: omitted fields keep their current values and an empty string clears one. Track concrete user actions and external dependencies; list first and keep existing items current rather than creating duplicates."}, func(ctx context.Context, _ *mcp.CallToolRequest, in SaveOpenItemIn) (*mcp.CallToolResult, store.OpenItem, error) {
+		if d.SaveOpenItem == nil || d.OpenItem == nil {
+			return nil, store.OpenItem{}, errors.New("open items unavailable")
+		}
+		var item store.OpenItem
+		if in.ID != "" {
+			var err error
+			if item, err = d.OpenItem(ctx, in.ID); err != nil {
+				return nil, store.OpenItem{}, err
+			}
+		}
+		in.apply(&item)
+		out, err := d.SaveOpenItem(ctx, item)
+		return nil, out, err
+	})
 	return s
+}
+
+// SaveOpenItemIn uses pointers so an update can tell omitted fields (kept)
+// from empty ones (cleared).
+type SaveOpenItemIn struct {
+	ID        string  `json:"id,omitempty"`
+	Title     *string `json:"title,omitempty"`
+	State     *string `json:"state,omitempty"`
+	WaitingOn *string `json:"waiting_on,omitempty"`
+	Agent     *string `json:"agent,omitempty"`
+	FollowUp  *string `json:"follow_up,omitempty"`
+}
+
+func (in SaveOpenItemIn) apply(item *store.OpenItem) {
+	for _, f := range []struct {
+		src *string
+		dst *string
+	}{{in.Title, &item.Title}, {in.State, &item.State}, {in.WaitingOn, &item.WaitingOn}, {in.Agent, &item.Agent}, {in.FollowUp, &item.FollowUp}} {
+		if f.src != nil {
+			*f.dst = *f.src
+		}
+	}
 }

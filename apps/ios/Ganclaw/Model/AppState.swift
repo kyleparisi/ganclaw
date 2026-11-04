@@ -16,12 +16,13 @@ enum Route: Codable, Hashable {
 
 enum InboxFilter: String, Codable, CaseIterable, Identifiable {
     case all, running, needsYou, jobs, tasks
+    static var allCases: [InboxFilter] { [.all, .running, .needsYou, .jobs] }
     var id: String { rawValue }
     var title: String {
         switch self {
         case .all: "All"
         case .running: "Running"
-        case .needsYou: "Needs you"
+        case .needsYou: "Open items"
         case .jobs: "Jobs"
         case .tasks: "Tasks"
         }

@@ -2,6 +2,16 @@ import XCTest
 @testable import Ganclaw
 
 final class AppStateTests: XCTestCase {
+    func testOpenItemsReplaceSeparateTaskFilterAndDecodeSharedRecords() throws {
+        XCTAssertEqual(InboxFilter.needsYou.title, "Open items")
+        XCTAssertEqual(InboxFilter.allCases, [.all, .running, .needsYou, .jobs])
+        let item = try JSON.decoder.decode(OpenItem.self, from: Data(#"{"id":"item-1","title":"Review draft","state":"waiting","waiting_on":"alex","agent":"support","follow_up":"2026-12-01","version":2,"updated_at":"2026-11-04T00:00:00Z"}"#.utf8))
+        XCTAssertEqual(item.waitingOn, "alex")
+        XCTAssertEqual(item.followUp, "2026-12-01")
+        XCTAssertEqual(item.version, 2)
+        XCTAssertEqual(try JSON.decoder.decode(OpenItem.self, from: JSON.encoder.encode(item)), item)
+    }
+
     private func msg(_ id: Int64, _ thread: String = "infra", role: Role = .agent, text: String = "hi",
                      status: MessageStatus = .done, actions: [String] = [], answer: String? = nil, job: String? = nil) -> AppMessage {
         AppMessage(id: id, thread: thread, role: role, text: text, files: [], actions: actions, answer: answer,
