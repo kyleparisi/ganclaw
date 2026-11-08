@@ -72,6 +72,31 @@ See [CLAUDE.md](CLAUDE.md): `apps/ios/test/run.sh` builds the app, runs the
 unit tests and drives the app in a simulator through its debug control
 server.
 
+### TestFlight
+
+The build has no server built in: each tester pairs with their own ganclaw
+over HTTPS (see above), so one TestFlight build works for everyone.
+
+You need a paid Apple Developer team signed in under Xcode → Settings →
+Accounts, and an app record for `com.kyleparisi.ganclaw` in App Store
+Connect. Put your team in `apps/ios/Local.xcconfig` (git-ignored):
+
+```
+DEVELOPMENT_TEAM = ABCDE12345
+```
+
+Then:
+
+```bash
+apps/ios/tools/testflight.sh            # archive and export build/export/Ganclaw.ipa
+apps/ios/tools/testflight.sh --upload   # archive and upload to TestFlight
+```
+
+The build number is a UTC timestamp, and the archive uses the production
+APNs environment when push is turned on ([docs/notifications.md](docs/notifications.md)).
+Info.plist declares `ITSAppUsesNonExemptEncryption = NO` (the app only
+uses standard HTTPS), so uploads skip the export-compliance question.
+
 ### Voice settings
 
 Open the gear on the inbox, then **Settings → Voice**. Tapping a voice
