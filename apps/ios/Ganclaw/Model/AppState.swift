@@ -16,6 +16,21 @@ enum Route: Codable, Hashable {
     case openItems
 }
 
+/// Whether this phone gets push notifications. `on` means the server has
+/// this phone's APNs token, not just that iOS allows alerts.
+enum NotificationStatus: String, Codable {
+    /// Not checked yet (launch, or the Mac where there's no push).
+    case unknown
+    /// Never asked, or the server has no registration.
+    case off
+    /// Asked iOS / waiting for the token / sending it to the server.
+    case enabling
+    case on
+    /// The user said no in the system prompt or system Settings.
+    case denied
+    case failed
+}
+
 enum InboxFilter: String, Codable, CaseIterable, Identifiable {
     case all, running, needsYou, jobs, tasks
     static var allCases: [InboxFilter] { [.all, .running, .needsYou, .jobs] }
@@ -121,6 +136,9 @@ struct AppState: Codable, Equatable {
     /// Identifies the copy block whose button shows "Copied".
     var copiedBlock: String?
     var banner: String?
+    var notifications = NotificationStatus.unknown
+    /// Why turning notifications on failed, shown under the setting.
+    var notificationError: String?
 
     // MARK: Derived
 
@@ -231,6 +249,7 @@ struct AppState: Codable, Equatable {
         case toast(String?)
         case copied(String?)
         case banner(String?)
+        case notifications(NotificationStatus, error: String? = nil)
     }
 
     mutating func apply(_ action: Action) {
@@ -382,6 +401,9 @@ struct AppState: Codable, Equatable {
             copiedBlock = id
         case .banner(let b):
             banner = b
+        case let .notifications(status, error):
+            notifications = status
+            notificationError = status == .failed ? error : nil
         }
     }
 

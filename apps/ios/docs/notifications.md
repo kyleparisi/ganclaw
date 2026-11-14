@@ -39,8 +39,12 @@ Telegram delivery, worker status and hidden task history are unchanged.
    builds. Allow outbound HTTPS/HTTP2 on port 443 to Apple's APNs endpoint.
    Partial configuration or an invalid key fails gateway startup.
 5. On a signed physical iPhone, pair with the gateway, open Settings in Ganclaw,
-   and tap **Enable notifications**. The system permission prompt appears only
-   after this explicit action. Return to the app after changing system permissions.
+   and tap **Turn on notifications**. The system permission prompt appears only
+   after this explicit action. The setting then shows "Turning on…" until the
+   gateway has the phone's token, and "Notifications are on" once it does. If
+   alerts are blocked it says so and links to Ganclaw's page in system Settings;
+   if registration fails it shows why, with Try again. It re-checks whenever
+   the app becomes active, so changes made in system Settings show up.
 
 No Apple services, credentials or signing profiles are provisioned by this
 change. Linux checks and simulator CI cannot prove live APNs delivery.

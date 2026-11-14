@@ -30,8 +30,12 @@ final class AppStore {
         platform.notifications.observe({ [weak self] token in
             guard let self, let client = self.client else { return }
             Task {
-                do { try await client.registerPush(token) }
-                catch { self.send(.banner("Could not enable notifications. Try again in Settings.")) }
+                do {
+                    try await client.registerPush(token)
+                    self.send(.notifications(.on))
+                } catch {
+                    self.send(.notifications(.failed, error: "The server didn't accept this phone's registration. Check your connection and try again."))
+                }
             }
         }, { [weak self] thread in
             guard let self, self.client != nil else { return }
@@ -40,7 +44,7 @@ final class AppStore {
                 guard self.state.agents.contains(where: { $0.name == thread }) else { return }
                 self.openThread(thread)
             }
-        }, { [weak self] message in self?.send(.banner(message)) })
+        }, { [weak self] message in self?.send(.notifications(.failed, error: message)) })
     }
 
     func send(_ action: AppState.Action) {
@@ -109,7 +113,9 @@ final class AppStore {
         client = APIClient(baseURL: c.server, token: c.token)
         send(.paired(server: c.server, deviceName: c.deviceName))
         events.connect(client!)
-        Task { await syncNotifications(); await refresh() }
+        // Loading agents never waits on notification setup.
+        Task { await syncNotifications() }
+        Task { await refresh() }
     }
 
     func unpair(reason: String? = nil) {
@@ -135,15 +141,27 @@ final class AppStore {
         send(.unpaired(reason: reason == "" ? nil : reason))
     }
 
+    /// Asks iOS for permission, then registers; the token callback in
+    /// `init` reports `.on` once the server has it.
     func enableNotifications() async {
         guard client != nil else { return }
+        send(.notifications(.enabling))
         do { try await platform.notifications.enable() }
-        catch { send(.banner(describe(error))) }
+        catch PlatformError.denied { send(.notifications(.denied)) }
+        catch { send(.notifications(.failed, error: describe(error))) }
     }
 
+    func openNotificationSettings() { platform.notifications.openSystemSettings() }
+
+    /// Runs on connect and every activation, so the setting reflects changes
+    /// made in system Settings and the server always has the current token.
     func syncNotifications() async {
         guard let client else { return }
-        if !(await platform.notifications.registerIfAuthorized()) {
+        if await platform.notifications.registerIfAuthorized() {
+            // Keep showing "on" while the refreshed token is sent.
+            if state.notifications != .on { send(.notifications(.enabling)) }
+        } else {
+            send(.notifications(await platform.notifications.isDenied() ? .denied : .off))
             try? await client.removePush()
         }
     }

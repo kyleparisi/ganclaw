@@ -122,6 +122,59 @@ final class PlatformClientTests: XCTestCase {
         XCTAssertFalse(requested)
     }
 
+    private func pairedPlatform() -> Platform {
+        var p = Platform.inert
+        // Nothing listens on port 9: server calls fail at once.
+        p.keychain.load = { Credentials(server: URL(string: "http://127.0.0.1:9")!, token: "t", deviceName: "Phone") }
+        return p
+    }
+
+    func testDecliningThePromptShowsNotificationsBlocked() async {
+        var p = pairedPlatform()
+        p.notifications.enable = { throw PlatformError.denied(.notifications) }
+        let store = AppStore(platform: p)
+        await store.enableNotifications()
+        XCTAssertEqual(store.state.notifications, .denied)
+    }
+
+    func testAPermissionErrorIsShownUnderTheSetting() async {
+        var p = pairedPlatform()
+        p.notifications.enable = { throw PlatformError.unavailable("No push here.") }
+        let store = AppStore(platform: p)
+        await store.enableNotifications()
+        XCTAssertEqual(store.state.notifications, .failed)
+        XCTAssertEqual(store.state.notificationError, "No push here.")
+    }
+
+    func testAllowingWaitsForTheServerBeforeSayingOn() async throws {
+        var p = pairedPlatform()
+        var deliverToken: (@MainActor (String) -> Void)?
+        p.notifications.observe = { token, _, _ in deliverToken = token }
+        let store = AppStore(platform: p)
+        await store.enableNotifications()
+        XCTAssertEqual(store.state.notifications, .enabling, "iOS said yes; the server doesn't have the token yet")
+        deliverToken?("abcd")
+        for _ in 0..<100 where store.state.notifications == .enabling { try await Task.sleep(nanoseconds: 50_000_000) }
+        XCTAssertEqual(store.state.notifications, .failed, "the server couldn't be reached")
+        XCTAssertNotNil(store.state.notificationError)
+    }
+
+    func testSyncReflectsAlertsTurnedOffInSystemSettings() async {
+        var p = pairedPlatform()
+        p.notifications.isDenied = { true }
+        let store = AppStore(platform: p)
+        await store.syncNotifications()
+        XCTAssertEqual(store.state.notifications, .denied)
+    }
+
+    func testOnClearsAnEarlierError() {
+        var s = AppState()
+        s.apply(.notifications(.failed, error: "boom"))
+        s.apply(.notifications(.on))
+        XCTAssertEqual(s.notifications, .on)
+        XCTAssertNil(s.notificationError)
+    }
+
     func testUnpairClearsTheKeychain() {
         var cleared = false
         var p = Platform.inert
