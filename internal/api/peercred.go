@@ -4,8 +4,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-
-	"golang.org/x/sys/unix"
 )
 
 // peerCheckListener drops connections from users other than the server's
@@ -36,7 +34,8 @@ func (l *peerCheckListener) Accept() (net.Conn, error) {
 	}
 }
 
-// peerUID returns the connecting process's user ID (SO_PEERCRED).
+// peerUID returns the connecting process's user ID, read from the socket by
+// the platform's peer-credential call (sockPeerUID).
 func peerUID(c net.Conn) (uint32, bool) {
 	uc, ok := c.(*net.UnixConn)
 	if !ok {
@@ -46,12 +45,12 @@ func peerUID(c net.Conn) (uint32, bool) {
 	if err != nil {
 		return 0, false
 	}
-	var cred *unix.Ucred
+	var uid uint32
 	var cerr error
 	if err := raw.Control(func(fd uintptr) {
-		cred, cerr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
+		uid, cerr = sockPeerUID(int(fd))
 	}); err != nil || cerr != nil {
 		return 0, false
 	}
-	return cred.Uid, true
+	return uid, true
 }
