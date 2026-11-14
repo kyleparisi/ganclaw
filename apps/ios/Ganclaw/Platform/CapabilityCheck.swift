@@ -36,12 +36,12 @@ struct CapabilityCheck: Sendable {
     )
 }
 
-/// Reads the process's own entitlements on the Mac (Catalyst). The SecTask
+/// Reads the process's own entitlements on the Mac (native or Catalyst). The SecTask
 /// functions aren't in the Catalyst SDK headers, so they're found at run
 /// time; on iOS there is nothing to enforce and this is nil.
 enum MacEntitlements {
     static let lookup: (@Sendable (String) -> Bool)? = {
-        #if targetEnvironment(macCatalyst)
+        #if os(macOS) || targetEnvironment(macCatalyst)
         typealias Create = @convention(c) (CFAllocator?) -> Unmanaged<AnyObject>?
         typealias Copy = @convention(c) (AnyObject, CFString, UnsafeMutablePointer<Unmanaged<CFError>?>?) -> Unmanaged<AnyObject>?
         guard let lib = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_NOW),

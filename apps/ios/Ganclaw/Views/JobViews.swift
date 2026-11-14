@@ -14,7 +14,7 @@ struct JobsView: View {
             .refreshable { await store.refresh() }
         }
         .background(Theme.ground.ignoresSafeArea())
-        .toolbar(.hidden, for: .navigationBar)
+        .hidesNavigationBar()
     }
 }
 
@@ -143,7 +143,7 @@ struct JobView: View {
             .refreshable { await store.loadJobRuns(job) }
         }
         .background(Theme.ground.ignoresSafeArea())
-        .toolbar(.hidden, for: .navigationBar)
+        .hidesNavigationBar()
         .task(id: job) { if runs.isEmpty { await store.loadJobRuns(job) } }
     }
 }

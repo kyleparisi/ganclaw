@@ -112,3 +112,52 @@ jobs:
         with:
           name: Ganclaw-mac
           path: apps/ios/dist/Ganclaw-mac.zip
+
+  mac-native:
+    # The native macOS app (GanclawMac target): shares Model/Net/Platform
+    # with the iOS app and has its own sidebar + thread window.
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - name: Build Ganclaw.app (native macOS, Release)
+        working-directory: apps/ios
+        run: |
+          tools/gencap/run.sh "$PWD" --check
+          xcodegen generate --quiet
+          status=0
+          xcodebuild -project Ganclaw.xcodeproj -scheme GanclawMac -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build/mac-native \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
+            build >build-mac-native.log 2>&1 || status=$?
+          grep -E "error:|\*\* BUILD " build-mac-native.log || true
+          test "$status" -eq 0 || { tail -50 build-mac-native.log; exit 1; }
+      - name: Check and package
+        working-directory: apps/ios
+        run: |
+          APP=build/mac-native/Build/Products/Release/Ganclaw.app
+          lipo -info "$APP/Contents/MacOS/Ganclaw"
+          codesign --verify --deep --strict "$APP"
+          codesign -d --entitlements - --xml "$APP" 2>/dev/null > /tmp/ent.plist
+          python3 - /tmp/ent.plist "$(tools/gencap/run.sh --entitlements 2>/dev/null || true)" <<'PY'
+          import plistlib, sys
+          signed = set(plistlib.load(open(sys.argv[1], "rb")))
+          signed.discard("com.apple.security.get-task-allow")
+          want = set(sys.argv[2].split())
+          assert want, "gencap printed no entitlements"
+          if signed != want:
+              sys.exit(f"entitlement mismatch: missing {sorted(want - signed)}, unexpected {sorted(signed - want)}")
+          print("entitlements match the manifest:", sorted(signed))
+          PY
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" -c "Print :LSMinimumSystemVersion" "$APP/Contents/Info.plist"
+          mkdir -p dist && ditto -c -k --keepParent "$APP" dist/Ganclaw-mac-native.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ganclaw-mac-native
+          path: apps/ios/dist/Ganclaw-mac-native.zip

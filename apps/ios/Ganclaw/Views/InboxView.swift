@@ -32,7 +32,7 @@ struct InboxView: View {
             bottomBar
         }
         .background(Theme.ground.ignoresSafeArea())
-        .toolbar(.hidden, for: .navigationBar)
+        .hidesNavigationBar()
     }
 
     private var header: some View {

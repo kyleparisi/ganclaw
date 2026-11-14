@@ -1,8 +1,14 @@
 import Foundation
 import Security
-import UIKit
 import UniformTypeIdentifiers
+#if canImport(UIKit)
+import UIKit
+#else
+import AppKit
+import IOKit.pwr_mgt
+#endif
 
+#if canImport(UIKit)
 extension PasteboardClient {
     static var live: PasteboardClient {
         PasteboardClient(
@@ -31,6 +37,67 @@ extension DeviceClient {
         )
     }
 }
+
+#else
+extension PasteboardClient {
+    static var live: PasteboardClient {
+        PasteboardClient(
+            string: { NSPasteboard.general.string(forType: .string) },
+            setString: { s in
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(s, forType: .string)
+            },
+            pastedImage: {
+                let pb = NSPasteboard.general
+                guard hasImages(pb) else { return nil }
+                return PastedImage.make(png: pb.data(forType: .png), image: NSImage(pasteboard: pb))
+            },
+            url: { NSURL(from: NSPasteboard.general) as URL? },
+            hasContent: {
+                let pb = NSPasteboard.general
+                return hasImages(pb) || pb.canReadObject(forClasses: [NSURL.self, NSString.self])
+            },
+            hasImages: { hasImages(NSPasteboard.general) }
+        )
+    }
+
+    /// Image data on the clipboard, not a copied file that merely has an icon.
+    private static func hasImages(_ pb: NSPasteboard) -> Bool {
+        pb.availableType(from: [.png, .tiff]) != nil
+    }
+}
+
+extension DeviceClient {
+    static func live(check: CapabilityCheck) -> DeviceClient {
+        let awake = KeepAwake()
+        return DeviceClient(
+            name: { Host.current().localizedName ?? "Mac" },
+            setIdleTimerDisabled: { awake.set($0) },
+            // The Mac app attaches files from disk; it has no camera picker.
+            cameraAvailable: { false }
+        )
+    }
+}
+
+/// Keeps the display awake during drive mode, like iOS's idle timer.
+@MainActor
+private final class KeepAwake {
+    private var assertion: IOPMAssertionID?
+
+    func set(_ on: Bool) {
+        if on, assertion == nil {
+            var id = IOPMAssertionID(0)
+            let ok = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
+                                                 IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                                 "Ganclaw drive mode" as CFString, &id)
+            if ok == kIOReturnSuccess { assertion = id }
+        } else if !on, let id = assertion {
+            IOPMAssertionRelease(id)
+            assertion = nil
+        }
+    }
+}
+#endif
 
 extension KeychainClient {
     /// The Keychain, readable only on this device. Builds without a signing

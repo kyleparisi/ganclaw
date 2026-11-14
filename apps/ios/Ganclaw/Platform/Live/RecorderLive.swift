@@ -32,9 +32,11 @@ private final class LiveRecorder {
 
     func start() throws {
         try check.require(.microphone)
+        #if os(iOS)
         let s = AVAudioSession.sharedInstance()
         try s.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
         try s.setActive(true)
+        #endif
         let r = try AVAudioRecorder(url: url, settings: [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
             AVSampleRateKey: 16000,
@@ -56,6 +58,8 @@ private final class LiveRecorder {
     private func finish() {
         recorder?.stop()
         recorder = nil
+        #if os(iOS)
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
     }
 }

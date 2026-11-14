@@ -67,7 +67,7 @@ private final class LiveSpeech: NSObject, AVSpeechSynthesizerDelegate {
     /// listening while a reply plays, so the user can talk over it. Without
     /// it (the Mac) the mic would hear the reply itself and cut it off, so
     /// recognition pauses while speaking and resumes after: turn-taking.
-    #if targetEnvironment(macCatalyst)
+    #if os(macOS) || targetEnvironment(macCatalyst)
     private let echoCancelled = false
     #else
     private let echoCancelled = true
@@ -128,18 +128,20 @@ private final class LiveSpeech: NSObject, AVSpeechSynthesizerDelegate {
         // In order after any queued playback-session change. Synchronous:
         // the engine below needs the session, and starting drive mode is a
         // deliberate tap where a brief wait is fine.
+        #if os(iOS)
         try Self.sessionQueue.sync {
             let session = AVAudioSession.sharedInstance()
-            #if targetEnvironment(macCatalyst)
+            #if os(macOS) || targetEnvironment(macCatalyst)
             try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
             #else
             try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker, .duckOthers])
             #endif
             try session.setActive(true, options: .notifyOthersOnDeactivation)
         }
+        #endif
 
         let input = audio.inputNode
-        #if !targetEnvironment(macCatalyst)
+        #if !os(macOS) && !targetEnvironment(macCatalyst)
         // Echo cancellation lets the user talk over a spoken reply. On the
         // Mac it changes the input format under the engine, and a tap that
         // no longer matches the hardware raises an Objective-C exception
@@ -328,9 +330,11 @@ private final class LiveSpeech: NSObject, AVSpeechSynthesizerDelegate {
         }
         outputActive = true
         Self.sessionQueue.async {
+            #if os(iOS)
             let session = AVAudioSession.sharedInstance()
             try? session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
             try? session.setActive(true)
+            #endif
             Task { @MainActor in ready() }
         }
     }
@@ -350,7 +354,9 @@ private final class LiveSpeech: NSObject, AVSpeechSynthesizerDelegate {
         guard outputActive, !isSpeaking, !audio.isRunning else { return }
         outputActive = false
         Self.sessionQueue.async {
+            #if os(iOS)
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            #endif
         }
     }
 

@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.kyleparisi
   deploymentTarget:
     iOS: "17.0"
+    macOS: "14.0"
   createIntermediateGroups: true
 settings:
   base:
@@ -52,6 +53,45 @@ targets:
       configs:
         Debug:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG CONTROL_SERVER
+  GanclawMac:
+    # The native macOS app. It shares the iOS app's model, networking and
+    # platform layers and its message views; GanclawMac/ holds the Mac
+    # window (sidebar + thread), composer, attach sheet and Settings.
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Ganclaw/Model
+      - path: Ganclaw/Net
+      - path: Ganclaw/Platform
+        excludes:
+          - ComposerTextView.swift # UIKit; the Mac composer is GanclawMac/MacComposerField.swift
+      - path: Ganclaw/Control/ControlRegistry.swift
+      - path: Ganclaw/Views
+        excludes:
+          - RootView.swift
+          - AttachSheet.swift
+          - ThreadView.swift
+      - path: Ganclaw/Assets.xcassets
+      - path: GanclawMac
+    preBuildScripts:
+      - name: Generate capability declarations
+        script: |
+          GENCAP_BIN="$DERIVED_FILE_DIR/gencap" "$SRCROOT/tools/gencap/run.sh" "$SRCROOT"
+        basedOnDependencyAnalysis: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kyleparisi.ganclaw.mac
+        PRODUCT_NAME: Ganclaw
+        INFOPLIST_FILE: GanclawMac/Info.plist
+        # Same generated entitlements as the Catalyst build: under the
+        # hardened runtime the mic needs audio-input.
+        CODE_SIGN_ENTITLEMENTS: Ganclaw/Generated/Ganclaw-mac.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_STRICT_CONCURRENCY: minimal
+        CODE_SIGN_IDENTITY: "-"
   GanclawTests:
     type: bundle.unit-test
     platform: iOS
@@ -74,3 +114,7 @@ schemes:
     test:
       targets:
         - GanclawTests
+  GanclawMac:
+    build:
+      targets:
+        GanclawMac: all

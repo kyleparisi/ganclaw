@@ -12,6 +12,8 @@ enum Route: Codable, Hashable {
     case voiceSettings
     case jobs
     case job(String)
+    /// The Mac sidebar's Open items page (iOS shows them as an inbox filter).
+    case openItems
 }
 
 enum InboxFilter: String, Codable, CaseIterable, Identifiable {
@@ -132,6 +134,7 @@ struct AppState: Codable, Equatable {
         case .voiceSettings: return "settings:voice"
         case .jobs: return "jobs"
         case .job(let j): return "job:\(j)"
+        case .openItems: return "open-items"
         case nil: return "inbox"
         }
     }

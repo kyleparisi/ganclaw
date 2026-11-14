@@ -23,7 +23,9 @@ if args == ["--entitlements"] {
 }
 guard let dir = args.first else { fail("usage: gencap <ios-dir> [--check] | --entitlements") }
 let check = args.dropFirst().contains("--check")
-let infoURL = URL(fileURLWithPath: dir).appendingPathComponent("Ganclaw/Info.plist")
+// The iOS/Catalyst app's Info.plist and the native Mac app's carry the
+// same usage strings.
+let infoURLs = ["Ganclaw/Info.plist", "GanclawMac/Info.plist"].map { URL(fileURLWithPath: dir).appendingPathComponent($0) }
 let entURL = URL(fileURLWithPath: dir).appendingPathComponent("Ganclaw/Generated/Ganclaw-mac.entitlements")
 
 func plistData(_ obj: Any) -> Data {
@@ -36,16 +38,18 @@ func plistData(_ obj: Any) -> Data {
 
 // Info.plist: every capability's usage string, and no usage string without
 // a capability (so a stale one can't hide a missing declaration).
-guard let infoData = try? Data(contentsOf: infoURL),
-      var info = try? PropertyListSerialization.propertyList(from: infoData, format: nil) as? [String: Any]
-else { fail("can't read \(infoURL.path)") }
-for key in info.keys where key.hasPrefix("NS") && key.hasSuffix("UsageDescription") {
-    info[key] = nil
+func updatedInfo(_ url: URL) -> Data {
+    guard let data = try? Data(contentsOf: url),
+          var info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+    else { fail("can't read \(url.path)") }
+    for key in info.keys where key.hasPrefix("NS") && key.hasSuffix("UsageDescription") {
+        info[key] = nil
+    }
+    for c in Capability.allCases where !c.usageKey.isEmpty {
+        info[c.usageKey] = c.usageDescription
+    }
+    return plistData(info)
 }
-for c in Capability.allCases where !c.usageKey.isEmpty {
-    info[c.usageKey] = c.usageDescription
-}
-let newInfo = plistData(info)
 
 // Mac entitlements: exactly the manifest's.
 var ent: [String: Any] = [:]
@@ -65,7 +69,7 @@ func same(_ url: URL, _ data: Data) -> Bool {
 }
 
 var stale: [String] = []
-for (url, data) in [(infoURL, newInfo), (entURL, newEnt), (iosEntURL, newIOSEnt)] {
+for (url, data) in infoURLs.map({ ($0, updatedInfo($0)) }) + [(entURL, newEnt), (iosEntURL, newIOSEnt)] {
     if same(url, data) { continue }
     if check {
         stale.append(url.lastPathComponent)

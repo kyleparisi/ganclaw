@@ -20,6 +20,33 @@ Screenshots of every tested screen land in `apps/ios/test/artifacts/`
 (CI uploads them as the `ios-artifacts` artifact). Look at them when you
 change UI.
 
+## Native Mac app (`GanclawMac` target)
+
+A separate macOS target in the same `project.yml` (the Catalyst build of the
+iOS app still exists). It compiles `Ganclaw/Model`, `Net`, `Platform`
+(minus the UIKit composer) and the shared views (`MessageRow`,
+`MessageContent`, `FileView`, `JobViews`, `InboxView`'s rows, `DriveView`,
+`VoiceSettingsView`, `Overlays`), plus `GanclawMac/`: a `NavigationSplitView`
+window (agents sidebar + thread), an NSTextView composer (Return sends,
+⇧Return adds a line, pasted images attach), a drag-and-drop attach sheet,
+a Settings window and an Agent menu (⌘1–9, ⇧⌘D drive, ⌘. stop).
+
+```bash
+xcodebuild -project apps/ios/Ganclaw.xcodeproj -scheme GanclawMac -destination 'platform=macOS' build
+```
+
+On the Mac a sidebar selection *replaces* `state.path` (`AppStore.select`)
+instead of pushing, so `path.last` is still the open page and read
+tracking works unchanged. Shared views must build for both: use
+`#if os(iOS)` / `canImport(UIKit)` and the helpers in
+`Views/PlatformModifiers.swift` (`hidesNavigationBar()`,
+`inlineNavigationBar()`) rather than navigation-bar APIs, and
+`PlatformImage` instead of `UIImage`. `tools/gencap` writes usage strings
+into both `Ganclaw/Info.plist` and `GanclawMac/Info.plist`. The native app
+uses the same Keychain item as the iOS/Catalyst app, so on a Mac that
+already ran the Catalyst build it starts paired. It has no control server
+yet.
+
 ## Control server (Debug builds only)
 
 Like bufflehead's, the app embeds an HTTP control server for tests,
