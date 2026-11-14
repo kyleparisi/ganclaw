@@ -34,7 +34,7 @@ struct GanclawApp: App {
                 .onAppear { MacWindow.configure() }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active, store.state.connection != .unpaired {
-                        Task { await store.syncNotifications(); await store.refresh() }
+                        Task { await store.syncNotifications() }; Task { await store.refresh() }
                     }
                 }
         }

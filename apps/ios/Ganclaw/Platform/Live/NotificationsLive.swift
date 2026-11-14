@@ -70,6 +70,12 @@ extension NotificationClient {
             guard status == .authorized || status == .provisional else { return false }
             UIApplication.shared.registerForRemoteNotifications()
             return true
+        }, isDenied: {
+            await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
+        }, openSystemSettings: {
+            if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
         }, observe: { token, opened, failed in
             NotificationDelegate.tokenReceived = token
             NotificationDelegate.opened = opened

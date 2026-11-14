@@ -130,6 +130,10 @@ struct NotificationClient {
     var setBadge: (Int) async -> Void = { _ in }
     var enable: () async throws -> Void
     var registerIfAuthorized: () async -> Bool
+    /// True when the user turned alerts off for Ganclaw (system prompt or Settings).
+    var isDenied: () async -> Bool = { false }
+    /// Opens Ganclaw's page in system Settings.
+    var openSystemSettings: () -> Void = {}
     var observe: (@escaping @MainActor (String) -> Void, @escaping @MainActor (String) -> Void, @escaping @MainActor (String) -> Void) -> Void
     static var inert: NotificationClient {
         NotificationClient(enable: {}, registerIfAuthorized: { false }, observe: { _, _, _ in })

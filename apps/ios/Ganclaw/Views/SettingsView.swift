@@ -16,13 +16,7 @@ struct SettingsView: View {
                 }
             } header: { Text("Audio") }
             #if !targetEnvironment(macCatalyst)
-            Section {
-                CButton("settings.notifications") { Task { await store.enableNotifications() } } label: {
-                    Label("Enable notifications", systemImage: "bell")
-                }
-            } header: { Text("Notifications") } footer: {
-                Text("Get agent replies and task results while Ganclaw is in the background. Change alerts in system Settings.")
-            }
+            NotificationsSection()
             #endif
             Section {
                 if let name = store.state.deviceName { LabeledContent("Device", value: name) }
@@ -100,6 +94,79 @@ struct VoiceSettingsView: View {
                 if preferences.voiceID == id { Image(systemName: "checkmark").foregroundStyle(Theme.blue) }
             }
             .contentShape(Rectangle())
+        }
+    }
+}
+
+/// Push status for this phone, with the one action that makes sense from
+/// each state. "On" means the server has the token, not just iOS permission.
+struct NotificationsSection: View {
+    @Environment(AppStore.self) private var store
+
+    var body: some View {
+        #if os(iOS) && !targetEnvironment(macCatalyst)
+        let status = store.state.notifications
+        Section {
+            switch status {
+            case .on:
+                HStack {
+                    Label("Notifications are on", systemImage: "bell.badge.fill")
+                        .foregroundStyle(Theme.ink)
+                    Spacer()
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.teal)
+                }
+                .control("settings.notifications.status", label: "on")
+                systemSettingsButton("Alert style and sounds")
+            case .enabling:
+                HStack {
+                    Label("Turning on notifications…", systemImage: "bell")
+                        .foregroundStyle(Theme.muted)
+                    Spacer()
+                    ProgressView()
+                }
+                .control("settings.notifications.status", label: "enabling")
+            case .denied:
+                Label("Notifications are blocked", systemImage: "bell.slash")
+                    .foregroundStyle(Theme.ink)
+                    .control("settings.notifications.status", label: "denied")
+                systemSettingsButton("Allow in Settings")
+            case .failed:
+                Label(store.state.notificationError ?? "Couldn't turn on notifications.", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(Theme.red)
+                    .control("settings.notifications.status", label: "failed")
+                enableButton("Try again")
+            case .off, .unknown:
+                enableButton("Turn on notifications")
+            }
+        } header: { Text("Notifications") } footer: {
+            Text(footer(status))
+        }
+        #else
+        EmptyView()
+        #endif
+    }
+
+    private func footer(_ status: NotificationStatus) -> String {
+        switch status {
+        case .on: "Agent replies and failed jobs alert this phone while Ganclaw is in the background."
+        case .denied: "iOS is blocking alerts from Ganclaw. Turn on Allow Notifications in Settings, then come back."
+        default: "Get agent replies and failed jobs while Ganclaw is in the background."
+        }
+    }
+
+    private func enableButton(_ title: String) -> some View {
+        CButton("settings.notifications") { Task { await store.enableNotifications() } } label: {
+            Label(title, systemImage: "bell")
+        }
+    }
+
+    private func systemSettingsButton(_ title: String) -> some View {
+        CButton("settings.notifications.system") { store.openNotificationSettings() } label: {
+            HStack {
+                Text(title)
+                Spacer()
+                Image(systemName: "arrow.up.forward.app").foregroundStyle(Theme.muted)
+            }
         }
     }
 }
