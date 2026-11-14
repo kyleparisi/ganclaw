@@ -7,7 +7,6 @@ struct ThreadView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var unreadBoundary: Int64?
     @State private var capturedBoundary = false
-    @State private var atBottom = false
     @State private var nearBottom = false
     @State private var recorder = VoiceRecorder()
     @State private var composerFocused = false
@@ -31,11 +30,11 @@ struct ThreadView: View {
             }
             if !t.loaded { await store.loadThread(agent) }
         }
-        // The thread is read once its bottom has stayed on screen for 1
-        // second. Leaving the bottom, backgrounding the app, or a new or
+        // The thread is read after staying within the 48-point bottom buffer
+        // for 1 second. Leaving the buffer, backgrounding the app, or a new or
         // finished message restarts the wait.
-        .task(id: "\(atBottom)-\(scenePhase)-\(t.messages.last?.id ?? 0)-\(t.messages.last?.status.rawValue ?? "")") {
-            guard atBottom, scenePhase == .active, let last = t.messages.last else { return }
+        .task(id: "\(nearBottom)-\(scenePhase)-\(t.messages.last?.id ?? 0)-\(t.messages.last?.status.rawValue ?? "")") {
+            guard nearBottom, scenePhase == .active, let last = t.messages.last else { return }
             do { try await Task.sleep(for: .seconds(1)) } catch { return }
             await store.markRead(agent, through: last.id)
         }
@@ -145,14 +144,10 @@ struct ThreadView: View {
                         Color.clear.frame(height: 4).id("bottom")
                             .background(GeometryReader { geometry in
                                 let frame = geometry.frame(in: .named("thread-scroll"))
-                                // A point of slack: at rest the marker's edge sits exactly on the
-                                // viewport's, and rounding can put it a fraction outside.
-                                Color.clear.preference(key: ThreadBottomVisible.self,
-                                    value: frame.minY >= -1 && frame.maxY <= viewport.size.height + 1)
-                                    // Hide the jump control and keep following new content within
-                                    // 48 points of the bottom. Read visibility still requires the actual bottom.
-                                    .preference(key: ThreadNearBottom.self,
-                                        value: frame.minY >= -48 && frame.maxY <= viewport.size.height + 48)
+                                // Share the 48-point buffer for read visibility, the jump
+                                // control, and following new content.
+                                Color.clear.preference(key: ThreadNearBottom.self,
+                                    value: frame.minY >= -48 && frame.maxY <= viewport.size.height + 48)
                             })
                     }
                     .padding(.horizontal, 14)
@@ -161,7 +156,6 @@ struct ThreadView: View {
                 .scrollDismissesKeyboard(.interactively)
                 .defaultScrollAnchor(.bottom)
                 .coordinateSpace(name: "thread-scroll")
-                .onPreferenceChange(ThreadBottomVisible.self) { atBottom = $0 }
                 .onPreferenceChange(ThreadNearBottom.self) { nearBottom = $0 }
                 .onAppear { scrollToEntry(proxy, t) }
                 .onChange(of: t.loaded) { _, _ in scrollToEntry(proxy, t) }
@@ -340,11 +334,6 @@ struct ThreadView: View {
             }
         }
     }
-}
-
-private struct ThreadBottomVisible: PreferenceKey {
-    static var defaultValue = false
-    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
 }
 
 private struct ThreadNearBottom: PreferenceKey {
