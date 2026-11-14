@@ -9,6 +9,14 @@
 # Accounts. The team comes from $DEVELOPMENT_TEAM, else from
 # DEVELOPMENT_TEAM in apps/ios/Local.xcconfig (git-ignored).
 #
+# Without an Xcode account (CI, .github/workflows/testflight.yml), sign in
+# with an App Store Connect API key instead, and sign the archive with a
+# distribution certificate already in the keychain:
+#
+#   ASC_KEY_PATH=AuthKey_XXXX.p8 ASC_KEY_ID=XXXX ASC_ISSUER_ID=<uuid>
+#   GANCLAW_SIGN_IDENTITY="Apple Distribution"
+#   BUILD_NUMBER=<n>    # optional; defaults to the timestamp below
+#
 # The build number is a UTC timestamp, so every upload is unique. Push is
 # still opt-in through Local.xcconfig; when it is on, the archive uses the
 # production APNs environment, which TestFlight needs.
@@ -32,7 +40,20 @@ if [ -z "$TEAM" ]; then
   exit 1
 fi
 
-BUILD_NUMBER="$(date -u +%Y%m%d%H%M)"
+AUTH=()
+if [ -n "${ASC_KEY_PATH:-}" ]; then
+  : "${ASC_KEY_ID:?ASC_KEY_ID must be set with ASC_KEY_PATH}"
+  : "${ASC_ISSUER_ID:?ASC_ISSUER_ID must be set with ASC_KEY_PATH}"
+  AUTH=(-authenticationKeyPath "$ASC_KEY_PATH"
+        -authenticationKeyID "$ASC_KEY_ID"
+        -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+fi
+SIGN=()
+if [ -n "${GANCLAW_SIGN_IDENTITY:-}" ]; then
+  SIGN=(CODE_SIGN_IDENTITY="$GANCLAW_SIGN_IDENTITY")
+fi
+
+BUILD_NUMBER="${BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
 ARCHIVE="$BUILD/Ganclaw.xcarchive"
 EXPORT="$BUILD/export"
 mkdir -p "$BUILD"
@@ -44,8 +65,9 @@ echo "==> project"
 echo "==> archive (team $TEAM, build $BUILD_NUMBER)"
 xcodebuild -project "$IOS/Ganclaw.xcodeproj" -scheme Ganclaw \
   -configuration Release -destination 'generic/platform=iOS' \
-  -archivePath "$ARCHIVE" -allowProvisioningUpdates \
+  -archivePath "$ARCHIVE" -allowProvisioningUpdates ${AUTH[@]+"${AUTH[@]}"} \
   DEVELOPMENT_TEAM="$TEAM" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+  ${SIGN[@]+"${SIGN[@]}"} \
   APNS_ENVIRONMENT=production \
   archive
 
@@ -66,7 +88,7 @@ EOF
 echo "==> $DESTINATION"
 xcodebuild -exportArchive -archivePath "$ARCHIVE" \
   -exportOptionsPlist "$BUILD/ExportOptions.plist" \
-  -exportPath "$EXPORT" -allowProvisioningUpdates
+  -exportPath "$EXPORT" -allowProvisioningUpdates ${AUTH[@]+"${AUTH[@]}"}
 
 if [ "$DESTINATION" = upload ]; then
   echo "Uploaded build $BUILD_NUMBER. It shows up in App Store Connect → TestFlight once processing finishes."
