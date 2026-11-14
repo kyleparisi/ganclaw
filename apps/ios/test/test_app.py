@@ -425,9 +425,10 @@ def test_unread_badge_and_last_read_divider(paired, fake):
     app.tap("thread.back")
 
 
-def test_focusing_or_scrolling_a_thread_marks_it_read(paired, fake):
-    """Opening a long thread at its divider leaves it unread; typing or
-    scrolling counts as reading it."""
+def test_focusing_or_resting_at_the_bottom_marks_a_thread_read(paired, fake):
+    """Opening a long thread at its divider leaves it unread. Focusing the
+    message box reads it; scrolling only reads it once the bottom has stayed
+    on screen for 3 seconds."""
     app = paired
     agent = "mailbox"
     app.post("/navigate", {"route": "inbox"})
@@ -456,6 +457,16 @@ def test_focusing_or_scrolling_a_thread_marks_it_read(paired, fake):
 
     open_long_unread_thread("scroll")
     app.post("/scroll", {"id": "thread.messages", "to": "top"})
-    wait_for(lambda: unread() == 0, what="scrolling marks the thread read")
+    time.sleep(1.5)
+    assert unread() > 0, "scrolling away from the bottom doesn't mark read"
+
+    # Jump to latest lands at the bottom and hides itself.
+    wait_for(lambda: app.element("thread.latest"), what="jump to latest shown away from the bottom")
+    app.tap("thread.latest")
+    wait_for(lambda: not app.element("thread.latest"), what="jump to latest hidden at the bottom")
+    time.sleep(1.5)
+    assert unread() > 0, "a brief stop at the bottom doesn't mark read"
+    wait_for(lambda: unread() == 0, what="3 seconds at the bottom marks the thread read")
+    app.screenshot("unread-bottom-dwell")
     app.tap("thread.back")
     app.wait_screen("inbox")

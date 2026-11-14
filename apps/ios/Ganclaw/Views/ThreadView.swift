@@ -31,11 +31,12 @@ struct ThreadView: View {
             }
             if !t.loaded { await store.loadThread(agent) }
         }
-        // Re-run when the bottom comes into view, the app returns, or the
-        // newest message arrives or finishes streaming.
+        // The thread is read once its bottom has stayed on screen for 3
+        // seconds. Leaving the bottom, backgrounding the app, or a new or
+        // finished message restarts the wait.
         .task(id: "\(atBottom)-\(scenePhase)-\(t.messages.last?.id ?? 0)-\(t.messages.last?.status.rawValue ?? "")") {
             guard atBottom, scenePhase == .active, let last = t.messages.last else { return }
-            do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            do { try await Task.sleep(for: .seconds(3)) } catch { return }
             await store.markRead(agent, through: last.id)
         }
         // Starting to type counts as having read the conversation.
@@ -144,8 +145,10 @@ struct ThreadView: View {
                         Color.clear.frame(height: 4).id("bottom")
                             .background(GeometryReader { geometry in
                                 let frame = geometry.frame(in: .named("thread-scroll"))
+                                // A point of slack: at rest the marker's edge sits exactly on the
+                                // viewport's, and rounding can put it a fraction outside.
                                 Color.clear.preference(key: ThreadBottomVisible.self,
-                                    value: frame.minY >= 0 && frame.maxY <= viewport.size.height)
+                                    value: frame.minY >= -1 && frame.maxY <= viewport.size.height + 1)
                                     // Hide the jump control and keep following new content within
                                     // 48 points of the bottom. Read visibility still requires the actual bottom.
                                     .preference(key: ThreadNearBottom.self,
@@ -160,8 +163,6 @@ struct ThreadView: View {
                 .coordinateSpace(name: "thread-scroll")
                 .onPreferenceChange(ThreadBottomVisible.self) { atBottom = $0 }
                 .onPreferenceChange(ThreadNearBottom.self) { nearBottom = $0 }
-                // Scrolling the conversation counts as reading it.
-                .simultaneousGesture(DragGesture(minimumDistance: 12).onEnded { _ in markLatestRead(t) })
                 .onAppear { scrollToEntry(proxy, t) }
                 .onChange(of: t.loaded) { _, _ in scrollToEntry(proxy, t) }
                 .onChange(of: capturedBoundary) { _, _ in scrollToEntry(proxy, t) }
@@ -169,11 +170,17 @@ struct ThreadView: View {
                 .onChange(of: t.streaming) { _, _ in if nearBottom { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .overlay(alignment: .bottom) {
                     if !nearBottom && t.loaded && !t.messages.isEmpty {
-                        CButton("thread.latest", title: "Jump to latest") {
+                        // Padding, background and hit shape go inside the button so the
+                        // whole pill is tappable, not only the text.
+                        CButton("thread.latest") {
                             withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                        } label: {
+                            Text("Jump to latest")
+                                .font(.system(size: 13, weight: .semibold))
+                                .padding(.horizontal, 14).padding(.vertical, 10)
+                                .background(Theme.card, in: Capsule())
+                                .contentShape(Capsule())
                         }
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(10).background(Theme.card, in: Capsule())
                         .padding(.bottom, 8)
                     }
                 }
@@ -182,7 +189,6 @@ struct ThreadView: View {
                     case .top: if let first = t.messages.first { proxy.scrollTo(first.id, anchor: .top) }
                     case .bottom: proxy.scrollTo("bottom", anchor: .bottom)
                     }
-                    markLatestRead(t) // what the drag gesture does
                 })
             }
         }
