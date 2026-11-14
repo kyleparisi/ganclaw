@@ -31,12 +31,12 @@ struct ThreadView: View {
             }
             if !t.loaded { await store.loadThread(agent) }
         }
-        // The thread is read once its bottom has stayed on screen for 3
-        // seconds. Leaving the bottom, backgrounding the app, or a new or
+        // The thread is read once its bottom has stayed on screen for 1
+        // second. Leaving the bottom, backgrounding the app, or a new or
         // finished message restarts the wait.
         .task(id: "\(atBottom)-\(scenePhase)-\(t.messages.last?.id ?? 0)-\(t.messages.last?.status.rawValue ?? "")") {
             guard atBottom, scenePhase == .active, let last = t.messages.last else { return }
-            do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
             await store.markRead(agent, through: last.id)
         }
         // Starting to type counts as having read the conversation.
