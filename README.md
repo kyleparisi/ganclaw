@@ -25,6 +25,8 @@ every agent. Idle, it uses about 20 MB.
   plus a WebSocket for live replies, one thread per agent, attachments,
   reply buttons for approvals (`BUTTONS: Approve | Not now`), scheduled-job
   runs and a hands-free drive mode. Phones pair with a one-time code.
+  A native macOS app (the `GanclawMac` target) shares its model and
+  networking, with a sidebar-and-thread window.
 - **Commands:** `/new` (or `/reset`) to clear the conversation, `/stop`, `/status`, `/help`, shown in Telegram's
   command menu.
 - **Conversations** persist per chat (the CLIs keep the history; ganclaw maps

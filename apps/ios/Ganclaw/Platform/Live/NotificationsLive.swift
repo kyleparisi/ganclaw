@@ -1,6 +1,11 @@
-import UIKit
 import UserNotifications
+#if canImport(UIKit)
+import UIKit
+#else
+import AppKit
+#endif
 
+#if canImport(UIKit)
 /// Kept for the app lifetime; Apple holds its notification delegate weakly.
 @MainActor
 final class NotificationDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -39,9 +44,17 @@ final class NotificationDelegate: NSObject, UIApplicationDelegate, UNUserNotific
     }
 }
 
+#endif
+
 extension NotificationClient {
     static func live(check: CapabilityCheck) -> NotificationClient {
-        #if targetEnvironment(macCatalyst)
+        #if os(macOS)
+        // The native Mac app keeps its WebSocket open while it runs; unread
+        // replies show as the Dock badge. No push registration.
+        return NotificationClient(setBadge: { count in
+            NSApp?.dockTile.badgeLabel = count > 0 ? String(count) : nil
+        }, enable: {}, registerIfAuthorized: { false }, observe: { _, _, _ in })
+        #elseif targetEnvironment(macCatalyst)
         return .inert
         #else
         return NotificationClient(setBadge: { count in

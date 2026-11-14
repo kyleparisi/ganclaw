@@ -1,4 +1,22 @@
+#if canImport(UIKit)
 import UIKit
+/// The platform's image type, for views that show downloaded images.
+typealias PlatformImage = UIImage
+#else
+import AppKit
+typealias PlatformImage = NSImage
+#endif
+import SwiftUI
+
+extension Image {
+    init(platformImage: PlatformImage) {
+        #if canImport(UIKit)
+        self.init(uiImage: platformImage)
+        #else
+        self.init(nsImage: platformImage)
+        #endif
+    }
+}
 
 /// An image read from the clipboard, ready to upload.
 ///
@@ -16,6 +34,7 @@ struct PastedImage: Equatable {
 
     static let jpegQuality: CGFloat = 0.85
 
+    #if canImport(UIKit)
     static func make(png: Data?, image: UIImage?) -> PastedImage? {
         if let png, !png.isEmpty {
             return PastedImage(data: png, mime: "image/png", name: "pasted.png")
@@ -48,4 +67,23 @@ struct PastedImage: Equatable {
         default: return false
         }
     }
+    #else
+    /// The Mac clipboard has no EXIF orientation to apply: images are
+    /// re-encoded from their bitmap as-is.
+    static func make(png: Data?, image: NSImage?) -> PastedImage? {
+        if let png, !png.isEmpty {
+            return PastedImage(data: png, mime: "image/png", name: "pasted.png")
+        }
+        guard let image, let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let rep = NSBitmapImageRep(cgImage: cg)
+        switch cg.alphaInfo {
+        case .first, .last, .premultipliedFirst, .premultipliedLast:
+            guard let data = rep.representation(using: .png, properties: [:]) else { return nil }
+            return PastedImage(data: data, mime: "image/png", name: "pasted.png")
+        default:
+            guard let data = rep.representation(using: .jpeg, properties: [.compressionFactor: jpegQuality]) else { return nil }
+            return PastedImage(data: data, mime: "image/jpeg", name: "pasted.jpg")
+        }
+    }
+    #endif
 }

@@ -1,5 +1,4 @@
 import Foundation
-import UIKit
 
 // The app's only door to the device. Like the clients in investor-be's
 // server (SNSClient, SendGridClient): each client is a struct of closures,

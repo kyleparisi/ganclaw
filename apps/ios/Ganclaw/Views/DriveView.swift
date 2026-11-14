@@ -22,6 +22,9 @@ struct DriveView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .preferredColorScheme(.dark)
+                #if os(macOS)
+                .frame(minWidth: 420, minHeight: 420)
+                #endif
         }
     }
 
@@ -199,7 +202,7 @@ struct DriveView: View {
     private func subtitle(_ d: DriveState) -> String {
         if d.muted { return "Mic paused · tap Resume to talk" }
         guard d.phase == .speaking else { return "Always listening · just talk" }
-        #if targetEnvironment(macCatalyst)
+        #if os(macOS) || targetEnvironment(macCatalyst)
         // No echo cancellation on the Mac: the mic would hear the reply, so
         // it waits for the agent to finish.
         return "Your turn when it's done"
@@ -235,9 +238,9 @@ struct DriveTranscriptView: View {
             }
             .background(Theme.Drive.ground)
             .navigationTitle("Conversation")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationBar()
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     CButton("drive.transcript.done", title: "Done") { store.send(.driveTranscript(false)) }
                         .frame(minWidth: 44, minHeight: 44)
                 }

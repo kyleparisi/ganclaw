@@ -36,8 +36,7 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.ground)
         .navigationTitle("Settings")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
+        .inlineNavigationBar()
     }
 }
 
@@ -81,8 +80,7 @@ struct VoiceSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.ground)
         .navigationTitle("Voice")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
+        .inlineNavigationBar()
         .onAppear { voices = store.platform.speech.voices() }
         // Voices are downloaded in the Settings app: pick up new ones on return.
         .onChange(of: scenePhase) { _, phase in

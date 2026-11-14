@@ -8,7 +8,7 @@ struct FileView: View {
     var file: AppFile
     var onUser: Bool
     @Environment(AppStore.self) private var store
-    @State private var image: UIImage?
+    @State private var image: PlatformImage?
     @State private var preview: URL?
     @State private var loading = false
 
@@ -25,7 +25,7 @@ struct FileView: View {
         if file.isImage {
             ZStack(alignment: .bottomTrailing) {
                 if let image {
-                    Image(uiImage: image).resizable().scaledToFill()
+                    Image(platformImage: image).resizable().scaledToFill()
                 } else {
                     Theme.segment
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -62,7 +62,7 @@ struct FileView: View {
 
     private func loadImage() async {
         if let cached = FileCache.shared.image(file.id) { image = cached; return }
-        guard let api = store.api, let data = try? await api.download(file), let img = UIImage(data: data) else { return }
+        guard let api = store.api, let data = try? await api.download(file), let img = PlatformImage(data: data) else { return }
         FileCache.shared.store(img, file.id)
         image = img
     }
@@ -87,9 +87,9 @@ struct FileView: View {
 
 final class FileCache {
     static let shared = FileCache()
-    private let cache = NSCache<NSString, UIImage>()
-    func image(_ id: String) -> UIImage? { cache.object(forKey: id as NSString) }
-    func store(_ img: UIImage, _ id: String) { cache.setObject(img, forKey: id as NSString) }
+    private let cache = NSCache<NSString, PlatformImage>()
+    func image(_ id: String) -> PlatformImage? { cache.object(forKey: id as NSString) }
+    func store(_ img: PlatformImage, _ id: String) { cache.setObject(img, forKey: id as NSString) }
 }
 
 /// Recording state for the composer's mic button. The audio itself goes
