@@ -428,7 +428,7 @@ def test_unread_badge_and_last_read_divider(paired, fake):
 def test_focusing_or_resting_at_the_bottom_marks_a_thread_read(paired, fake):
     """Opening a long thread at its divider leaves it unread. Focusing the
     message box reads it; scrolling only reads it once the bottom has stayed
-    on screen for 3 seconds."""
+    within the bottom buffer for 1 second."""
     app = paired
     agent = "mailbox"
     app.post("/navigate", {"route": "inbox"})
@@ -464,9 +464,9 @@ def test_focusing_or_resting_at_the_bottom_marks_a_thread_read(paired, fake):
     wait_for(lambda: app.element("thread.latest"), what="jump to latest shown away from the bottom")
     app.tap("thread.latest")
     wait_for(lambda: not app.element("thread.latest"), what="jump to latest hidden at the bottom")
-    time.sleep(1.5)
+    time.sleep(0.5)
     assert unread() > 0, "a brief stop at the bottom doesn't mark read"
-    wait_for(lambda: unread() == 0, what="3 seconds at the bottom marks the thread read")
+    wait_for(lambda: unread() == 0, what="1 second at the bottom marks the thread read")
     app.screenshot("unread-bottom-dwell")
     app.tap("thread.back")
     app.wait_screen("inbox")

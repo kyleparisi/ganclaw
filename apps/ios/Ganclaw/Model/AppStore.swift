@@ -161,7 +161,11 @@ final class AppStore {
             // Keep showing "on" while the refreshed token is sent.
             if state.notifications != .on { send(.notifications(.enabling)) }
         } else {
-            send(.notifications(await platform.notifications.isDenied() ? .denied : .off))
+            let denied = await platform.notifications.isDenied()
+            // An enable in progress (prompt up, token on its way) isn't "off":
+            // don't overwrite it, or remove the token it's about to register.
+            if !denied && state.notifications == .enabling { return }
+            send(.notifications(denied ? .denied : .off))
             try? await client.removePush()
         }
     }
