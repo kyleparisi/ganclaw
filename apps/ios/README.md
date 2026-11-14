@@ -97,6 +97,28 @@ APNs environment when push is turned on ([docs/notifications.md](docs/notificati
 Info.plist declares `ITSAppUsesNonExemptEncryption = NO` (the app only
 uses standard HTTPS), so uploads skip the export-compliance question.
 
+#### TestFlight from GitHub Actions
+
+`.github/workflows/testflight.yml` runs the same script with `--upload`
+after the iOS workflow passes on `main` (so only when the app changed), and
+on demand from Actions → TestFlight → Run workflow. It signs in with an App
+Store Connect API key instead of an Xcode account, and signs with a
+distribution certificate from secrets. Add these as secrets of the
+`testflight` environment (Settings → Environments) or of the repository:
+
+| Secret | What |
+| --- | --- |
+| `APPLE_TEAM_ID` | Your 10-character team ID |
+| `ASC_KEY_ID` | Key ID of an App Store Connect API key (Users and Access → Integrations → Team Keys, role **Admin** so it can manage profiles) |
+| `ASC_ISSUER_ID` | Issuer ID shown on the same page |
+| `ASC_KEY_P8` | Contents of the downloaded `AuthKey_<id>.p8` |
+| `IOS_DIST_CERT_P12` | An **Apple Distribution** certificate with its private key, exported from Keychain Access as .p12, then `base64 -i cert.p12 \| pbcopy` |
+| `IOS_DIST_CERT_PASSWORD` | The password you gave the .p12 |
+
+Set the repository variable `IOS_PUSH` to `true` to build with the push
+entitlement (production APNs). Provisioning profiles are created and
+refreshed by Xcode through the API key, so none are stored.
+
 ### Voice settings
 
 Open the gear on the inbox, then **Settings → Voice**. Tapping a voice
