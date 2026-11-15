@@ -21,8 +21,12 @@ server:  127.0.0.1:9223  ← firewalled to the ganclaw service user
 
 It creates a separate Chrome profile (Chrome refuses remote debugging on your
 everyday profile), an SSH key used only for the tunnel, and two launchd
-agents that restart Chrome and the tunnel automatically. Log in to the sites
-your agents need in the Chrome window it opens.
+agents that restart Chrome and the tunnel automatically. It prints an
+`authorized_keys` line for the server (below) and waits for you to add it
+before starting the tunnel. Log in to the sites your agents need in the
+Chrome window it opens.
+
+Rerunning the script keeps the profile, key and ports from the last run.
 
 ## Server
 
@@ -58,12 +62,10 @@ Pass a third argument to forward the Mac's SSH service alongside Chrome:
 ./setup-agent-chrome.sh ganclaw-user@your-server 9223 2223
 ```
 
-This keeps the existing Chrome profile and tunnel key. Replace the old key's
-`authorized_keys` entry on the server with the newly printed entry: it permits
-both loopback listeners. Do this before rerunning the setup script when updating
-an existing installation so the second forward is authorized. The script's key
-and ports are unchanged, so the entry can be prepared by adding
-`permitlisten="127.0.0.1:2223"` to the existing entry.
+When it pauses, replace the earlier `ganclaw-chrome-tunnel` line in the
+server's `authorized_keys` with the one it prints, which also permits the SSH
+port. Later reruns keep the SSH forward; pass `none` as the third argument to
+remove it.
 
 On the Mac, enable **System Settings > General > Sharing > Remote Login** and
 allow only the intended Mac user. The tunnel key only authenticates the Mac to
@@ -72,8 +74,9 @@ Generate that key as the ganclaw service user on the server, and install its
 public key in the Mac user's `~/.ssh/authorized_keys`. Keep host key checking
 enabled and verify the Mac host key fingerprint during the initial connection.
 
-Restrict server loopback port 2223 to the service user using the same firewall
-rule as the Chrome port, replacing 9223 with 2223. Then, as that user:
+Port 2223 exposes the Mac's SSH login to everyone on the server, so restrict
+it to the service user with the same firewall rule as the Chrome port,
+replacing 9223 with 2223. Then, as that user:
 
 ```sh
 ssh -i /path/to/mac_access_key -p 2223 mac-user@127.0.0.1 'sw_vers'
@@ -83,7 +86,10 @@ scp -i /path/to/mac_access_key -P 2223 ./input.txt mac-user@127.0.0.1:~/input.tx
 Agents with shell execution can invoke SSH for commands, builds, and transfers;
 no additional MCP server is needed for those operations. Xcode, signing, and
 repository setup still happen on the Mac. Both Chrome and command access share
-one outbound tunnel connection, and both go offline if it disconnects. These
+one outbound tunnel connection, and both go offline if it disconnects or if
+the server refuses either port (for example because something else holds
+it); `~/Library/Logs/ganclaw/chrome-tunnel.log` then shows
+`remote port forwarding failed`. These
 launch agents run in the logged-in user's session; keep the Mac awake for
 unattended work.
 

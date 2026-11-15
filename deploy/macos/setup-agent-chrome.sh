@@ -6,22 +6,30 @@
 #     127.0.0.1:<remote_port> (default 9223)
 # Both run as launchd agents and restart automatically.
 #
-# Usage: ./setup-agent-chrome.sh user@ganclaw-server [remote_port] [remote_ssh_port]
-# Then add the printed authorized_keys line on the server, and log in to the
-# sites your agents need in the Chrome window that opens.
+# Usage: ./setup-agent-chrome.sh user@ganclaw-server [remote_port] [remote_ssh_port|none]
+# Ports given on an earlier run are remembered; pass "none" to drop the SSH
+# forward. The script prints an authorized_keys line for the server and starts
+# the tunnel once you have added it. Then log in to the sites your agents
+# need in the Chrome window that opens.
 set -euo pipefail
 
-SERVER="${1:?usage: $0 user@server [remote_port] [remote_ssh_port]}"
-REMOTE_PORT="${2:-9223}"
+SERVER="${1:?usage: $0 user@server [remote_port] [remote_ssh_port|none]}"
+STATE="$HOME/Library/Application Support/ganclaw"
+CONF="$STATE/tunnel.conf"
+REMOTE_PORT="" REMOTE_SSH_PORT=""
+# shellcheck source=/dev/null
+[ -f "$CONF" ] && . "$CONF"
+REMOTE_PORT="${2:-${REMOTE_PORT:-9223}}"
 # Optional: carry Mac Remote Login over the same SSH connection.
-REMOTE_SSH_PORT="${3:-}"
+REMOTE_SSH_PORT="${3:-$REMOTE_SSH_PORT}"
+[ "$REMOTE_SSH_PORT" = none ] && REMOTE_SSH_PORT=""
+
+valid_port() { [[ $1 =~ ^[1-9][0-9]{3,4}$ ]] && (( $1 <= 65535 )); }
+valid_port "$REMOTE_PORT" || { echo "remote_port must be between 1024 and 65535" >&2; exit 1; }
 SSH_FORWARD_XML=""
 SSH_PERMIT_LISTEN=""
 if [ -n "$REMOTE_SSH_PORT" ]; then
-  if ! [[ "$REMOTE_SSH_PORT" =~ ^[0-9]+$ ]] ||
-     [ "${#REMOTE_SSH_PORT}" -gt 5 ] ||
-     [ "$REMOTE_SSH_PORT" -lt 1024 ] || [ "$REMOTE_SSH_PORT" -gt 65535 ] ||
-     [ "$REMOTE_SSH_PORT" -eq "$REMOTE_PORT" ]; then
+  if ! valid_port "$REMOTE_SSH_PORT" || [ "$REMOTE_SSH_PORT" = "$REMOTE_PORT" ]; then
     echo "remote_ssh_port must be a distinct port between 1024 and 65535" >&2
     exit 1
   fi
@@ -35,8 +43,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 PROFILE="$HOME/Library/Application Support/ganclaw-agent-chrome"
 # launchd jobs may be denied access to ~/.ssh by macOS privacy controls
 # ("Load key ...: Operation not permitted"), so the tunnel's key and
-# known_hosts live under Application Support instead.
-STATE="$HOME/Library/Application Support/ganclaw"
+# known_hosts live under Application Support instead (STATE, above).
 KEY="$STATE/chrome_tunnel_key"
 KNOWN_HOSTS="$STATE/known_hosts"
 OLD_KEY="$HOME/.ssh/ganclaw_chrome_tunnel"
@@ -52,6 +59,7 @@ if [ ! -f "$KEY" ] && [ -f "$OLD_KEY" ]; then
 fi
 [ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N "" -C "ganclaw-chrome-tunnel" -f "$KEY"
 chmod 600 "$KEY"
+printf 'REMOTE_PORT=%s\nREMOTE_SSH_PORT=%s\n' "$REMOTE_PORT" "$REMOTE_SSH_PORT" > "$CONF"
 
 cat > "$AGENTS/dev.ganclaw.agent-chrome.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -118,8 +126,8 @@ if nc -z 127.0.0.1 "$LOCAL_PORT" 2>/dev/null || nc -z ::1 "$LOCAL_PORT" 2>/dev/n
   exit 1
 fi
 
-for label in dev.ganclaw.agent-chrome dev.ganclaw.chrome-tunnel; do
-  plist="$AGENTS/$label.plist"
+start_agent() {
+  local label=$1 plist="$AGENTS/$1.plist"
   plutil -lint -s "$plist"
   launchctl bootout "gui/$UID/$label" 2>/dev/null || true
   # bootout returns before the job (and e.g. Chrome) has fully exited;
@@ -129,31 +137,43 @@ for label in dev.ganclaw.agent-chrome dev.ganclaw.chrome-tunnel; do
     sleep 0.5
   done
   launchctl bootstrap "gui/$UID" "$plist"
-done
+}
+
+start_agent dev.ganclaw.agent-chrome
 
 cat <<EOF
 
-Agent Chrome and tunnel are installed (launchd: dev.ganclaw.agent-chrome,
-dev.ganclaw.chrome-tunnel; logs in $LOGS).
-
-1. On the server, append this line to the ssh user's ~/.ssh/authorized_keys.
-   It only allows the requested reverse ports: no shell.
+On the server, put this line in the ssh user's ~/.ssh/authorized_keys,
+replacing any earlier ganclaw-chrome-tunnel line. It allows only these
+reverse forwards, no shell:
 
 restrict,port-forwarding,permitlisten="127.0.0.1:$REMOTE_PORT"$SSH_PERMIT_LISTEN,command="/bin/false" $(cat "$KEY.pub")
 
-2. In the Chrome window that opened, log in to the sites your agents need.
+EOF
+# The tunnel exits if the server refuses any forward, so start it only once
+# the server accepts them all.
+if [ -t 0 ]; then read -r -p "Press Enter once the line is on the server... " _; fi
+start_agent dev.ganclaw.chrome-tunnel
+
+cat <<EOF
+
+Agent Chrome and tunnel are running (launchd: dev.ganclaw.agent-chrome,
+dev.ganclaw.chrome-tunnel; logs in $LOGS). In the Chrome window that
+opened, log in to the sites your agents need.
 EOF
 
 if [ -n "$REMOTE_SSH_PORT" ]; then
+  nc -z 127.0.0.1 22 2>/dev/null || echo "
+Warning: nothing listens on 127.0.0.1:22. Enable Remote Login (below)."
   cat <<EOF
 
-3. Enable Remote Login on the Mac in System Settings > General > Sharing.
-   Configure a separate server-to-Mac SSH key before using this endpoint.
-   From the server, connect with:
+Mac command access is forwarded to server port $REMOTE_SSH_PORT. It exposes
+this Mac's SSH login to the server, so firewall that port to the ganclaw
+service user like the Chrome port (see README.md).
+
+1. Enable Remote Login in System Settings > General > Sharing.
+2. Install a separate server-to-Mac SSH key, then from the server run:
 
    ssh -p $REMOTE_SSH_PORT <mac-user>@127.0.0.1
-
-   Restrict server access to port $REMOTE_SSH_PORT to the ganclaw service user,
-   just like the Chrome port (see README.md).
 EOF
 fi
