@@ -49,3 +49,45 @@ your agents need in the Chrome window it opens.
 
 When the Mac is off, the `chrome` tools fail fast with a clear error and
 agents report it.
+
+## Add Mac command access to the same tunnel
+
+Pass a third argument to forward the Mac's SSH service alongside Chrome:
+
+```sh
+./setup-agent-chrome.sh ganclaw-user@your-server 9223 2223
+```
+
+This keeps the existing Chrome profile and tunnel key. Replace the old key's
+`authorized_keys` entry on the server with the newly printed entry: it permits
+both loopback listeners. Do this before rerunning the setup script when updating
+an existing installation so the second forward is authorized. The script's key
+and ports are unchanged, so the entry can be prepared by adding
+`permitlisten="127.0.0.1:2223"` to the existing entry.
+
+On the Mac, enable **System Settings > General > Sharing > Remote Login** and
+allow only the intended Mac user. The tunnel key only authenticates the Mac to
+the server; command access requires a separate key in the other direction.
+Generate that key as the ganclaw service user on the server, and install its
+public key in the Mac user's `~/.ssh/authorized_keys`. Keep host key checking
+enabled and verify the Mac host key fingerprint during the initial connection.
+
+Restrict server loopback port 2223 to the service user using the same firewall
+rule as the Chrome port, replacing 9223 with 2223. Then, as that user:
+
+```sh
+ssh -i /path/to/mac_access_key -p 2223 mac-user@127.0.0.1 'sw_vers'
+scp -i /path/to/mac_access_key -P 2223 ./input.txt mac-user@127.0.0.1:~/input.txt
+```
+
+Agents with shell execution can invoke SSH for commands, builds, and transfers;
+no additional MCP server is needed for those operations. Xcode, signing, and
+repository setup still happen on the Mac. Both Chrome and command access share
+one outbound tunnel connection, and both go offline if it disconnects. These
+launch agents run in the logged-in user's session; keep the Mac awake for
+unattended work.
+
+Desktop control additionally needs a Mac automation helper with the necessary
+macOS permissions. This script does not install one. Once selected, its local
+port can be added as another `-R` forward on the same connection, with a matching
+`permitlisten` restriction and server firewall rule.
