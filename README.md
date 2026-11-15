@@ -125,7 +125,7 @@ purpose in `AGENTS.md`. When a message arrives, ganclaw reads the files named
 in `instruction_files` from the workspace, in order, and sends them as the
 system prompt, each under a `# FILE.md` heading. Missing or empty files are
 skipped. ganclaw then appends a description of its own tools (`send_message`,
-`ask_agent`, …), any `[[mcp_servers]]` that have a `description`, and how to
+`ask_agent`, …), any `[[mcp_servers]]` that have a `description`, remote `[[machines]]`, and how to
 send files, so the files don't need to explain those. The files are read again
 for each message, so edits apply without a restart.
 
@@ -440,3 +440,25 @@ are delivered as final messages rather than streamed while task capture is on;
 this keeps background typing and intermediate worker content out of the inbox.
 
 Native iOS push setup and signing requirements: [notifications](apps/ios/docs/notifications.md).
+
+### Remote machines
+
+Configure `[[machines]]` to make a remote computer discoverable to every
+agent under both providers. Each entry has a unique `name`, optional
+`description` and `capabilities`, and SSH access, a `browser_server`, or both.
+`browser_server` references an existing `[[mcp_servers]]` entry; it does not
+register another browser server.
+
+The optional `[machines.ssh]` table accepts `host`, `port`, `user`, and
+`identity_file`. Only `host` is required for SSH; omitted options use the
+SSH client's settings, including aliases in its config. Use an absolute
+path for `identity_file`. Ganclaw supplies a shell-quoted SSH command prefix
+with batch mode, strict host verification, and a connection timeout. Set up
+the trusted host key and authentication beforehand.
+
+Machine entries provide instructions, not new tools or permission grants.
+Agents need a terminal tool with network access to run SSH. They are told to
+report offline machines instead of repeatedly retrying. Config is loaded at
+startup, so restart Ganclaw after changing machine entries. See the example
+config for a Mac development machine. Keep private key contents, passwords,
+and tokens out of machine fields: all agents receive these instructions.

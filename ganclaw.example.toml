@@ -76,3 +76,17 @@ allow_users = [123456789]
 # team_id = "APPLE_TEAM_ID"
 # topic = "com.example.ganclaw"
 # environment = "sandbox"
+
+# Optional remote computers, described in every agent's instructions.
+# Agents use their existing terminal tool for SSH. This does not create a
+# new MCP server or grant permissions. Keep credentials out of descriptions.
+# [[machines]]
+# name = "build_mac"
+# description = "Mac for development. Use xcodebuild and xcrun for iOS builds and simulators."
+# capabilities = ["Xcode", "iOS builds", "iOS simulator"]
+# browser_server = "chrome_build"  # optional; must name an existing [[mcp_servers]]
+# [machines.ssh]
+# host = "127.0.0.1"               # hostname, address or ~/.ssh/config alias
+# port = 2222                      # optional; omitted uses SSH client settings
+# user = "alex"                    # optional; omitted uses SSH client settings
+# identity_file = "/path/to/private/build_key"  # optional absolute path, not key contents

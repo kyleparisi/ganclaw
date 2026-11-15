@@ -74,6 +74,9 @@ func cmdServe(ctx context.Context, args []string) error {
 	if tools := toolsAppendix(cfg); tools != "" {
 		appendix = tools + "\n\n" + mediaAppendix
 	}
+	if machines := machinesAppendix(cfg); machines != "" {
+		appendix += "\n\n" + machines
+	}
 	agents := map[string]agent.Agent{}
 	for _, a := range cfg.Agents {
 		if fi, err := os.Stat(a.Workspace); err != nil || !fi.IsDir() {
