@@ -314,7 +314,8 @@ description = "Headless browser, logged out. Use for public pages."
 
 To let agents use a browser that is logged in to your accounts, from your own
 network, see [`deploy/macos/`](deploy/macos/): it runs a separate Chrome
-profile on a Mac and reaches it over a restricted SSH reverse tunnel.
+profile on a Mac and reaches it over a restricted SSH reverse tunnel, which
+can also give agents SSH access to the Mac.
 
 ## Running as a service
 
