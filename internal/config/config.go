@@ -39,6 +39,7 @@ type Config struct {
 	Telegram   []Telegram  `toml:"telegram"`
 	Contacts   []Contact   `toml:"contacts"`
 	MCPServers []MCPServer `toml:"mcp_servers"`
+	Machines   []Machine   `toml:"machines"`
 
 	OpenClawCompat OpenClawCompat `toml:"openclaw_compat"`
 
@@ -153,6 +154,24 @@ type MCPServer struct {
 	// Description tells agents when to use this server; it is added to
 	// every agent's instructions.
 	Description string `toml:"description"`
+}
+
+// Machine describes a remote computer in every agent's instructions.
+// It does not create a tool or grant access; agents use their terminal and
+// the named browser MCP server. Store key paths here, never key contents.
+type Machine struct {
+	Name          string     `toml:"name"`
+	Description   string     `toml:"description"`
+	Capabilities  []string   `toml:"capabilities"`
+	BrowserServer string     `toml:"browser_server"`
+	SSH           MachineSSH `toml:"ssh"`
+}
+
+type MachineSSH struct {
+	Host         string `toml:"host"`
+	Port         int    `toml:"port"`
+	User         string `toml:"user"`
+	IdentityFile string `toml:"identity_file"`
 }
 
 // Transcribe configures local voice-note transcription with whisper.cpp.
@@ -342,6 +361,34 @@ func (c *Config) Validate() error {
 		servers[m.Name] = true
 		if m.Command == "" {
 			errs = append(errs, fmt.Errorf("mcp server %q: command is required", m.Name))
+		}
+	}
+	machines := map[string]bool{}
+	for i, m := range c.Machines {
+		switch {
+		case !validMCPName(m.Name):
+			errs = append(errs, fmt.Errorf("machines[%d]: name must be letters, digits, - or _", i))
+		case machines[m.Name]:
+			errs = append(errs, fmt.Errorf("machines: duplicate name %q", m.Name))
+		}
+		machines[m.Name] = true
+		if m.BrowserServer != "" && !servers[m.BrowserServer] {
+			errs = append(errs, fmt.Errorf("machine %q: unknown browser_server %q", m.Name, m.BrowserServer))
+		}
+		ssh := m.SSH
+		if ssh.Host == "" {
+			if ssh.Port != 0 || ssh.User != "" || ssh.IdentityFile != "" {
+				errs = append(errs, fmt.Errorf("machine %q: ssh.host is required when SSH options are set", m.Name))
+			}
+			if m.BrowserServer == "" {
+				errs = append(errs, fmt.Errorf("machine %q: ssh.host or browser_server is required", m.Name))
+			}
+		}
+		if strings.HasPrefix(ssh.Host, "-") || strings.ContainsAny(ssh.Host, " \t\r\n") {
+			errs = append(errs, fmt.Errorf("machine %q: ssh.host must be a hostname, address or SSH alias", m.Name))
+		}
+		if ssh.Port < 0 || ssh.Port > 65535 {
+			errs = append(errs, fmt.Errorf("machine %q: ssh.port must be between 1 and 65535, or 0 for the SSH default", m.Name))
 		}
 	}
 	if n := c.Monitor.Notify; n != "" && !contacts[n] {

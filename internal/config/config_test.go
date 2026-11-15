@@ -307,3 +307,71 @@ func TestAppConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestMachines(t *testing.T) {
+	subject := Load
+	t.Run("Loads a machine with SSH and a browser", func(t *testing.T) {
+		cfg, err := subject(writeConfig(t, validConfig+`
+[[mcp_servers]]
+name = "chrome_build"
+command = "browser-mcp"
+[[machines]]
+name = "build_mac"
+description = "Mac for development"
+capabilities = ["Xcode", "iOS simulator"]
+browser_server = "chrome_build"
+[machines.ssh]
+host = "127.0.0.1"
+port = 2222
+user = "alex"
+identity_file = "/keys/build"
+`))
+		require.NoError(t, err)
+		require.Len(t, cfg.Machines, 1)
+		assert.Equal(t, Machine{Name: "build_mac", Description: "Mac for development", Capabilities: []string{"Xcode", "iOS simulator"}, BrowserServer: "chrome_build", SSH: MachineSSH{Host: "127.0.0.1", Port: 2222, User: "alex", IdentityFile: "/keys/build"}}, cfg.Machines[0])
+	})
+	t.Run("Rejects duplicate names and invalid connections", func(t *testing.T) {
+		_, err := subject(writeConfig(t, validConfig+`
+[[machines]]
+name = "build_mac"
+browser_server = "missing"
+[machines.ssh]
+port = 65536
+[[machines]]
+name = "build_mac"
+[[machines]]
+name = "invalid name"
+[machines.ssh]
+host = "-oProxyCommand=bad"
+`))
+		require.Error(t, err)
+		assert.ErrorContains(t, err, `unknown browser_server "missing"`)
+		assert.ErrorContains(t, err, "ssh.host is required")
+		assert.ErrorContains(t, err, "ssh.port must be between")
+		assert.ErrorContains(t, err, `machines: duplicate name "build_mac"`)
+		assert.ErrorContains(t, err, "ssh.host or browser_server is required")
+		assert.ErrorContains(t, err, "name must be letters, digits")
+		assert.ErrorContains(t, err, "ssh.host must be a hostname")
+	})
+	t.Run("SSH alias can use existing client settings", func(t *testing.T) {
+		cfg, err := subject(writeConfig(t, validConfig+`
+[[machines]]
+name = "build_mac"
+[machines.ssh]
+host = "build-mac"
+`))
+		require.NoError(t, err)
+		assert.Zero(t, cfg.Machines[0].SSH.Port)
+	})
+	t.Run("Browser access does not require SSH", func(t *testing.T) {
+		_, err := subject(writeConfig(t, validConfig+`
+[[mcp_servers]]
+name = "chrome_build"
+command = "browser-mcp"
+[[machines]]
+name = "build_mac"
+browser_server = "chrome_build"
+`))
+		require.NoError(t, err)
+	})
+}
