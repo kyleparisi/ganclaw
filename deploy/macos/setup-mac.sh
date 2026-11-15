@@ -1,12 +1,14 @@
 #!/bin/bash
-# Sets up an "agent Chrome" on a Mac for ganclaw's `chrome` MCP server:
-#   - a separate Chrome profile with remote debugging on 127.0.0.1:9333
-#     (Chrome refuses remote debugging on your everyday profile)
-#   - an SSH reverse tunnel so the ganclaw server reaches it on
-#     127.0.0.1:<remote_port> (default 9223)
+# Connects a Mac to the ganclaw server:
+#   - an "agent Chrome" for ganclaw's `chrome` MCP server: a separate Chrome
+#     profile with remote debugging on 127.0.0.1:9333 (Chrome refuses remote
+#     debugging on your everyday profile)
+#   - one SSH reverse tunnel so the server reaches it on
+#     127.0.0.1:<remote_port> (default 9223), and optionally the Mac's SSH
+#     login on 127.0.0.1:<remote_ssh_port>
 # Both run as launchd agents and restart automatically.
 #
-# Usage: ./setup-agent-chrome.sh user@ganclaw-server [remote_port] [remote_ssh_port|none]
+# Usage: ./setup-mac.sh user@ganclaw-server [remote_port] [remote_ssh_port|none]
 # Ports given on an earlier run are remembered; pass "none" to drop the SSH
 # forward. The script prints an authorized_keys line for the server and starts
 # the tunnel once you have added it. Then log in to the sites your agents
@@ -44,20 +46,22 @@ PROFILE="$HOME/Library/Application Support/ganclaw-agent-chrome"
 # launchd jobs may be denied access to ~/.ssh by macOS privacy controls
 # ("Load key ...: Operation not permitted"), so the tunnel's key and
 # known_hosts live under Application Support instead (STATE, above).
-KEY="$STATE/chrome_tunnel_key"
+KEY="$STATE/tunnel_key"
 KNOWN_HOSTS="$STATE/known_hosts"
-OLD_KEY="$HOME/.ssh/ganclaw_chrome_tunnel"
 AGENTS="$HOME/Library/LaunchAgents"
 LOGS="$HOME/Library/Logs/ganclaw"
 
 [ -x "$CHROME" ] || { echo "Google Chrome not found at $CHROME" >&2; exit 1; }
 mkdir -p "$PROFILE" "$AGENTS" "$LOGS" "$STATE"
 chmod 700 "$STATE"
-if [ ! -f "$KEY" ] && [ -f "$OLD_KEY" ]; then
-  # Keep the key from an earlier run so the server's authorized_keys still matches.
-  cp -p "$OLD_KEY" "$KEY" && cp -p "$OLD_KEY.pub" "$KEY.pub" && rm -f "$OLD_KEY" "$OLD_KEY.pub"
-fi
-[ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N "" -C "ganclaw-chrome-tunnel" -f "$KEY"
+# Keep the key from an earlier run (under its older names) so the server's
+# authorized_keys still matches.
+for old in "$STATE/chrome_tunnel_key" "$HOME/.ssh/ganclaw_chrome_tunnel"; do
+  if [ ! -f "$KEY" ] && [ -f "$old" ]; then
+    cp -p "$old" "$KEY" && cp -p "$old.pub" "$KEY.pub" && rm -f "$old" "$old.pub"
+  fi
+done
+[ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N "" -C "ganclaw-tunnel" -f "$KEY"
 chmod 600 "$KEY"
 printf 'REMOTE_PORT=%s\nREMOTE_SSH_PORT=%s\n' "$REMOTE_PORT" "$REMOTE_SSH_PORT" > "$CONF"
 
@@ -83,12 +87,12 @@ cat > "$AGENTS/dev.ganclaw.agent-chrome.plist" <<EOF
 </plist>
 EOF
 
-cat > "$AGENTS/dev.ganclaw.chrome-tunnel.plist" <<EOF
+cat > "$AGENTS/dev.ganclaw.tunnel.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>dev.ganclaw.chrome-tunnel</string>
+  <key>Label</key><string>dev.ganclaw.tunnel</string>
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/ssh</string>
@@ -108,7 +112,7 @@ cat > "$AGENTS/dev.ganclaw.chrome-tunnel.plist" <<EOF
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>30</integer>
-  <key>StandardErrorPath</key><string>$LOGS/chrome-tunnel.log</string>
+  <key>StandardErrorPath</key><string>$LOGS/tunnel.log</string>
 </dict>
 </plist>
 EOF
@@ -144,7 +148,7 @@ start_agent dev.ganclaw.agent-chrome
 cat <<EOF
 
 On the server, put this line in the ssh user's ~/.ssh/authorized_keys,
-replacing any earlier ganclaw-chrome-tunnel line. It allows only these
+replacing any earlier ganclaw tunnel line. It allows only these
 reverse forwards, no shell:
 
 restrict,port-forwarding,permitlisten="127.0.0.1:$REMOTE_PORT"$SSH_PERMIT_LISTEN,command="/bin/false" $(cat "$KEY.pub")
@@ -153,12 +157,15 @@ EOF
 # The tunnel exits if the server refuses any forward, so start it only once
 # the server accepts them all.
 if [ -t 0 ]; then read -r -p "Press Enter once the line is on the server... " _; fi
-start_agent dev.ganclaw.chrome-tunnel
+# Remove the tunnel job from before it was renamed; it holds the same ports.
+launchctl bootout "gui/$UID/dev.ganclaw.chrome-tunnel" 2>/dev/null || true
+rm -f "$AGENTS/dev.ganclaw.chrome-tunnel.plist"
+start_agent dev.ganclaw.tunnel
 
 cat <<EOF
 
 Agent Chrome and tunnel are running (launchd: dev.ganclaw.agent-chrome,
-dev.ganclaw.chrome-tunnel; logs in $LOGS). In the Chrome window that
+dev.ganclaw.tunnel; logs in $LOGS). In the Chrome window that
 opened, log in to the sites your agents need.
 EOF
 

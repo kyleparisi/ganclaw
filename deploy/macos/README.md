@@ -1,4 +1,10 @@
-# Agent Chrome on a Mac
+# Connecting a Mac
+
+`setup-mac.sh` connects a Mac to the ganclaw server over one SSH reverse
+tunnel. It always carries an agent Chrome, and can also carry the Mac's SSH
+login ([below](#add-mac-command-access-to-the-same-tunnel)).
+
+## Agent Chrome
 
 Some agent work needs a browser that is logged in to your accounts (for
 example Instagram), from your own network rather than a datacenter IP.
@@ -13,10 +19,10 @@ server:  127.0.0.1:9223  ← firewalled to the ganclaw service user
          chrome MCP server (Playwright over CDP) → agents
 ```
 
-## Mac
+### Mac
 
 ```sh
-./setup-agent-chrome.sh ganclaw-user@your-server
+./setup-mac.sh ganclaw-user@your-server
 ```
 
 It creates a separate Chrome profile (Chrome refuses remote debugging on your
@@ -28,7 +34,7 @@ Chrome window it opens.
 
 Rerunning the script keeps the profile, key and ports from the last run.
 
-## Server
+### Server
 
 1. Add the `authorized_keys` line the script prints to the service user's
    `~/.ssh/authorized_keys`. It permits only the reverse tunnel.
@@ -59,10 +65,10 @@ agents report it.
 Pass a third argument to forward the Mac's SSH service alongside Chrome:
 
 ```sh
-./setup-agent-chrome.sh ganclaw-user@your-server 9223 2223
+./setup-mac.sh ganclaw-user@your-server 9223 2223
 ```
 
-When it pauses, replace the earlier `ganclaw-chrome-tunnel` line in the
+When it pauses, replace the earlier ganclaw tunnel line in the
 server's `authorized_keys` with the one it prints, which also permits the SSH
 port. Later reruns keep the SSH forward; pass `none` as the third argument to
 remove it.
@@ -88,7 +94,7 @@ no additional MCP server is needed for those operations. Xcode, signing, and
 repository setup still happen on the Mac. Both Chrome and command access share
 one outbound tunnel connection, and both go offline if it disconnects or if
 the server refuses either port (for example because something else holds
-it); `~/Library/Logs/ganclaw/chrome-tunnel.log` then shows
+it); `~/Library/Logs/ganclaw/tunnel.log` then shows
 `remote port forwarding failed`. These
 launch agents run in the logged-in user's session; keep the Mac awake for
 unattended work.
