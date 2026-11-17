@@ -88,9 +88,18 @@ DEVELOPMENT_TEAM = ABCDE12345
 Then:
 
 ```bash
-apps/ios/tools/testflight.sh            # archive and export build/export/Ganclaw.ipa
-apps/ios/tools/testflight.sh --upload   # archive and upload to TestFlight
+apps/ios/tools/testflight.sh                  # archive and export build/export-ios/Ganclaw.ipa
+apps/ios/tools/testflight.sh --upload         # archive and upload to TestFlight
+apps/ios/tools/testflight.sh --mac --upload   # the native Mac app (.pkg), same record
 ```
+
+The native Mac app (`GanclawMac`) has the iOS app's bundle ID, so it is
+the macOS half of the same App Store Connect record (universal purchase):
+TestFlight lists its builds under macOS, and testers install them with the
+TestFlight app on their Mac. The Catalyst build is for local use only and
+is never uploaded. The Mac App Store requires App Sandbox; the app is
+sandboxed with outgoing network, user-selected files (read-only), mic and
+camera (`Platform/Capability.swift`).
 
 The build number is a UTC timestamp, and the archive uses the production
 APNs environment when push is turned on ([docs/notifications.md](docs/notifications.md)).
@@ -100,7 +109,7 @@ uses standard HTTPS), so uploads skip the export-compliance question.
 #### TestFlight from GitHub Actions
 
 `.github/workflows/testflight.yml` runs the same script with `--upload`
-after the iOS workflow passes on `main` (so only when the app changed), and
+(once for iOS, once with `--mac`) after the iOS workflow passes on `main` (so only when the app changed), and
 on demand from Actions → TestFlight → Run workflow. It signs in with an App
 Store Connect API key instead of an Xcode account, and signs with a
 distribution certificate from secrets. Add these as secrets of the

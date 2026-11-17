@@ -43,9 +43,13 @@ tracking works unchanged. Shared views must build for both: use
 `inlineNavigationBar()`) rather than navigation-bar APIs, and
 `PlatformImage` instead of `UIImage`. `tools/gencap` writes usage strings
 into both `Ganclaw/Info.plist` and `GanclawMac/Info.plist`. The native app
-uses the same Keychain item as the iOS/Catalyst app, so on a Mac that
-already ran the Catalyst build it starts paired. It has no control server
-yet.
+has the iOS app's bundle ID (`com.kyleparisi.ganclaw`): it is the macOS
+half of the same App Store Connect record, uploaded with
+`tools/testflight.sh --mac --upload`. It is sandboxed (the Mac App Store
+requires it), so its pairing lives in its own container and it pairs
+separately from the Catalyst build; a new file or network need means a
+sandbox entitlement in `Capability.macSandboxEntitlements`. It has no
+control server yet.
 
 ## Control server (Debug builds only)
 

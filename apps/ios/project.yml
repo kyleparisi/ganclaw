@@ -81,11 +81,15 @@ targets:
         basedOnDependencyAnalysis: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.kyleparisi.ganclaw.mac
+        # Same bundle ID as the iOS app: on the App Store it is the macOS
+        # half of one universal-purchase record (the Catalyst build is for
+        # local use only and never uploaded).
+        PRODUCT_BUNDLE_IDENTIFIER: com.kyleparisi.ganclaw
         PRODUCT_NAME: Ganclaw
         INFOPLIST_FILE: GanclawMac/Info.plist
-        # Same generated entitlements as the Catalyst build: under the
-        # hardened runtime the mic needs audio-input.
+        # Same generated entitlements as the Catalyst build: App Sandbox
+        # (required by the Mac App Store), and under the hardened runtime
+        # the mic needs audio-input.
         CODE_SIGN_ENTITLEMENTS: Ganclaw/Generated/Ganclaw-mac.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         ENABLE_USER_SCRIPT_SANDBOXING: NO

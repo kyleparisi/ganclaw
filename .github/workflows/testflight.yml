@@ -1,6 +1,7 @@
 name: TestFlight
 
-# Uploads the iOS app to TestFlight after the iOS workflow passes on main
+# Uploads the iOS app and the native Mac app (same App Store Connect
+# record) to TestFlight after the iOS workflow passes on main
 # (it only runs when the app changed), or on demand from the Actions tab.
 # Setup and secrets: apps/ios/README.md → "TestFlight from GitHub Actions".
 on:
@@ -19,6 +20,13 @@ concurrency:
 
 jobs:
   upload:
+    name: upload (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      # One at a time: both jobs register signing assets for the same team.
+      max-parallel: 1
+      matrix:
+        platform: [ios, mac]
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
@@ -65,7 +73,7 @@ jobs:
           echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
 
       - name: Turn on push
-        if: vars.IOS_PUSH == 'true'
+        if: vars.IOS_PUSH == 'true' && matrix.platform == 'ios'
         working-directory: apps/ios
         run: |
           cat > Local.xcconfig <<'EOF'
@@ -82,17 +90,19 @@ jobs:
         run: |
           export ASC_KEY_PATH="$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
           status=0
-          apps/ios/tools/testflight.sh --upload > "$RUNNER_TEMP/testflight.log" 2>&1 || status=$?
+          flags=(--upload)
+          test "${{ matrix.platform }}" = mac && flags+=(--mac)
+          apps/ios/tools/testflight.sh "${flags[@]}" > "$RUNNER_TEMP/testflight.log" 2>&1 || status=$?
           grep -E "error:|warning: .*(sign|profile)|\*\* (ARCHIVE|EXPORT) |^==>|Uploaded" "$RUNNER_TEMP/testflight.log" || true
           test "$status" -eq 0 || { tail -80 "$RUNNER_TEMP/testflight.log"; exit 1; }
-          echo "Uploaded commit $(git rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Uploaded ${{ matrix.platform }} build of commit $(git rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
           grep Uploaded "$RUNNER_TEMP/testflight.log" >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: Upload log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: testflight-log
+          name: testflight-log-${{ matrix.platform }}
           path: ${{ runner.temp }}/testflight.log
           if-no-files-found: ignore
 
