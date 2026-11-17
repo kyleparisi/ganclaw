@@ -195,7 +195,11 @@ final class AppStore {
         threadLoadGeneration[agent] = generation
         send(.threadLoading(agent))
         do {
-            let page = try await client.messages(agent: agent)
+            // A view's task can be cancelled when the user navigates away.
+            // Keep the request alive so it can still populate the thread and
+            // does not invalidate another overlapping load with no replacement.
+            let request = Task { try await client.messages(agent: agent) }
+            let page = try await request.value
             guard threadLoadGeneration[agent] == generation else { return }
             send(.threadLoaded(agent, page.messages, page.state))
         } catch {
