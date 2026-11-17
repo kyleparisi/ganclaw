@@ -122,6 +122,18 @@ final class AppStateTests: XCTestCase {
         XCTAssertFalse(s.agent("infra")?.needsYou == true, "answered buttons don't need you")
     }
 
+    func testHistoryLoadPreservesRepliesReceivedDuringRequest() {
+        var s = AppState()
+        s.apply(.threadLoading("support"))
+        s.apply(.event(ServerEvent(type: "message", message: msg(2, "support", text: "", status: .streaming))))
+        s.apply(.event(ServerEvent(type: "delta", id: 2, thread: "support", text: "Hello")))
+        s.apply(.event(ServerEvent(type: "message", message: msg(2, "support", text: "Hello"))))
+        s.apply(.threadLoaded("support", [msg(1, "support", role: .user)], .idle))
+        XCTAssertEqual(s.thread("support").messages.map(\.id), [1, 2])
+        XCTAssertEqual(s.thread("support").messages.last?.text, "Hello")
+        XCTAssertNil(s.thread("support").streaming[2])
+    }
+
     func testUnloadedThreadsDontCollectPartialHistory() {
         var s = AppState()
         s.apply(.agentsLoaded([agent("infra")]))

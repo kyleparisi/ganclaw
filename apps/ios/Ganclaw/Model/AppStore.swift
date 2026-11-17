@@ -12,6 +12,7 @@ final class AppStore {
     @ObservationIgnored private let events = EventStream()
     /// Every device access goes through here (Platform/).
     @ObservationIgnored let platform: Platform
+    @ObservationIgnored private var threadLoadGeneration: [String: Int] = [:]
     @ObservationIgnored private var attachmentData: [String: Data] = [:]
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Every action applied, newest last; the control server exposes it.
@@ -190,11 +191,15 @@ final class AppStore {
 
     func loadThread(_ agent: String) async {
         guard let client else { return }
+        let generation = (threadLoadGeneration[agent] ?? 0) + 1
+        threadLoadGeneration[agent] = generation
         send(.threadLoading(agent))
         do {
             let page = try await client.messages(agent: agent)
+            guard threadLoadGeneration[agent] == generation else { return }
             send(.threadLoaded(agent, page.messages, page.state))
         } catch {
+            guard threadLoadGeneration[agent] == generation else { return }
             send(.threadFailed(agent, describe(error)))
             fail(error, quiet: true)
         }
