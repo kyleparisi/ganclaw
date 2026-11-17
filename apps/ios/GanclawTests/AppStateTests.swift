@@ -122,6 +122,47 @@ final class AppStateTests: XCTestCase {
         XCTAssertFalse(s.agent("infra")?.needsYou == true, "answered buttons don't need you")
     }
 
+    func testHistoryLoadPreservesRepliesReceivedDuringRequest() {
+        var s = AppState()
+        s.apply(.threadLoading("support"))
+        s.apply(.event(ServerEvent(type: "message", message: msg(2, "support", text: "", status: .streaming))))
+        s.apply(.event(ServerEvent(type: "delta", id: 2, thread: "support", text: "Hello")))
+        s.apply(.event(ServerEvent(type: "message", message: msg(2, "support", text: "Hello"))))
+        s.apply(.threadLoaded("support", [msg(1, "support", role: .user)], .idle))
+        XCTAssertEqual(s.thread("support").messages.map(\.id), [1, 2])
+        XCTAssertEqual(s.thread("support").messages.last?.text, "Hello")
+        XCTAssertNil(s.thread("support").streaming[2])
+    }
+
+    func testHistoryLoadReconcilesUpdatesToTheSameMessage() {
+        var state = AppState()
+        var live = msg(2, "support", text: "Live update")
+        live.updatedAt = Date(timeIntervalSince1970: 20)
+        var snapshot = msg(2, "support", text: "Older snapshot")
+        snapshot.updatedAt = Date(timeIntervalSince1970: 10)
+        state.apply(.threadLoading("support"))
+        state.apply(.event(ServerEvent(type: "message", message: live)))
+        state.apply(.threadLoaded("support", [snapshot], .idle))
+        XCTAssertEqual(state.thread("support").messages.first?.text, "Live update")
+
+        snapshot.text = "Newer snapshot"
+        snapshot.updatedAt = Date(timeIntervalSince1970: 30)
+        state.apply(.threadLoading("support"))
+        state.apply(.event(ServerEvent(type: "message", message: live)))
+        state.apply(.threadLoaded("support", [snapshot], .idle))
+        XCTAssertEqual(state.thread("support").messages.first?.text, "Newer snapshot")
+    }
+
+    func testFailedHistoryLoadDoesNotReplayOldUpdatesOnRetry() {
+        var state = AppState()
+        state.apply(.threadLoading("support"))
+        state.apply(.event(ServerEvent(type: "message", message: msg(2, "support", text: "Old event"))))
+        state.apply(.threadFailed("support", "Offline"))
+        state.apply(.threadLoading("support"))
+        state.apply(.threadLoaded("support", [], .idle))
+        XCTAssertTrue(state.thread("support").messages.isEmpty)
+    }
+
     func testUnloadedThreadsDontCollectPartialHistory() {
         var s = AppState()
         s.apply(.agentsLoaded([agent("infra")]))

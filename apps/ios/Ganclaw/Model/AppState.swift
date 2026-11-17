@@ -68,6 +68,8 @@ struct ThreadState: Codable, Equatable {
     /// Text streamed so far for replies still being written, by message ID.
     var streaming: [Int64: String] = [:]
     var sending = false
+    /// Live updates received while a history request is in flight.
+    var pendingMessages: [AppMessage] = []
 
     func message(_ id: Int64) -> AppMessage? { messages.first { $0.id == id } }
 }
@@ -300,14 +302,26 @@ struct AppState: Codable, Equatable {
         case let .threadLoaded(a, msgs, st):
             var t = thread(a)
             t.messages = msgs
+            // A snapshot can predate events delivered while the request was
+            // in flight. Replay them after it, including updates to the same ID.
+            for message in t.pendingMessages {
+                if let i = t.messages.firstIndex(where: { $0.id == message.id }) {
+                    if message.updatedAt >= t.messages[i].updatedAt { t.messages[i] = message }
+                } else {
+                    let i = t.messages.firstIndex(where: { $0.id > message.id }) ?? t.messages.endIndex
+                    t.messages.insert(message, at: i)
+                }
+            }
+            t.pendingMessages = []
             t.loaded = true
             t.loading = false
             t.error = nil
             threads[a] = t
             setState(a, st)
-            if let last = msgs.last { noteLast(last) }
+            if let last = t.messages.last { noteLast(last) }
         case let .threadFailed(a, msg):
             threads[a, default: ThreadState()].loading = false
+            threads[a, default: ThreadState()].pendingMessages = []
             threads[a, default: ThreadState()].error = msg
         case let .readState(agent, read):
             applyRead(agent, read)
@@ -428,6 +442,13 @@ struct AppState: Codable, Equatable {
     private mutating func upsert(_ m: AppMessage) {
         if !m.isScheduledJob {
             var t = thread(m.thread)
+            if t.loading {
+                if let i = t.pendingMessages.firstIndex(where: { $0.id == m.id }) {
+                    t.pendingMessages[i] = m
+                } else {
+                    t.pendingMessages.append(m)
+                }
+            }
             if let i = t.messages.firstIndex(where: { $0.id == m.id }) {
                 t.messages[i] = m
             } else if t.loaded || !t.messages.isEmpty {
