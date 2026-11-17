@@ -70,9 +70,18 @@ enum Capability: String, CaseIterable, Codable, Sendable {
         ["aps-environment": "$(APNS_ENVIRONMENT)"]
     }
 
+    /// The Mac App Store only takes sandboxed apps. Inside the sandbox the
+    /// app may still talk to its ganclaw server (outgoing connections) and
+    /// read the files the user picks or drops on the attach sheet.
+    static let macSandboxEntitlements = [
+        "com.apple.security.app-sandbox",
+        "com.apple.security.network.client",
+        "com.apple.security.files.user-selected.read-only",
+    ]
+
     /// Every entitlement the Mac build must be signed with.
     static var macEntitlements: [String] {
-        Array(Set(allCases.compactMap(\.macEntitlement))).sorted()
+        Array(Set(allCases.compactMap(\.macEntitlement) + macSandboxEntitlements)).sorted()
     }
 }
 
