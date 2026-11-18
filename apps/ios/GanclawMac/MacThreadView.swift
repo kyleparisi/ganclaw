@@ -283,7 +283,12 @@ struct MacThreadView: View {
                         onImage: { image in
                             store.send(.attachOpen(agent))
                             store.addAttachment(name: image.name, mime: image.mime, data: image.data)
-                        }
+                        },
+                        onFiles: { files in
+                            store.send(.attachOpen(agent))
+                            MacAttachSheet.add(files, to: store)
+                        },
+                        onPasteError: { store.send(.banner("Couldn't read the pasted image or files.")) }
                     )
                     .overlay(alignment: .topLeading) {
                         if t.draft.isEmpty {

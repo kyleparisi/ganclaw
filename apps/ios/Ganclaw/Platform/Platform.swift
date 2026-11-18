@@ -59,17 +59,6 @@ struct RecorderClient {
     var elapsed: () -> TimeInterval
 }
 
-@MainActor
-struct PasteboardClient {
-    var string: () -> String?
-    var setString: (String) -> Void
-    /// The clipboard's image as upload bytes (see `PastedImage.make`).
-    var pastedImage: () -> PastedImage?
-    var url: () -> URL?
-    var hasContent: () -> Bool
-    var hasImages: () -> Bool = { false }
-}
-
 /// Stores the pairing (server + device token).
 @MainActor
 struct KeychainClient {
@@ -105,12 +94,6 @@ extension SpeechClient {
 extension RecorderClient {
     static var inert: RecorderClient {
         RecorderClient(requestAccess: {}, start: {}, stop: { nil }, cancel: {}, elapsed: { 0 })
-    }
-}
-
-extension PasteboardClient {
-    static var inert: PasteboardClient {
-        PasteboardClient(string: { nil }, setString: { _ in }, pastedImage: { nil }, url: { nil }, hasContent: { false })
     }
 }
 

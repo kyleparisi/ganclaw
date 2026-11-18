@@ -88,6 +88,19 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_STRICT_CONCURRENCY: minimal
         CODE_SIGN_IDENTITY: "-"
+  GanclawMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Ganclaw/Platform/PasteboardClient.swift
+      - path: Ganclaw/Platform/PastedImage.swift
+      - path: Ganclaw/Platform/Live/MacPasteboard.swift
+      - path: GanclawMac/MacComposerField.swift
+      - path: GanclawMacTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kyleparisi.ganclaw.mactests
+        GENERATE_INFOPLIST_FILE: YES
   GanclawTests:
     type: bundle.unit-test
     platform: iOS
@@ -114,3 +127,7 @@ schemes:
     build:
       targets:
         GanclawMac: all
+        GanclawMacTests: [test]
+    test:
+      targets:
+        - GanclawMacTests
