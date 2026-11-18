@@ -307,7 +307,8 @@ struct MacThreadView: View {
                         },
                         onPasteError: { store.send(.banner("Couldn't read the pasted image or files.")) }
                     )
-                    .frame(minHeight: 20, alignment: .center)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 20, alignment: .center)
+                    .layoutPriority(1)
                     .overlay(alignment: .leading) {
                         if t.draft.isEmpty {
                             Text("Message \(Theme.displayName(agent))")
