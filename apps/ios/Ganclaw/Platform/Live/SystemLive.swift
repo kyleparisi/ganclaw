@@ -39,34 +39,6 @@ extension DeviceClient {
 }
 
 #else
-extension PasteboardClient {
-    static var live: PasteboardClient {
-        PasteboardClient(
-            string: { NSPasteboard.general.string(forType: .string) },
-            setString: { s in
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(s, forType: .string)
-            },
-            pastedImage: {
-                let pb = NSPasteboard.general
-                guard hasImages(pb) else { return nil }
-                return PastedImage.make(png: pb.data(forType: .png), image: NSImage(pasteboard: pb))
-            },
-            url: { NSURL(from: NSPasteboard.general) as URL? },
-            hasContent: {
-                let pb = NSPasteboard.general
-                return hasImages(pb) || pb.canReadObject(forClasses: [NSURL.self, NSString.self])
-            },
-            hasImages: { hasImages(NSPasteboard.general) }
-        )
-    }
-
-    /// Image data on the clipboard, not a copied file that merely has an icon.
-    private static func hasImages(_ pb: NSPasteboard) -> Bool {
-        pb.availableType(from: [.png, .tiff]) != nil
-    }
-}
-
 extension DeviceClient {
     static func live(check: CapabilityCheck) -> DeviceClient {
         let awake = KeepAwake()

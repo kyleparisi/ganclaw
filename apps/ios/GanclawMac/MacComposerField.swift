@@ -118,11 +118,16 @@ final class ComposerNSTextView: NSTextView {
         super.keyDown(with: event)
     }
 
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(paste(_:)), pasteboard.hasImages() { return true }
+        return super.validateUserInterfaceItem(item)
+    }
+
     override func paste(_ sender: Any?) {
-        guard pasteboard.hasImages(), let image = pasteboard.pastedImage() else {
+        guard pasteboard.hasImages() else {
             pasteAsPlainText(sender)
             return
         }
-        onImage(image)
+        if let image = pasteboard.pastedImage() { onImage(image) }
     }
 }

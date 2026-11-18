@@ -138,6 +138,12 @@ jobs:
             build >build-mac-native.log 2>&1 || status=$?
           grep -E "error:|\*\* BUILD " build-mac-native.log || true
           test "$status" -eq 0 || { tail -50 build-mac-native.log; exit 1; }
+      - name: Test native Mac clipboard handling
+        working-directory: apps/ios
+        run: |
+          xcodebuild -project Ganclaw.xcodeproj -scheme GanclawMac -configuration Debug \
+            -destination 'platform=macOS' -derivedDataPath build/mac-native-test \
+            CODE_SIGNING_ALLOWED=NO test
       - name: Check and package
         working-directory: apps/ios
         run: |
