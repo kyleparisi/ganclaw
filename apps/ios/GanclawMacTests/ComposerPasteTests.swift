@@ -4,6 +4,17 @@ import XCTest
 
 @MainActor
 final class ComposerPasteTests: XCTestCase {
+    func testComposerMeasurementWrapsAndCapsHeight() {
+        let short = MacComposerField.measuredHeight(for: "Hello", width: 120)
+        let wrapped = MacComposerField.measuredHeight(for: String(repeating: "Hello world ", count: 4), width: 120)
+        let long = MacComposerField.measuredHeight(for: String(repeating: "Hello world ", count: 100), width: 120)
+        let newline = MacComposerField.measuredHeight(for: "Hello\n", width: 120)
+        XCTAssertGreaterThan(wrapped, short)
+        XCTAssertGreaterThan(newline, short)
+        XCTAssertGreaterThan(long, wrapped)
+        XCTAssertEqual(long, MacComposerField.measuredHeight(for: String(repeating: "Hello world ", count: 200), width: 120))
+    }
+
     func testTabCompletesAnAvailableCommand() throws {
         let view = ComposerNSTextView()
         var completed = false
