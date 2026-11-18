@@ -23,8 +23,13 @@ struct MacComposerField: NSViewRepresentable {
     static let maxLines: CGFloat = 6
 
     func makeNSView(context: Context) -> NSScrollView {
+        let scroll = Self.makeScrollView()
+        (scroll.documentView as? ComposerNSTextView)?.delegate = context.coordinator
+        return scroll
+    }
+
+    static func makeScrollView() -> NSScrollView {
         let view = ComposerNSTextView()
-        view.delegate = context.coordinator
         view.isRichText = false
         view.importsGraphics = false
         view.allowsUndo = true
@@ -43,7 +48,7 @@ struct MacComposerField: NSViewRepresentable {
         view.isAutomaticDashSubstitutionEnabled = false
         view.setAccessibilityLabel("Message")
 
-        let scroll = NSScrollView()
+        let scroll = ComposerScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = false
@@ -76,17 +81,27 @@ struct MacComposerField: NSViewRepresentable {
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
-        guard let width = proposal.width, let view = nsView.documentView as? NSTextView,
-              let layout = view.layoutManager, let container = view.textContainer else { return nil }
-        // The text container tracks the document view, so size the view as
-        // well as the container before measuring wrapped lines. Otherwise its
-        // old width can override the proposed width during layout.
-        view.setFrameSize(NSSize(width: width, height: view.frame.height))
-        container.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
-        layout.ensureLayout(for: container)
-        let line = layout.defaultLineHeight(for: Self.font)
-        let used = layout.usedRect(for: container).height
-        return CGSize(width: width, height: min(max(line, used), line * Self.maxLines).rounded(.up))
+        guard let width = proposal.width, let view = nsView.documentView as? NSTextView else { return nil }
+        return CGSize(width: width, height: Self.measuredHeight(for: view.string, width: width))
+    }
+
+    static func measuredHeight(for text: String, width: CGFloat) -> CGFloat {
+        // Measure with a separate layout stack. SwiftUI may ask for several
+        // proposed widths before choosing one; changing the live document
+        // frame here disrupts its scrolling and caret position.
+        let storage = NSTextStorage(string: text, attributes: [.font: Self.font])
+        let measuringLayout = NSLayoutManager()
+        let measuringContainer = NSTextContainer(containerSize: NSSize(width: max(0, width), height: .greatestFiniteMagnitude))
+        measuringContainer.lineFragmentPadding = 0
+        storage.addLayoutManager(measuringLayout)
+        measuringLayout.addTextContainer(measuringContainer)
+        measuringLayout.ensureLayout(for: measuringContainer)
+        let line = measuringLayout.defaultLineHeight(for: Self.font)
+        var used = measuringLayout.usedRect(for: measuringContainer).height
+        if measuringLayout.extraLineFragmentTextContainer != nil {
+            used = max(used, measuringLayout.extraLineFragmentRect.maxY)
+        }
+        return min(max(line, used), line * Self.maxLines).rounded(.up)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -107,6 +122,19 @@ struct MacComposerField: NSViewRepresentable {
 
         private func report(_ focused: Bool) {
             if parent.focused != focused { parent.focused = focused }
+        }
+    }
+}
+
+// Keep the document width tied to the actual viewport, not a proposed
+// SwiftUI size. The text view can still grow vertically and scroll.
+final class ComposerScrollView: NSScrollView {
+    override func layout() {
+        super.layout()
+        guard let view = documentView else { return }
+        let width = contentSize.width
+        if view.frame.width != width {
+            view.setFrameSize(NSSize(width: width, height: view.frame.height))
         }
     }
 }
