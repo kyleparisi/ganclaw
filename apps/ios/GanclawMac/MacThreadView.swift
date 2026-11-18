@@ -28,6 +28,17 @@ struct MacThreadView: View {
         VStack(spacing: 0) {
             messages(t)
             if let rid = t.replyTo { replyBar(rid) }
+            if t.replyTo == nil, !recorder.recording {
+                let suggestions = SlashCommand.suggestions(for: t.draft, commands: store.state.commands)
+                if !suggestions.isEmpty {
+                    SlashCommandSuggestions(commands: suggestions) { command in
+                        store.send(.draft(agent, "/" + command.name))
+                        composerFocused = true
+                        focusRequest += 1
+                    }
+                    .frame(maxWidth: columnWidth)
+                }
+            }
             composer(t)
         }
         .background(Theme.ground)
@@ -280,6 +291,12 @@ struct MacThreadView: View {
                         placeholder: "Message \(Theme.displayName(agent))",
                         pasteboard: store.platform.pasteboard,
                         onSubmit: { Task { await store.sendDraft(agent) } },
+                        onComplete: {
+                            guard store.state.thread(agent).replyTo == nil,
+                                  let command = SlashCommand.suggestions(for: store.state.thread(agent).draft, commands: store.state.commands).first else { return false }
+                            store.send(.draft(agent, "/" + command.name))
+                            return true
+                        },
                         onImage: { image in
                             store.send(.attachOpen(agent))
                             store.addAttachment(name: image.name, mime: image.mime, data: image.data)

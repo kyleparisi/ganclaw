@@ -115,6 +115,11 @@ final class AppStore {
         send(.paired(server: c.server, deviceName: c.deviceName))
         events.connect(client!)
         // Loading agents never waits on notification setup.
+        Task {
+            if let commands = try? await client?.commands(), self.client?.baseURL == c.server, self.client?.token == c.token {
+                send(.commandsLoaded(commands))
+            }
+        }
         Task { await syncNotifications() }
         Task { await refresh() }
     }
