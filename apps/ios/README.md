@@ -96,8 +96,7 @@ apps/ios/tools/testflight.sh --mac --upload   # the native Mac app (.pkg), same 
 The native Mac app (`GanclawMac`) has the iOS app's bundle ID, so it is
 the macOS half of the same App Store Connect record (universal purchase):
 TestFlight lists its builds under macOS, and testers install them with the
-TestFlight app on their Mac. The Catalyst build is for local use only and
-is never uploaded. The Mac App Store requires App Sandbox; the app is
+TestFlight app on their Mac. The Mac App Store requires App Sandbox; the app is
 sandboxed with outgoing network, user-selected files (read-only), mic and
 camera (`Platform/Capability.swift`).
 

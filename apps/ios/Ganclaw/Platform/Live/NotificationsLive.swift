@@ -54,8 +54,6 @@ extension NotificationClient {
         return NotificationClient(setBadge: { count in
             NSApp?.dockTile.badgeLabel = count > 0 ? String(count) : nil
         }, enable: {}, registerIfAuthorized: { false }, observe: { _, _, _ in })
-        #elseif targetEnvironment(macCatalyst)
-        return .inert
         #else
         return NotificationClient(setBadge: { count in
             try? await UNUserNotificationCenter.current().setBadgeCount(count)
