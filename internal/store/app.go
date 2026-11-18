@@ -15,6 +15,12 @@ import (
 // The app channel keeps its own message history: unlike Telegram, the
 // phone has no server-side record of the conversation to fall back on.
 const appSchema = `
+CREATE TABLE IF NOT EXISTS app_inbox (
+ message_id INTEGER PRIMARY KEY,
+ thread TEXT NOT NULL,
+ prompt TEXT NOT NULL,
+ file_ids TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS app_reads (
  thread TEXT PRIMARY KEY,
  message_id INTEGER NOT NULL DEFAULT 0

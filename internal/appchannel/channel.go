@@ -57,6 +57,7 @@ type Channel struct {
 	log       *slog.Logger
 	hub       *hub
 	mu        sync.Mutex
+	sendMu    sync.Mutex // serializes app inbox insertion and submission
 	state     map[string]AgentState
 	codes     map[string]pairCode
 }
@@ -103,7 +104,61 @@ func (c *Channel) Start(ctx context.Context) error {
 	if n > 0 {
 		c.log.Info("marked interrupted replies", "count", n)
 	}
-	return os.MkdirAll(c.FilesDir, 0o700)
+	if err := os.MkdirAll(c.FilesDir, 0o700); err != nil {
+		return err
+	}
+	entries, err := c.Store.AppInbox(ctx)
+	if err != nil {
+		return fmt.Errorf("load app inbox: %w", err)
+	}
+	// Restore immediately until the router is full; retry any remainder in the background.
+	c.sendMu.Lock()
+	c.restoreInbox(ctx, entries)
+
+	return nil
+}
+
+// restoreInbox retries full queues without discarding the durable entries.
+func (c *Channel) restoreInbox(ctx context.Context, entries []store.AppInboxEntry) {
+	for i, entry := range entries {
+		if router.IsStopCommand(entry.Prompt) {
+			if err := c.Store.RemoveAppInbox(ctx, entry.ID); err != nil {
+				c.log.Error("remove recovered stop command", "err", err)
+			}
+			continue
+		}
+		var files []store.AppFile
+		prompt := entry.Prompt
+		for _, id := range entry.FileIDs {
+			file, found, err := c.Store.AppFile(ctx, id)
+			if err != nil || !found || file.Thread != entry.Thread {
+				prompt += "\n\nAn attachment for this message could not be restored. Tell the user and ask them to resend it."
+				c.log.Warn("queued attachment unavailable", "err", err)
+				continue
+			}
+			files = append(files, file)
+		}
+		msg := c.Message(entry.Thread, prompt, "")
+		msg.Batch = true
+		msg.AppInboxIDs = []int64{entry.ID}
+		if len(files) > 0 {
+			msg.Fetch = c.fetcher(files)
+		}
+		c.setState(entry.Thread, AgentState{Working: true, Detail: "Queued", Since: c.Now()})
+		if !c.Submit(msg) {
+			go func(remaining []store.AppInboxEntry) {
+				select {
+				case <-ctx.Done():
+					c.sendMu.Unlock()
+					return
+				case <-time.After(time.Second):
+					c.restoreInbox(ctx, remaining)
+				}
+			}(entries[i:])
+			return
+		}
+	}
+	c.sendMu.Unlock()
 }
 
 // ChatKey is the conversation key of an agent's app thread. A job run in
@@ -212,7 +267,21 @@ func (c *Channel) Message(agentName, text, job string) router.Message {
 		SendFile: t.sendFile,
 		OnDone: func(router.TurnResult) {
 			t.notifyFinal()
-			c.setState(agentName, AgentState{})
+			state := AgentState{}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			pending, err := c.Store.AppInbox(ctx)
+			if err != nil {
+				c.log.Warn("load pending app messages", "err", err)
+			} else {
+				for _, entry := range pending {
+					if entry.Thread == agentName {
+						state = AgentState{Working: true, Detail: "Queued", Since: c.Now()}
+						break
+					}
+				}
+			}
+			c.setState(agentName, state)
 		},
 	}
 }

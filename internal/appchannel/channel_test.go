@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -531,6 +532,60 @@ func TestJobEvents(t *testing.T) {
 		case got := <-pushed:
 			t.Fatalf("routine job report pushed: %q", got.Text)
 		case <-time.After(100 * time.Millisecond):
+		}
+	})
+}
+
+func TestStartRestoresPendingInbox(t *testing.T) {
+	subject := (*Channel).Start
+	ctx := context.Background()
+	db := store.NewTestStore(t)
+	message, err := db.AddAppInboxMessage(ctx, store.AppMessage{Thread: "support", Role: store.RoleUser, Text: "hello"}, "the full prompt", nil)
+	require.NoError(t, err)
+	var submitted []router.Message
+	ch := &Channel{Store: db, FilesDir: t.TempDir(), Submit: func(m router.Message) bool {
+		submitted = append(submitted, m)
+		return true
+	}}
+	require.NoError(t, subject(ch, ctx))
+	require.Len(t, submitted, 1)
+	assert.Equal(t, "the full prompt", submitted[0].Text)
+	assert.Equal(t, []int64{message.ID}, submitted[0].AppInboxIDs)
+	assert.True(t, submitted[0].Batch)
+}
+
+func TestStartRecoversInboxProblems(t *testing.T) {
+	subject := (*Channel).Start
+	t.Run("A missing attachment does not prevent startup", func(t *testing.T) {
+		ctx := context.Background()
+		db := store.NewTestStore(t)
+		_, err := db.AddAppInboxMessage(ctx, store.AppMessage{Thread: "support", Role: store.RoleUser, Text: "hello"}, "hello", []string{"missing"})
+		require.NoError(t, err)
+		var submitted router.Message
+		ch := &Channel{Store: db, FilesDir: t.TempDir(), Submit: func(m router.Message) bool { submitted = m; return true }}
+		require.NoError(t, subject(ch, ctx))
+		assert.Contains(t, submitted.Text, "attachment for this message could not be restored")
+	})
+	t.Run("A full queue is retried without blocking startup", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		db := store.NewTestStore(t)
+		_, err := db.AddAppInboxMessage(ctx, store.AppMessage{Thread: "support", Role: store.RoleUser, Text: "hello"}, "hello", nil)
+		require.NoError(t, err)
+		accepted := make(chan struct{})
+		var calls atomic.Int32
+		ch := &Channel{Store: db, FilesDir: t.TempDir(), Submit: func(m router.Message) bool {
+			if calls.Add(1) == 1 {
+				return false
+			}
+			close(accepted)
+			return true
+		}}
+		require.NoError(t, subject(ch, ctx))
+		select {
+		case <-accepted:
+		case <-time.After(3 * time.Second):
+			t.Fatal("message was not retried")
 		}
 	})
 }
