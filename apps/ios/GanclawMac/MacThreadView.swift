@@ -164,20 +164,31 @@ struct MacThreadView: View {
                                 .overlay(Capsule().stroke(Theme.line))
                         }
                         .buttonStyle(.plain)
-                        .onHover { hovering in
-                            hoveringJumpToLatest = hovering
-                            (hovering ? NSCursor.pointingHand : NSCursor.arrow).set()
-                        }
-                        .onDisappear {
-                            if hoveringJumpToLatest {
-                                hoveringJumpToLatest = false
-                                NSCursor.arrow.set()
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active:
+                                if !hoveringJumpToLatest {
+                                    hoveringJumpToLatest = true
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pointingHand.set()
+                                }
+                            case .ended:
+                                restoreJumpCursor()
                             }
                         }
+                        .onDisappear { restoreJumpCursor() }
                         .padding(.bottom, 10)
                     }
                 }
             }
+        }
+    }
+
+    private func restoreJumpCursor() {
+        if hoveringJumpToLatest {
+            hoveringJumpToLatest = false
+            NSCursor.pop()
         }
     }
 
