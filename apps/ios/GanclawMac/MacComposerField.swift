@@ -23,8 +23,13 @@ struct MacComposerField: NSViewRepresentable {
     static let maxLines: CGFloat = 6
 
     func makeNSView(context: Context) -> NSScrollView {
+        let scroll = Self.makeScrollView()
+        (scroll.documentView as? ComposerNSTextView)?.delegate = context.coordinator
+        return scroll
+    }
+
+    static func makeScrollView() -> NSScrollView {
         let view = ComposerNSTextView()
-        view.delegate = context.coordinator
         view.isRichText = false
         view.importsGraphics = false
         view.allowsUndo = true
