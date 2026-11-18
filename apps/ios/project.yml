@@ -38,14 +38,8 @@ targets:
         "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": $(GANCLAW_PUSH_ENTITLEMENTS)
         INFOPLIST_FILE: Ganclaw/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"
-        # The Mac app is this app built with Mac Catalyst.
-        SUPPORTS_MACCATALYST: YES
+        SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
-        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
-        MACOSX_DEPLOYMENT_TARGET: "14.0"
-        # Generated from Platform/Capability.swift by tools/gencap (Mac only;
-        # iOS enforces no entitlements for these).
-        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Ganclaw/Generated/Ganclaw-mac.entitlements
         # gencap writes Info.plist and the entitlements file in the source tree.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -82,14 +76,12 @@ targets:
     settings:
       base:
         # Same bundle ID as the iOS app: on the App Store it is the macOS
-        # half of one universal-purchase record (the Catalyst build is for
-        # local use only and never uploaded).
+        # half of one universal-purchase record.
         PRODUCT_BUNDLE_IDENTIFIER: com.kyleparisi.ganclaw
         PRODUCT_NAME: Ganclaw
         INFOPLIST_FILE: GanclawMac/Info.plist
-        # Same generated entitlements as the Catalyst build: App Sandbox
-        # (required by the Mac App Store), and under the hardened runtime
-        # the mic needs audio-input.
+        # App Sandbox is required by the Mac App Store; the mic also needs
+        # audio-input under the hardened runtime.
         CODE_SIGN_ENTITLEMENTS: Ganclaw/Generated/Ganclaw-mac.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         ENABLE_USER_SCRIPT_SANDBOXING: NO

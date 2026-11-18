@@ -22,8 +22,7 @@ change UI.
 
 ## Native Mac app (`GanclawMac` target)
 
-A separate macOS target in the same `project.yml` (the Catalyst build of the
-iOS app still exists). It compiles `Ganclaw/Model`, `Net`, `Platform`
+A separate macOS target in the same `project.yml`. It compiles `Ganclaw/Model`, `Net`, `Platform`
 (minus the UIKit composer) and the shared views (`MessageRow`,
 `MessageContent`, `FileView`, `JobViews`, `InboxView`'s rows, `DriveView`,
 `VoiceSettingsView`, `Overlays`), plus `GanclawMac/`: a `NavigationSplitView`
@@ -46,8 +45,7 @@ into both `Ganclaw/Info.plist` and `GanclawMac/Info.plist`. The native app
 has the iOS app's bundle ID (`com.kyleparisi.ganclaw`): it is the macOS
 half of the same App Store Connect record, uploaded with
 `tools/testflight.sh --mac --upload`. It is sandboxed (the Mac App Store
-requires it), so its pairing lives in its own container and it pairs
-separately from the Catalyst build; a new file or network need means a
+requires it), so its pairing lives in its own container; a new file or network need means a
 sandbox entitlement in `Capability.macSandboxEntitlements`. It has no
 control server yet.
 

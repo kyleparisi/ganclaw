@@ -15,9 +15,7 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.ink)
                 }
             } header: { Text("Audio") }
-            #if !targetEnvironment(macCatalyst)
             NotificationsSection()
-            #endif
             Section {
                 if let name = store.state.deviceName { LabeledContent("Device", value: name) }
                 if let server = store.state.server { LabeledContent("Server", value: server.host ?? server.absoluteString) }
@@ -104,7 +102,7 @@ struct NotificationsSection: View {
     @Environment(AppStore.self) private var store
 
     var body: some View {
-        #if os(iOS) && !targetEnvironment(macCatalyst)
+        #if os(iOS)
         let status = store.state.notifications
         Section {
             switch status {

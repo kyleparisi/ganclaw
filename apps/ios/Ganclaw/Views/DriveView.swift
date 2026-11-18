@@ -202,7 +202,7 @@ struct DriveView: View {
     private func subtitle(_ d: DriveState) -> String {
         if d.muted { return "Mic paused · tap Resume to talk" }
         guard d.phase == .speaking else { return "Always listening · just talk" }
-        #if os(macOS) || targetEnvironment(macCatalyst)
+        #if os(macOS)
         // No echo cancellation on the Mac: the mic would hear the reply, so
         // it waits for the agent to finish.
         return "Your turn when it's done"

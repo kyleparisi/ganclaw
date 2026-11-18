@@ -67,7 +67,7 @@ private final class LiveSpeech: NSObject, AVSpeechSynthesizerDelegate {
     /// listening while a reply plays, so the user can talk over it. Without
     /// it (the Mac) the mic would hear the reply itself and cut it off, so
     /// recognition pauses while speaking and resumes after: turn-taking.
-    #if os(macOS) || targetEnvironment(macCatalyst)
+    #if os(macOS)
     private let echoCancelled = false
     #else
     private let echoCancelled = true
@@ -131,17 +131,13 @@ private final class LiveSpeech: NSObject, AVSpeechSynthesizerDelegate {
         #if os(iOS)
         try Self.sessionQueue.sync {
             let session = AVAudioSession.sharedInstance()
-            #if os(macOS) || targetEnvironment(macCatalyst)
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
-            #else
             try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker, .duckOthers])
-            #endif
             try session.setActive(true, options: .notifyOthersOnDeactivation)
         }
         #endif
 
         let input = audio.inputNode
-        #if !os(macOS) && !targetEnvironment(macCatalyst)
+        #if !os(macOS)
         // Echo cancellation lets the user talk over a spoken reply. On the
         // Mac it changes the input format under the engine, and a tap that
         // no longer matches the hardware raises an Objective-C exception
