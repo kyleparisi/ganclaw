@@ -66,10 +66,15 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
           security find-identity -v "$KEYCHAIN"
-          # The Mac job signs its .pkg with the installer identity.
-          if [ "${{ matrix.platform }}" = mac ] && ! security find-identity -v "$KEYCHAIN" | grep -q "Mac Developer Installer\|Mac Installer Distribution"; then
-            echo "IOS_DIST_CERT_P12 has no Mac installer certificate; see apps/ios/README.md"; exit 1
-          fi
+          # Automatic signing archives with Apple Development; the export
+          # re-signs with Apple Distribution, and the Mac .pkg with the
+          # installer identity.
+          need=("Apple Development" "Apple Distribution")
+          test "${{ matrix.platform }}" = mac && need+=("Mac Developer Installer")
+          for id in "${need[@]}"; do
+            security find-identity -v "$KEYCHAIN" | grep -q "$id" \
+              || { echo "IOS_DIST_CERT_P12 has no $id certificate; see apps/ios/README.md"; exit 1; }
+          done
 
           mkdir -p "$RUNNER_TEMP/asc"
           printf '%s' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
@@ -90,7 +95,6 @@ jobs:
           DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          GANCLAW_SIGN_IDENTITY: Apple Distribution
         run: |
           export ASC_KEY_PATH="$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
           status=0
