@@ -252,6 +252,8 @@ struct MacThreadView: View {
                             store.addAttachment(name: image.name, mime: image.mime, data: image.data)
                         }
                     )
+                    .frame(minWidth: 0, maxWidth: .infinity)
+                    .layoutPriority(1)
                     .overlay(alignment: .topLeading) {
                         if t.draft.isEmpty {
                             Text("Message \(Theme.displayName(agent))")

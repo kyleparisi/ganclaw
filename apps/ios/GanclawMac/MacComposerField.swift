@@ -30,8 +30,11 @@ struct MacComposerField: NSViewRepresentable {
         view.textContainerInset = .zero
         view.textContainer?.lineFragmentPadding = 0
         view.textContainer?.widthTracksTextView = true
+        view.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         view.isVerticallyResizable = true
         view.isHorizontallyResizable = false
+        view.minSize = .zero
+        view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         view.autoresizingMask = [.width]
         view.isAutomaticQuoteSubstitutionEnabled = false
         view.isAutomaticDashSubstitutionEnabled = false
@@ -40,6 +43,7 @@ struct MacComposerField: NSViewRepresentable {
         let scroll = NSScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = false
         scroll.autohidesScrollers = true
         scroll.borderType = .noBorder
         scroll.documentView = view
@@ -68,7 +72,11 @@ struct MacComposerField: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
         guard let width = proposal.width, let view = nsView.documentView as? NSTextView,
               let layout = view.layoutManager, let container = view.textContainer else { return nil }
-        container.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        // The text container tracks the document view, so size the view as
+        // well as the container before measuring wrapped lines. Otherwise its
+        // old width can override the proposed width during layout.
+        view.setFrameSize(NSSize(width: width, height: view.frame.height))
+        container.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         layout.ensureLayout(for: container)
         let line = layout.defaultLineHeight(for: Self.font)
         let used = layout.usedRect(for: container).height
