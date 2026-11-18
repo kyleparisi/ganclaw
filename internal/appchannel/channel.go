@@ -103,7 +103,36 @@ func (c *Channel) Start(ctx context.Context) error {
 	if n > 0 {
 		c.log.Info("marked interrupted replies", "count", n)
 	}
-	return os.MkdirAll(c.FilesDir, 0o700)
+	if err := os.MkdirAll(c.FilesDir, 0o700); err != nil {
+		return err
+	}
+	entries, err := c.Store.AppInbox(ctx)
+	if err != nil {
+		return fmt.Errorf("load app inbox: %w", err)
+	}
+	for _, entry := range entries {
+		var files []store.AppFile
+		for _, id := range entry.FileIDs {
+			file, found, err := c.Store.AppFile(ctx, id)
+			if err != nil {
+				return err
+			}
+			if !found || file.Thread != entry.Thread {
+				return fmt.Errorf("queued attachment %q unavailable", id)
+			}
+			files = append(files, file)
+		}
+		msg := c.Message(entry.Thread, entry.Prompt, "")
+		msg.Batch = true
+		msg.AppInboxIDs = []int64{entry.ID}
+		if len(files) > 0 {
+			msg.Fetch = c.fetcher(files)
+		}
+		if !c.Submit(msg) {
+			return fmt.Errorf("restore app inbox for %q: queue full", entry.Thread)
+		}
+	}
+	return nil
 }
 
 // ChatKey is the conversation key of an agent's app thread. A job run in
@@ -212,7 +241,21 @@ func (c *Channel) Message(agentName, text, job string) router.Message {
 		SendFile: t.sendFile,
 		OnDone: func(router.TurnResult) {
 			t.notifyFinal()
-			c.setState(agentName, AgentState{})
+			state := AgentState{}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			pending, err := c.Store.AppInbox(ctx)
+			if err != nil {
+				c.log.Warn("load pending app messages", "err", err)
+			} else {
+				for _, entry := range pending {
+					if entry.Thread == agentName {
+						state = AgentState{Working: true, Detail: "Queued", Since: c.Now()}
+						break
+					}
+				}
+			}
+			c.setState(agentName, state)
 		},
 	}
 }

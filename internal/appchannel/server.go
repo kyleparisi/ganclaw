@@ -305,7 +305,19 @@ func (c *Channel) handleSend(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	m, err := c.Store.AddAppMessage(ctx, store.AppMessage{Thread: n, Role: store.RoleUser, Text: req.Text, Files: files, ReplyTo: req.ReplyTo})
+	var fileIDs []string
+	for _, f := range files {
+		fileIDs = append(fileIDs, f.ID)
+	}
+	message := store.AppMessage{Thread: n, Role: store.RoleUser, Text: req.Text, Files: files, ReplyTo: req.ReplyTo}
+	var m store.AppMessage
+	var err error
+	isStop := strings.EqualFold(strings.TrimSpace(prompt), "/stop")
+	if isStop {
+		m, err = c.Store.AddAppMessage(ctx, message)
+	} else {
+		m, err = c.Store.AddAppInboxMessage(ctx, message, prompt, fileIDs)
+	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed", err.Error())
 		return
@@ -313,6 +325,10 @@ func (c *Channel) handleSend(w http.ResponseWriter, r *http.Request) {
 	c.publishMessage(m)
 
 	msg := c.Message(n, prompt, "")
+	msg.Batch = true
+	if !isStop {
+		msg.AppInboxIDs = []int64{m.ID}
+	}
 	if len(files) > 0 {
 		msg.Fetch = c.fetcher(files)
 	}
@@ -324,6 +340,9 @@ func (c *Channel) handleSend(w http.ResponseWriter, r *http.Request) {
 		c.setState(n, AgentState{Working: true, Detail: "Queued", Since: c.Now()})
 	}
 	if !c.Submit(msg) {
+		if !isStop {
+			_ = c.Store.RemoveAppInbox(context.WithoutCancel(ctx), m.ID)
+		}
 		c.setState(n, prev)
 		_, _ = c.Post(context.WithoutCancel(ctx), n, store.RoleSystem, "I'm busy with earlier messages — please try again in a bit.", "")
 		writeErr(w, http.StatusTooManyRequests, "busy", "that thread has too many queued messages")

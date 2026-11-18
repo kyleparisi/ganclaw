@@ -534,3 +534,21 @@ func TestJobEvents(t *testing.T) {
 		}
 	})
 }
+
+func TestStartRestoresPendingInbox(t *testing.T) {
+	subject := (*Channel).Start
+	ctx := context.Background()
+	db := store.NewTestStore(t)
+	message, err := db.AddAppInboxMessage(ctx, store.AppMessage{Thread: "support", Role: store.RoleUser, Text: "hello"}, "the full prompt", nil)
+	require.NoError(t, err)
+	var submitted []router.Message
+	ch := &Channel{Store: db, FilesDir: t.TempDir(), Submit: func(m router.Message) bool {
+		submitted = append(submitted, m)
+		return true
+	}}
+	require.NoError(t, subject(ch, ctx))
+	require.Len(t, submitted, 1)
+	assert.Equal(t, "the full prompt", submitted[0].Text)
+	assert.Equal(t, []int64{message.ID}, submitted[0].AppInboxIDs)
+	assert.True(t, submitted[0].Batch)
+}

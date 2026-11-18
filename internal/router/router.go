@@ -23,6 +23,11 @@ import (
 // Message is one incoming chat message, with callbacks into its channel.
 type Message struct {
 	TaskID string
+	// AppInboxIDs identifies durable app inputs being handed to this turn.
+	AppInboxIDs []int64
+	// Batch marks ordinary chat messages that may share a turn with queued messages.
+	Batch           bool
+	attachmentNotes *string
 	// ChatKey identifies the conversation, e.g. "telegram:<bot>:<chat>".
 	ChatKey string
 	Agent   string
@@ -180,7 +185,22 @@ func (r *Router) worker(key string, q chan Message) {
 	for {
 		select {
 		case m := <-q:
-			r.process(m)
+			// Only combine adjacent ordinary chat messages. Commands and API tasks
+			// remain ordering barriers and retain their individual callbacks.
+			batch := []Message{m}
+			if m.Batch && (m.Fetch != nil || command(m.Text) == "") {
+				for len(q) > 0 {
+					next := <-q
+					if !next.Batch || (next.Fetch == nil && command(next.Text) != "") {
+						// Keep the barrier and following messages in order.
+						r.processBatch(batch)
+						batch = []Message{next}
+						break
+					}
+					batch = append(batch, next)
+				}
+			}
+			r.processBatch(batch)
 			idle.Reset(r.cfg.IdleTimeout)
 		case <-r.ctx.Done():
 			return
@@ -197,6 +217,53 @@ func (r *Router) worker(key string, q chan Message) {
 			idle.Reset(r.cfg.IdleTimeout)
 		}
 	}
+}
+
+// processBatch delivers queued chat messages together while preserving each
+// message's attachment fetch and completion callback.
+func (r *Router) processBatch(batch []Message) {
+	if len(batch) == 1 {
+		r.process(batch[0])
+		return
+	}
+	m := batch[0]
+	var prompts []string
+	for _, item := range batch {
+		prompts = append(prompts, item.Text)
+		if len(prompts) > 1 {
+			m.AppInboxIDs = append(m.AppInboxIDs, item.AppInboxIDs...)
+		}
+	}
+	m.Text = "The following messages arrived in order while you were working. Consider all of them in this turn:\n\n"
+	for i, prompt := range prompts {
+		m.Text += fmt.Sprintf("Message %d:\n%s\n\n", i+1, prompt)
+	}
+	var attachmentNotes string
+	m.attachmentNotes = &attachmentNotes
+	m.Fetch = func(ctx context.Context, dir string) ([]provider.Attachment, error) {
+		var all []provider.Attachment
+		for i, item := range batch {
+			if item.Fetch != nil {
+				attachments, err := item.Fetch(ctx, dir)
+				if err != nil {
+					return nil, err
+				}
+				for _, attachment := range attachments {
+					attachmentNotes += fmt.Sprintf("\nMessage %d attachment: %s", i+1, attachment.Path)
+				}
+				all = append(all, attachments...)
+			}
+		}
+		return all, nil
+	}
+	m.OnDone = func(result TurnResult) {
+		for _, item := range batch {
+			if item.OnDone != nil {
+				item.OnDone(result)
+			}
+		}
+	}
+	r.process(m)
 }
 
 // stop cancels the chat's running turn, if any.
@@ -280,6 +347,15 @@ func (r *Router) process(m Message) {
 		}
 	}
 
+	if len(m.AppInboxIDs) > 0 {
+		if err := r.cfg.Store.RemoveAppInboxBatch(ctx, m.AppInboxIDs); err != nil {
+			result.Err = err
+			log.Error("start queued messages", "err", err)
+			reply("Couldn't start the queued messages; they remain pending until the gateway restarts.")
+			return
+		}
+	}
+
 	cmd := command(m.Text)
 	if m.Fetch != nil {
 		cmd = "" // a caption on a file is a message, not a command
@@ -355,6 +431,9 @@ func (r *Router) process(m Message) {
 		r.transcribe(ctx, log, atts)
 	}
 
+	if m.attachmentNotes != nil {
+		m.Text += *m.attachmentNotes
+	}
 	instructions += "\n\n" + turnBudgetInstructions(r.cfg.TurnTimeout)
 
 	req := provider.Request{
