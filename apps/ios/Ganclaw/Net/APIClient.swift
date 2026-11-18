@@ -77,6 +77,11 @@ struct APIClient {
         _ = try await send(request("DELETE", "/app/v1/me"), as: R.self)
     }
 
+    func commands() async throws -> [SlashCommand] {
+        struct R: Decodable { var commands: [SlashCommand] }
+        return try await send(request("GET", "/app/v1/commands"), as: R.self).commands
+    }
+
     func agents() async throws -> [AgentSummary] {
         struct R: Decodable { var agents: [AgentSummary] }
         return try await send(request("GET", "/app/v1/agents"), as: R.self).agents

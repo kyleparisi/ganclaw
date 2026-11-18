@@ -49,7 +49,13 @@ final class CapabilityTests: XCTestCase {
     }
 
     func testManifestEntitlements() {
-        XCTAssertEqual(Capability.macEntitlements, ["com.apple.security.device.audio-input", "com.apple.security.device.camera"])
+        XCTAssertEqual(Capability.macEntitlements, [
+            "com.apple.security.app-sandbox",
+            "com.apple.security.device.audio-input",
+            "com.apple.security.device.camera",
+            "com.apple.security.files.user-selected.read-only",
+            "com.apple.security.network.client",
+        ])
     }
 }
 

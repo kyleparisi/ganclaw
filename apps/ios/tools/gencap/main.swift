@@ -23,7 +23,7 @@ if args == ["--entitlements"] {
 }
 guard let dir = args.first else { fail("usage: gencap <ios-dir> [--check] | --entitlements") }
 let check = args.dropFirst().contains("--check")
-// The iOS/Catalyst app's Info.plist and the native Mac app's carry the
+// The iOS app's Info.plist and the native Mac app's carry the
 // same usage strings.
 let infoURLs = ["Ganclaw/Info.plist", "GanclawMac/Info.plist"].map { URL(fileURLWithPath: dir).appendingPathComponent($0) }
 let entURL = URL(fileURLWithPath: dir).appendingPathComponent("Ganclaw/Generated/Ganclaw-mac.entitlements")

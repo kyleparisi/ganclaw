@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -16,6 +17,7 @@ struct MacThreadView: View {
     @State private var composerFocused = false
     @State private var focusRequest = 0
     @State private var dropTargeted = false
+    @State private var hoveringJumpToLatest = false
 
     /// Readable line length for the conversation column.
     private let columnWidth: CGFloat = 820
@@ -26,6 +28,17 @@ struct MacThreadView: View {
         VStack(spacing: 0) {
             messages(t)
             if let rid = t.replyTo { replyBar(rid) }
+            if t.replyTo == nil, !recorder.recording {
+                let suggestions = SlashCommand.suggestions(for: t.draft, commands: store.state.commands)
+                if !suggestions.isEmpty {
+                    SlashCommandSuggestions(commands: suggestions) { command in
+                        store.send(.draft(agent, "/" + command.name))
+                        composerFocused = true
+                        focusRequest += 1
+                    }
+                    .frame(maxWidth: columnWidth)
+                }
+            }
             composer(t)
         }
         .background(Theme.ground)
@@ -150,6 +163,7 @@ struct MacThreadView: View {
                 .onPreferenceChange(MacNearBottom.self) { nearBottom = $0 }
                 .onAppear { scrollToEntry(proxy, t) }
                 .onChange(of: t.loaded) { _, _ in scrollToEntry(proxy, t) }
+                .onChange(of: t.lastSentMessageID) { _, id in scrollAfterSend(proxy, id) }
                 .onChange(of: t.messages.last?.id) { _, _ in if nearBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
                 .onChange(of: t.streaming) { _, _ in if nearBottom { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .overlay(alignment: .bottom) {
@@ -162,10 +176,31 @@ struct MacThreadView: View {
                                 .overlay(Capsule().stroke(Theme.line))
                         }
                         .buttonStyle(.plain)
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active:
+                                if !hoveringJumpToLatest {
+                                    hoveringJumpToLatest = true
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pointingHand.set()
+                                }
+                            case .ended:
+                                restoreJumpCursor()
+                            }
+                        }
+                        .onDisappear { restoreJumpCursor() }
                         .padding(.bottom, 10)
                     }
                 }
             }
+        }
+    }
+
+    private func restoreJumpCursor() {
+        if hoveringJumpToLatest {
+            hoveringJumpToLatest = false
+            NSCursor.pop()
         }
     }
 
@@ -182,6 +217,15 @@ struct MacThreadView: View {
     private func firstUnread(_ t: ThreadState) -> Int64? {
         guard let boundary = unreadBoundary else { return nil }
         return t.messages.first { $0.id > boundary && $0.role != .user && $0.status != .streaming }?.id
+    }
+
+    private func scrollAfterSend(_ proxy: ScrollViewProxy, _ id: Int64?) {
+        guard id != nil else { return }
+        // The live event may have inserted the message before the send
+        // confirmation, so scroll even if its ID was already displayed.
+        DispatchQueue.main.async {
+            withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+        }
     }
 
     private func scrollToEntry(_ proxy: ScrollViewProxy, _ t: ThreadState) {
@@ -247,14 +291,25 @@ struct MacThreadView: View {
                         placeholder: "Message \(Theme.displayName(agent))",
                         pasteboard: store.platform.pasteboard,
                         onSubmit: { Task { await store.sendDraft(agent) } },
+                        onComplete: {
+                            guard store.state.thread(agent).replyTo == nil,
+                                  let command = SlashCommand.suggestions(for: store.state.thread(agent).draft, commands: store.state.commands).first else { return false }
+                            store.send(.draft(agent, "/" + command.name))
+                            return true
+                        },
                         onImage: { image in
                             store.send(.attachOpen(agent))
                             store.addAttachment(name: image.name, mime: image.mime, data: image.data)
-                        }
+                        },
+                        onFiles: { files in
+                            store.send(.attachOpen(agent))
+                            MacAttachSheet.add(files, to: store)
+                        },
+                        onPasteError: { store.send(.banner("Couldn't read the pasted image or files.")) }
                     )
-                    .frame(minWidth: 0, maxWidth: .infinity)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 20, alignment: .center)
                     .layoutPriority(1)
-                    .overlay(alignment: .topLeading) {
+                    .overlay(alignment: .leading) {
                         if t.draft.isEmpty {
                             Text("Message \(Theme.displayName(agent))")
                                 .font(.system(size: 14))

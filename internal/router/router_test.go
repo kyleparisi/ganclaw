@@ -864,3 +864,70 @@ func TestTurnBudgetInstructions(t *testing.T) {
 		assert.Contains(t, subject(90*time.Second), "limited to about 1m30s.")
 	})
 }
+
+func TestQueuedChatMessagesShareNextTurn(t *testing.T) {
+	subject := New
+	db := store.NewTestStore(t)
+	out := newReplies()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	r := subject(ctx, Config{Agents: testAgents(), Store: db, Run: func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+		if req.Prompt == "first" {
+			close(started)
+			<-release
+		}
+		return "codex", provider.Result{Text: req.Prompt}, nil
+	}})
+	t.Cleanup(func() { cancel(); r.Wait() })
+	first := out.msg("chat", "first")
+	first.Batch = true
+	require.True(t, r.Submit(first))
+	<-started
+	second := out.msg("chat", "second")
+	second.Batch = true
+	third := out.msg("chat", "third")
+	third.Batch = true
+	require.True(t, r.Submit(second))
+	require.True(t, r.Submit(third))
+	close(release)
+	assert.Equal(t, "first", out.next(t))
+	answer := out.next(t)
+	assert.Contains(t, answer, "Message 1:\nsecond")
+	assert.Contains(t, answer, "Message 2:\nthird")
+}
+
+func TestQueuedBatchSurvivesAttachmentFailure(t *testing.T) {
+	subject := New
+	db := store.NewTestStore(t)
+	out := newReplies()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	r := subject(ctx, Config{Agents: testAgents(), Store: db, Run: func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+		if req.Prompt == "first" {
+			close(started)
+			<-release
+		}
+		return "codex", provider.Result{Text: req.Prompt}, nil
+	}})
+	t.Cleanup(func() { cancel(); r.Wait() })
+	first := out.msg("chat", "first")
+	first.Batch = true
+	require.True(t, r.Submit(first))
+	<-started
+	second := out.msg("chat", "see attachment")
+	second.Batch = true
+	second.Fetch = func(context.Context, string) ([]provider.Attachment, error) {
+		return nil, errors.New("download failed")
+	}
+	third := out.msg("chat", "also do this")
+	third.Batch = true
+	require.True(t, r.Submit(second))
+	require.True(t, r.Submit(third))
+	close(release)
+	assert.Equal(t, "first", out.next(t))
+	answer := out.next(t)
+	assert.Contains(t, answer, "Message 1 attachment could not be retrieved")
+	assert.Contains(t, answer, "also do this")
+}

@@ -68,6 +68,8 @@ struct ThreadState: Codable, Equatable {
     /// Text streamed so far for replies still being written, by message ID.
     var streaming: [Int64: String] = [:]
     var sending = false
+    /// The latest message this device successfully sent in this thread.
+    var lastSentMessageID: Int64?
     /// Live updates received while a history request is in flight.
     var pendingMessages: [AppMessage] = []
 
@@ -122,6 +124,7 @@ struct AppState: Codable, Equatable {
     var deviceName: String?
     var pairing = PairingState()
 
+    var commands: [SlashCommand] = SlashCommand.builtIn
     var agents: [AgentSummary] = []
     var agentsLoaded = false
     var filter: InboxFilter = .all
@@ -208,6 +211,7 @@ struct AppState: Codable, Equatable {
         case unpaired(reason: String?)
         case connection(ConnectionStatus)
 
+        case commandsLoaded([SlashCommand])
         case agentsLoaded([AgentSummary])
         case readState(String, ReadState)
         case threadLoading(String)
@@ -278,6 +282,8 @@ struct AppState: Codable, Equatable {
         case .connection(let s):
             if connection != .unpaired { connection = s }
 
+        case .commandsLoaded(let commands):
+            self.commands = commands
         case .agentsLoaded(let list):
             // A GET started before a read event may finish after it. Preserve
             // the newer shared cursor rather than restoring stale unread state.
@@ -352,6 +358,7 @@ struct AppState: Codable, Equatable {
             t.draft = ""
             t.replyTo = nil
             t.sending = false
+            t.lastSentMessageID = m.id
             threads[m.thread] = t
             upsert(m)
 

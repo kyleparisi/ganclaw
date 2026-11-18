@@ -17,6 +17,15 @@ struct ThreadView: View {
             header
             messages(t)
             if let rid = t.replyTo { replyBar(rid, t) }
+            if t.replyTo == nil, !recorder.recording {
+                let suggestions = SlashCommand.suggestions(for: t.draft, commands: store.state.commands)
+                if !suggestions.isEmpty {
+                    SlashCommandSuggestions(commands: suggestions) { command in
+                        store.send(.draft(agent, "/" + command.name))
+                        composerFocused = true
+                    }
+                }
+            }
             composer(t)
         }
         .background(Theme.ground.ignoresSafeArea())

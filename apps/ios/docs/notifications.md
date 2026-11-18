@@ -127,5 +127,5 @@ APNs alerts carry the total unread count for configured agents as their badge.
 The foreground app refreshes its icon badge on reload and read updates and
 requests badge authorization along with alerts and sound. APNs is best effort:
 a suspended second device's badge may stay stale until its next alert or app
-refresh; a read update does not send a separate silent push. Mac Catalyst has
-no APNs badge integration; its inbox uses the same shared unread counts.
+refresh; a read update does not send a separate silent push. The native Mac
+app uses shared unread counts and updates its Dock badge while running.

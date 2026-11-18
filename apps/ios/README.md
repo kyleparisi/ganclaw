@@ -47,6 +47,12 @@ ganclaw run --agent infra --to app:infra --session nightly-log-check --quiet \
 The run shows up under Jobs, and "Ask about this run" replies to it in the
 agent's thread. `ganclaw send --to app:infra "text"` posts a plain message.
 
+## Slash commands
+
+Type `/` in a conversation to see the server's available commands. Select a
+suggestion to fill the composer, then send it. On the native Mac app, Tab
+completes the first suggestion. Older servers use the built-in command list.
+
 ## Reply to a message
 
 Swipe a message to the left to select it, then type your reply. The composer
@@ -96,8 +102,7 @@ apps/ios/tools/testflight.sh --mac --upload   # the native Mac app (.pkg), same 
 The native Mac app (`GanclawMac`) has the iOS app's bundle ID, so it is
 the macOS half of the same App Store Connect record (universal purchase):
 TestFlight lists its builds under macOS, and testers install them with the
-TestFlight app on their Mac. The Catalyst build is for local use only and
-is never uploaded. The Mac App Store requires App Sandbox; the app is
+TestFlight app on their Mac. The Mac App Store requires App Sandbox; the app is
 sandboxed with outgoing network, user-selected files (read-only), mic and
 camera (`Platform/Capability.swift`).
 
@@ -121,7 +126,7 @@ distribution certificate from secrets. Add these as secrets of the
 | `ASC_KEY_ID` | Key ID of an App Store Connect API key (Users and Access → Integrations → Team Keys, role **Admin** so it can manage profiles) |
 | `ASC_ISSUER_ID` | Issuer ID shown on the same page |
 | `ASC_KEY_P8` | Contents of the downloaded `AuthKey_<id>.p8` |
-| `IOS_DIST_CERT_P12` | An **Apple Distribution** certificate with its private key, exported from Keychain Access as .p12, then `base64 -i cert.p12 \| pbcopy` |
+| `IOS_DIST_CERT_P12` | The **Apple Development**, **Apple Distribution** and **3rd Party Mac Developer Installer** certificates with their private keys: select all three in Keychain Access → My Certificates, Export 3 Items… as one .p12, then `base64 -i cert.p12 \| pbcopy`. Automatic signing archives with the development certificate, the export re-signs with the distribution one, and the installer certificate signs the Mac .pkg (Xcode creates it on your first local `testflight.sh --mac --upload`). |
 | `IOS_DIST_CERT_PASSWORD` | The password you gave the .p12 |
 
 Set the repository variable `IOS_PUSH` to `true` to build with the push

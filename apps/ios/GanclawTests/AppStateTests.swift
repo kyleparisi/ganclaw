@@ -53,6 +53,17 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(state.agent("trader")?.lastMessage?.id, 12)
     }
 
+    func testSlashCommandSuggestionsMatchOnlyCommandDrafts() {
+        let commands = SlashCommand.builtIn
+        XCTAssertEqual(SlashCommand.suggestions(for: "/", commands: commands).count, 5)
+        XCTAssertEqual(SlashCommand.suggestions(for: "/st", commands: commands).map(\.name), ["stop", "status"])
+        XCTAssertEqual(SlashCommand.suggestions(for: "/RE", commands: commands).map(\.name), ["reset"])
+        XCTAssertTrue(SlashCommand.suggestions(for: "/stop", commands: commands).isEmpty)
+        XCTAssertTrue(SlashCommand.suggestions(for: "/stop now", commands: commands).isEmpty)
+        XCTAssertTrue(SlashCommand.suggestions(for: "hello /st", commands: commands).isEmpty)
+        XCTAssertTrue(SlashCommand.suggestions(for: "/unknown", commands: commands).isEmpty)
+    }
+
     func testUnreadFieldsAreBackwardCompatible() throws {
         let old = try JSON.decoder.decode(AgentSummary.self,
             from: Data(#"{"name":"support","state":{"working":false},"needs_you":false}"#.utf8))
@@ -188,6 +199,34 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(s.thread("infra").draft, "")
         XCTAssertNil(s.thread("infra").replyTo)
         XCTAssertEqual(s.thread("infra").messages.map(\.id), [5])
+    }
+
+    func testSendConfirmationIsRecordedAfterItsLiveMessageEvent() {
+        var state = AppState()
+        let message = msg(5, "support", role: .user, text: "hello")
+        state.apply(.threadLoaded("support", [], .idle))
+        state.apply(.event(ServerEvent(type: "message", message: message)))
+        XCTAssertNil(state.thread("support").lastSentMessageID)
+        state.apply(.sent(message))
+        XCTAssertEqual(state.thread("support").lastSentMessageID, message.id)
+        XCTAssertEqual(state.thread("support").messages.map(\.id), [message.id])
+        XCTAssertNil(state.thread("sales").lastSentMessageID)
+    }
+
+    func testSendConfirmationPrecedesItsLiveEventAndTracksLaterSends() {
+        var state = AppState()
+        let first = msg(5, "support", role: .user, text: "hello")
+        let second = msg(6, "support", role: .user, text: "follow up")
+        state.apply(.threadLoaded("support", [], .idle))
+        state.apply(.sending("support", true))
+        state.apply(.sending("support", false)) // A failed send has no confirmation.
+        XCTAssertNil(state.thread("support").lastSentMessageID)
+        state.apply(.sent(first))
+        state.apply(.event(ServerEvent(type: "message", message: first)))
+        XCTAssertEqual(state.thread("support").messages.map(\.id), [first.id])
+        XCTAssertEqual(state.thread("support").lastSentMessageID, first.id)
+        state.apply(.sent(second))
+        XCTAssertEqual(state.thread("support").lastSentMessageID, second.id)
     }
 
     func testCancellingReplyPreservesDraftAndOtherThreadsSelection() {

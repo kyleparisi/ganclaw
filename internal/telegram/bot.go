@@ -264,6 +264,7 @@ func (b *Bot) addToGroup(chatID int64, groupID, text string, refs []fileRef) {
 
 func (b *Bot) submit(ctx context.Context, chatID int64, text string, refs []fileRef) {
 	msg := b.Message(chatID, b.Agent, text)
+	msg.Batch = true
 	if len(refs) > 0 {
 		msg.Fetch = func(ctx context.Context, dir string) ([]provider.Attachment, error) {
 			return b.Client.fetch(ctx, refs, dir)
