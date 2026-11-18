@@ -14,12 +14,15 @@
 # DEVELOPMENT_TEAM in apps/ios/Local.xcconfig (git-ignored).
 #
 # Without an Xcode account (CI, .github/workflows/testflight.yml), sign in
-# with an App Store Connect API key instead, and sign the archive with a
-# distribution certificate already in the keychain:
+# with an App Store Connect API key instead. The keychain must hold the
+# Apple Development (archive), Apple Distribution (export) and, for --mac,
+# 3rd Party Mac Developer Installer (.pkg) identities:
 #
 #   ASC_KEY_PATH=AuthKey_XXXX.p8 ASC_KEY_ID=XXXX ASC_ISSUER_ID=<uuid>
-#   GANCLAW_SIGN_IDENTITY="Apple Distribution"
 #   BUILD_NUMBER=<n>    # optional; defaults to the timestamp below
+#
+# GANCLAW_SIGN_IDENTITY overrides the archive identity. Don't set it to
+# "Apple Distribution": with automatic signing Xcode rejects that.
 #
 # The build number is a UTC timestamp, so every upload is unique. Push is
 # still opt-in through Local.xcconfig; when it is on, the archive uses the

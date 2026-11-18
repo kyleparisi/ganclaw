@@ -126,7 +126,7 @@ distribution certificate from secrets. Add these as secrets of the
 | `ASC_KEY_ID` | Key ID of an App Store Connect API key (Users and Access → Integrations → Team Keys, role **Admin** so it can manage profiles) |
 | `ASC_ISSUER_ID` | Issuer ID shown on the same page |
 | `ASC_KEY_P8` | Contents of the downloaded `AuthKey_<id>.p8` |
-| `IOS_DIST_CERT_P12` | The **Apple Distribution** and **3rd Party Mac Developer Installer** certificates with their private keys: select both in Keychain Access → My Certificates, Export 2 Items… as one .p12, then `base64 -i cert.p12 \| pbcopy`. (The installer certificate signs the Mac .pkg; Xcode creates it on your first local `testflight.sh --mac --upload`.) |
+| `IOS_DIST_CERT_P12` | The **Apple Development**, **Apple Distribution** and **3rd Party Mac Developer Installer** certificates with their private keys: select all three in Keychain Access → My Certificates, Export 3 Items… as one .p12, then `base64 -i cert.p12 \| pbcopy`. Automatic signing archives with the development certificate, the export re-signs with the distribution one, and the installer certificate signs the Mac .pkg (Xcode creates it on your first local `testflight.sh --mac --upload`). |
 | `IOS_DIST_CERT_PASSWORD` | The password you gave the .p12 |
 
 Set the repository variable `IOS_PUSH` to `true` to build with the push
