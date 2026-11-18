@@ -190,6 +190,18 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(s.thread("infra").messages.map(\.id), [5])
     }
 
+    func testSendConfirmationIsRecordedAfterItsLiveMessageEvent() {
+        var state = AppState()
+        let message = msg(5, "support", role: .user, text: "hello")
+        state.apply(.threadLoaded("support", [], .idle))
+        state.apply(.event(ServerEvent(type: "message", message: message)))
+        XCTAssertNil(state.thread("support").lastSentMessageID)
+        state.apply(.sent(message))
+        XCTAssertEqual(state.thread("support").lastSentMessageID, message.id)
+        XCTAssertEqual(state.thread("support").messages.map(\.id), [message.id])
+        XCTAssertNil(state.thread("sales").lastSentMessageID)
+    }
+
     func testCancellingReplyPreservesDraftAndOtherThreadsSelection() {
         var s = AppState()
         s.apply(.draft("infra", "My unfinished reply"))

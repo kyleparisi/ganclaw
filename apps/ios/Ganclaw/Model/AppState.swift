@@ -68,6 +68,8 @@ struct ThreadState: Codable, Equatable {
     /// Text streamed so far for replies still being written, by message ID.
     var streaming: [Int64: String] = [:]
     var sending = false
+    /// The latest message this device successfully sent in this thread.
+    var lastSentMessageID: Int64?
     /// Live updates received while a history request is in flight.
     var pendingMessages: [AppMessage] = []
 
@@ -352,6 +354,7 @@ struct AppState: Codable, Equatable {
             t.draft = ""
             t.replyTo = nil
             t.sending = false
+            t.lastSentMessageID = m.id
             threads[m.thread] = t
             upsert(m)
 
