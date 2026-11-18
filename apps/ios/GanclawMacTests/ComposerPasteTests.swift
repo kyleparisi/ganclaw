@@ -28,7 +28,10 @@ final class ComposerPasteTests: XCTestCase {
         view.pasteboard.hasImages = { true }
         view.pasteboard.pastedImage = { nil }
         view.onImage = { _ in XCTFail("No image was available") }
+        var reported = false
+        view.onPasteError = { reported = true }
         view.paste(nil)
+        XCTAssertTrue(reported)
         XCTAssertEqual(view.string, "Draft")
     }
 
@@ -51,23 +54,41 @@ final class ComposerPasteTests: XCTestCase {
         board.setData(jpeg, forType: NSPasteboard.PasteboardType(UTType.jpeg.identifier))
         XCTAssertTrue(client.hasImages())
         XCTAssertNotNil(client.pastedImage())
+        XCTAssertTrue(["image/png", "image/jpeg"].contains(client.pastedImage()?.mime ?? ""))
     }
 
-    func testFinderImageFilePreservesNameAndBytes() throws {
+    func testPasteValidationDoesNotReadClipboardContents() {
+        let view = ComposerNSTextView()
+        view.pasteboard.hasFiles = { true }
+        view.pasteboard.fileURLs = { XCTFail("Validation must not read files"); return [] }
+        view.pasteboard.pastedImage = { XCTFail("Validation must not read images"); return nil }
+        let item = NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "")
+        XCTAssertTrue(view.validateUserInterfaceItem(item))
+    }
+
+    func testPasteForwardsEveryCopiedFile() {
+        let view = ComposerNSTextView()
+        let files = [URL(fileURLWithPath: "/tmp/one.png"), URL(fileURLWithPath: "/tmp/two.pdf")]
+        view.pasteboard.hasFiles = { true }
+        view.pasteboard.hasImages = { true }
+        view.pasteboard.pastedImage = { XCTFail("File URLs take precedence"); return nil }
+        view.pasteboard.fileURLs = { files }
+        var received: [URL] = []
+        view.onFiles = { received = $0 }
+        view.paste(nil)
+        XCTAssertEqual(received, files)
+    }
+
+    func testPasteboardExposesCopiedFilesWithoutTreatingThemAsImages() {
         let board = NSPasteboard(name: .init(UUID().uuidString))
         defer { board.releaseGlobally() }
-        let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2,
-                                      bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
-                                      isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-        let bytes = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appendingPathComponent("image.png")
-        try bytes.write(to: file)
-        board.writeObjects([file as NSURL])
+        let files = [URL(fileURLWithPath: "/tmp/one.png"), URL(fileURLWithPath: "/tmp/two.pdf")]
+        board.clearContents()
+        board.writeObjects(files.map { $0 as NSURL })
         let client = PasteboardClient.macPasteboard(board)
-        XCTAssertTrue(client.hasImages())
-        XCTAssertEqual(client.pastedImage(), PastedImage(data: bytes, mime: "image/png", name: "image.png"))
+        XCTAssertTrue(client.hasFiles())
+        XCTAssertFalse(client.hasImages())
+        XCTAssertEqual(client.fileURLs(), files)
     }
+
 }

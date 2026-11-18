@@ -9,6 +9,8 @@ struct PasteboardClient {
     var url: () -> URL?
     var hasContent: () -> Bool
     var hasImages: () -> Bool = { false }
+    var hasFiles: () -> Bool = { false }
+    var fileURLs: () -> [URL] = { [] }
 }
 
 

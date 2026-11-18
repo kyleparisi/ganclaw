@@ -15,6 +15,8 @@ struct MacComposerField: NSViewRepresentable {
     var pasteboard: PasteboardClient
     var onSubmit: () -> Void
     var onImage: (PastedImage) -> Void
+    var onFiles: ([URL]) -> Void
+    var onPasteError: () -> Void
 
     static let font = NSFont.systemFont(ofSize: 14)
     static let maxLines: CGFloat = 6
@@ -52,6 +54,8 @@ struct MacComposerField: NSViewRepresentable {
         view.pasteboard = pasteboard
         view.onSubmit = onSubmit
         view.onImage = onImage
+        view.onFiles = onFiles
+        view.onPasteError = onPasteError
         view.setAccessibilityHelp(placeholder)
         // Don't replace text mid-composition (input methods): it would
         // commit or drop the marked text and move the caret.
@@ -101,6 +105,8 @@ final class ComposerNSTextView: NSTextView {
     var pasteboard: PasteboardClient = .inert
     var onSubmit: () -> Void = {}
     var onImage: (PastedImage) -> Void = { _ in }
+    var onFiles: ([URL]) -> Void = { _ in }
+    var onPasteError: () -> Void = {}
 
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
@@ -119,15 +125,18 @@ final class ComposerNSTextView: NSTextView {
     }
 
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
-        if item.action == #selector(paste(_:)), pasteboard.hasImages() { return true }
+        if item.action == #selector(paste(_:)), pasteboard.hasImages() || pasteboard.hasFiles() { return true }
         return super.validateUserInterfaceItem(item)
     }
 
     override func paste(_ sender: Any?) {
-        guard pasteboard.hasImages() else {
+        if pasteboard.hasFiles() {
+            let files = pasteboard.fileURLs()
+            if files.isEmpty { onPasteError() } else { onFiles(files) }
+        } else if pasteboard.hasImages() {
+            if let image = pasteboard.pastedImage() { onImage(image) } else { onPasteError() }
+        } else {
             pasteAsPlainText(sender)
-            return
         }
-        if let image = pasteboard.pastedImage() { onImage(image) }
     }
 }
