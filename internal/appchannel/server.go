@@ -305,6 +305,11 @@ func (c *Channel) handleSend(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	isStop := router.IsStopCommand(prompt)
+	if !isStop {
+		c.sendMu.Lock()
+		defer c.sendMu.Unlock()
+	}
 	var fileIDs []string
 	for _, f := range files {
 		fileIDs = append(fileIDs, f.ID)
@@ -312,7 +317,6 @@ func (c *Channel) handleSend(w http.ResponseWriter, r *http.Request) {
 	message := store.AppMessage{Thread: n, Role: store.RoleUser, Text: req.Text, Files: files, ReplyTo: req.ReplyTo}
 	var m store.AppMessage
 	var err error
-	isStop := strings.EqualFold(strings.TrimSpace(prompt), "/stop")
 	if isStop {
 		m, err = c.Store.AddAppMessage(ctx, message)
 	} else {
@@ -336,12 +340,16 @@ func (c *Channel) handleSend(w http.ResponseWriter, r *http.Request) {
 	prev := c.agentState(n)
 	// /stop is handled immediately and has no queued turn or OnDone.
 	// Marking an idle agent queued here would leave it working forever.
-	if !prev.Working && !strings.EqualFold(prompt, "/stop") {
+	if !prev.Working && !isStop {
 		c.setState(n, AgentState{Working: true, Detail: "Queued", Since: c.Now()})
 	}
 	if !c.Submit(msg) {
 		if !isStop {
-			_ = c.Store.RemoveAppInbox(context.WithoutCancel(ctx), m.ID)
+			if err := c.Store.RemoveAppInbox(context.WithoutCancel(ctx), m.ID); err != nil {
+				c.log.Error("remove rejected inbox message", "err", err)
+				writeErr(w, http.StatusInternalServerError, "failed", "could not reject the queued message")
+				return
+			}
 		}
 		c.setState(n, prev)
 		_, _ = c.Post(context.WithoutCancel(ctx), n, store.RoleSystem, "I'm busy with earlier messages — please try again in a bit.", "")

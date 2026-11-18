@@ -57,6 +57,7 @@ type Channel struct {
 	log       *slog.Logger
 	hub       *hub
 	mu        sync.Mutex
+	sendMu    sync.Mutex // serializes app inbox insertion and submission
 	state     map[string]AgentState
 	codes     map[string]pairCode
 }
@@ -110,29 +111,54 @@ func (c *Channel) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load app inbox: %w", err)
 	}
-	for _, entry := range entries {
+	// Restore immediately until the router is full; retry any remainder in the background.
+	c.sendMu.Lock()
+	c.restoreInbox(ctx, entries)
+
+	return nil
+}
+
+// restoreInbox retries full queues without discarding the durable entries.
+func (c *Channel) restoreInbox(ctx context.Context, entries []store.AppInboxEntry) {
+	for i, entry := range entries {
+		if router.IsStopCommand(entry.Prompt) {
+			if err := c.Store.RemoveAppInbox(ctx, entry.ID); err != nil {
+				c.log.Error("remove recovered stop command", "err", err)
+			}
+			continue
+		}
 		var files []store.AppFile
+		prompt := entry.Prompt
 		for _, id := range entry.FileIDs {
 			file, found, err := c.Store.AppFile(ctx, id)
-			if err != nil {
-				return err
-			}
-			if !found || file.Thread != entry.Thread {
-				return fmt.Errorf("queued attachment %q unavailable", id)
+			if err != nil || !found || file.Thread != entry.Thread {
+				prompt += "\n\nAn attachment for this message could not be restored. Tell the user and ask them to resend it."
+				c.log.Warn("queued attachment unavailable", "err", err)
+				continue
 			}
 			files = append(files, file)
 		}
-		msg := c.Message(entry.Thread, entry.Prompt, "")
+		msg := c.Message(entry.Thread, prompt, "")
 		msg.Batch = true
 		msg.AppInboxIDs = []int64{entry.ID}
 		if len(files) > 0 {
 			msg.Fetch = c.fetcher(files)
 		}
+		c.setState(entry.Thread, AgentState{Working: true, Detail: "Queued", Since: c.Now()})
 		if !c.Submit(msg) {
-			return fmt.Errorf("restore app inbox for %q: queue full", entry.Thread)
+			go func(remaining []store.AppInboxEntry) {
+				select {
+				case <-ctx.Done():
+					c.sendMu.Unlock()
+					return
+				case <-time.After(time.Second):
+					c.restoreInbox(ctx, remaining)
+				}
+			}(entries[i:])
+			return
 		}
 	}
-	return nil
+	c.sendMu.Unlock()
 }
 
 // ChatKey is the conversation key of an agent's app thread. A job run in

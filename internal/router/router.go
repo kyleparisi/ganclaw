@@ -153,7 +153,7 @@ func (r *Router) Submit(m Message) bool {
 		return false
 	}
 	// /stop must not wait behind the turn it is meant to stop.
-	if command(m.Text) == "stop" {
+	if IsStopCommand(m.Text) {
 		r.stop(m)
 		return true
 	}
@@ -188,10 +188,10 @@ func (r *Router) worker(key string, q chan Message) {
 			// Only combine adjacent ordinary chat messages. Commands and API tasks
 			// remain ordering barriers and retain their individual callbacks.
 			batch := []Message{m}
-			if m.Batch && (m.Fetch != nil || command(m.Text) == "") {
+			if batchable(m) {
 				for len(q) > 0 {
 					next := <-q
-					if !next.Batch || (next.Fetch == nil && command(next.Text) != "") {
+					if !batchable(next) || next.Agent != m.Agent {
 						// Keep the barrier and following messages in order.
 						r.processBatch(batch)
 						batch = []Message{next}
@@ -217,6 +217,11 @@ func (r *Router) worker(key string, q chan Message) {
 			idle.Reset(r.cfg.IdleTimeout)
 		}
 	}
+}
+
+// batchable excludes callers with individual cancellation or task outcomes.
+func batchable(m Message) bool {
+	return m.Batch && m.Ctx == nil && m.TaskID == "" && (m.Fetch != nil || command(m.Text) == "")
 }
 
 // processBatch delivers queued chat messages together while preserving each
@@ -246,7 +251,11 @@ func (r *Router) processBatch(batch []Message) {
 			if item.Fetch != nil {
 				attachments, err := item.Fetch(ctx, dir)
 				if err != nil {
-					return nil, err
+					if ctx.Err() != nil {
+						return nil, err
+					}
+					attachmentNotes += fmt.Sprintf("\nMessage %d attachment could not be retrieved: %s", i+1, truncate(err.Error(), 300))
+					continue
 				}
 				for _, attachment := range attachments {
 					attachmentNotes += fmt.Sprintf("\nMessage %d attachment: %s", i+1, attachment.Path)
@@ -284,6 +293,9 @@ func (r *Router) stop(m Message) {
 	r.log.Info("turn stop requested", "chat", m.ChatKey)
 	cancel(errStopped)
 }
+
+// IsStopCommand reports whether text invokes the immediate stop command.
+func IsStopCommand(text string) bool { return command(text) == "stop" }
 
 // command returns the command name if text is a slash command
 // ("/status" or "/status@SomeBot"), else "".
@@ -347,18 +359,27 @@ func (r *Router) process(m Message) {
 		}
 	}
 
-	if len(m.AppInboxIDs) > 0 {
+	consumeInbox := func() bool {
+		if len(m.AppInboxIDs) == 0 {
+			return true
+		}
 		if err := r.cfg.Store.RemoveAppInboxBatch(ctx, m.AppInboxIDs); err != nil {
 			result.Err = err
 			log.Error("start queued messages", "err", err)
 			reply("Couldn't start the queued messages; they remain pending until the gateway restarts.")
-			return
+			return false
 		}
+		return true
 	}
 
 	cmd := command(m.Text)
 	if m.Fetch != nil {
 		cmd = "" // a caption on a file is a message, not a command
+	}
+	if cmd == "new" || cmd == "reset" || cmd == "help" || cmd == "start" || cmd == "status" {
+		if !consumeInbox() {
+			return
+		}
 	}
 	switch cmd {
 	case "new", "reset":
@@ -424,13 +445,20 @@ func (r *Router) process(m Message) {
 			stopTyping()
 			result.Err = errors.New("task setup failed")
 			log.Warn("fetch attachments", "err", err)
-			reply("Couldn't get the attachment: " + truncate(err.Error(), 300))
+			message := "Couldn't get the attachment: " + truncate(err.Error(), 300)
+			if len(m.AppInboxIDs) > 0 {
+				message += " The message remains pending until the gateway restarts."
+			}
+			reply(message)
 			return
 		}
 		log.Info("attachments saved", "count", len(atts))
 		r.transcribe(ctx, log, atts)
 	}
 
+	if !consumeInbox() {
+		return
+	}
 	if m.attachmentNotes != nil {
 		m.Text += *m.attachmentNotes
 	}
