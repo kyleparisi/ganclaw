@@ -150,6 +150,7 @@ struct MacThreadView: View {
                 .onPreferenceChange(MacNearBottom.self) { nearBottom = $0 }
                 .onAppear { scrollToEntry(proxy, t) }
                 .onChange(of: t.loaded) { _, _ in scrollToEntry(proxy, t) }
+                .onChange(of: t.lastSentMessageID) { _, id in scrollAfterSend(proxy, id) }
                 .onChange(of: t.messages.last?.id) { _, _ in if nearBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
                 .onChange(of: t.streaming) { _, _ in if nearBottom { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .overlay(alignment: .bottom) {
@@ -182,6 +183,15 @@ struct MacThreadView: View {
     private func firstUnread(_ t: ThreadState) -> Int64? {
         guard let boundary = unreadBoundary else { return nil }
         return t.messages.first { $0.id > boundary && $0.role != .user && $0.status != .streaming }?.id
+    }
+
+    private func scrollAfterSend(_ proxy: ScrollViewProxy, _ id: Int64?) {
+        guard id != nil else { return }
+        // The live event may have inserted the message before the send
+        // confirmation, so scroll even if its ID was already displayed.
+        DispatchQueue.main.async {
+            withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+        }
     }
 
     private func scrollToEntry(_ proxy: ScrollViewProxy, _ t: ThreadState) {

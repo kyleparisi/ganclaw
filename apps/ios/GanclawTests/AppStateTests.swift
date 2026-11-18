@@ -190,6 +190,34 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(s.thread("infra").messages.map(\.id), [5])
     }
 
+    func testSendConfirmationIsRecordedAfterItsLiveMessageEvent() {
+        var state = AppState()
+        let message = msg(5, "support", role: .user, text: "hello")
+        state.apply(.threadLoaded("support", [], .idle))
+        state.apply(.event(ServerEvent(type: "message", message: message)))
+        XCTAssertNil(state.thread("support").lastSentMessageID)
+        state.apply(.sent(message))
+        XCTAssertEqual(state.thread("support").lastSentMessageID, message.id)
+        XCTAssertEqual(state.thread("support").messages.map(\.id), [message.id])
+        XCTAssertNil(state.thread("sales").lastSentMessageID)
+    }
+
+    func testSendConfirmationPrecedesItsLiveEventAndTracksLaterSends() {
+        var state = AppState()
+        let first = msg(5, "support", role: .user, text: "hello")
+        let second = msg(6, "support", role: .user, text: "follow up")
+        state.apply(.threadLoaded("support", [], .idle))
+        state.apply(.sending("support", true))
+        state.apply(.sending("support", false)) // A failed send has no confirmation.
+        XCTAssertNil(state.thread("support").lastSentMessageID)
+        state.apply(.sent(first))
+        state.apply(.event(ServerEvent(type: "message", message: first)))
+        XCTAssertEqual(state.thread("support").messages.map(\.id), [first.id])
+        XCTAssertEqual(state.thread("support").lastSentMessageID, first.id)
+        state.apply(.sent(second))
+        XCTAssertEqual(state.thread("support").lastSentMessageID, second.id)
+    }
+
     func testCancellingReplyPreservesDraftAndOtherThreadsSelection() {
         var s = AppState()
         s.apply(.draft("infra", "My unfinished reply"))
