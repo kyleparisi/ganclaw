@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -16,6 +17,7 @@ struct MacThreadView: View {
     @State private var composerFocused = false
     @State private var focusRequest = 0
     @State private var dropTargeted = false
+    @State private var hoveringJumpToLatest = false
 
     /// Readable line length for the conversation column.
     private let columnWidth: CGFloat = 820
@@ -162,6 +164,16 @@ struct MacThreadView: View {
                                 .overlay(Capsule().stroke(Theme.line))
                         }
                         .buttonStyle(.plain)
+                        .onHover { hovering in
+                            hoveringJumpToLatest = hovering
+                            (hovering ? NSCursor.pointingHand : NSCursor.arrow).set()
+                        }
+                        .onDisappear {
+                            if hoveringJumpToLatest {
+                                hoveringJumpToLatest = false
+                                NSCursor.arrow.set()
+                            }
+                        }
                         .padding(.bottom, 10)
                     }
                 }
