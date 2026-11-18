@@ -14,6 +14,7 @@ struct MacComposerField: NSViewRepresentable {
     var placeholder: String
     var pasteboard: PasteboardClient
     var onSubmit: () -> Void
+    var onComplete: () -> Bool
     var onImage: (PastedImage) -> Void
     var onFiles: ([URL]) -> Void
     var onPasteError: () -> Void
@@ -53,6 +54,7 @@ struct MacComposerField: NSViewRepresentable {
         context.coordinator.parent = self
         view.pasteboard = pasteboard
         view.onSubmit = onSubmit
+        view.onComplete = onComplete
         view.onImage = onImage
         view.onFiles = onFiles
         view.onPasteError = onPasteError
@@ -104,6 +106,7 @@ struct MacComposerField: NSViewRepresentable {
 final class ComposerNSTextView: NSTextView {
     var pasteboard: PasteboardClient = .inert
     var onSubmit: () -> Void = {}
+    var onComplete: () -> Bool = { false }
     var onImage: (PastedImage) -> Void = { _ in }
     var onFiles: ([URL]) -> Void = { _ in }
     var onPasteError: () -> Void = {}
@@ -115,6 +118,8 @@ final class ComposerNSTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if event.keyCode == 48, event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+           !hasMarkedText(), onComplete() { return }
         let isReturn = event.keyCode == 36 || event.keyCode == 76 // Return, keypad Enter
         let newline = event.modifierFlags.contains(.shift) || event.modifierFlags.contains(.option)
         if isReturn, !newline, !hasMarkedText() {

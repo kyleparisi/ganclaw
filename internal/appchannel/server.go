@@ -17,6 +17,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/kyleparisi/ganclaw/internal/openitems"
+	"github.com/kyleparisi/ganclaw/internal/router"
 	"github.com/kyleparisi/ganclaw/internal/store"
 )
 
@@ -39,6 +40,13 @@ func (c *Channel) Handler(version string) http.Handler {
 	auth.HandleFunc("DELETE /app/v1/me/push", c.handleDeletePush)
 	auth.HandleFunc("DELETE /app/v1/me", c.handleUnpair)
 	auth.HandleFunc("GET /app/v1/agents", c.handleAgents)
+	auth.HandleFunc("GET /app/v1/commands", func(w http.ResponseWriter, r *http.Request) {
+		commands := make([]map[string]string, 0, len(router.Commands))
+		for _, command := range router.Commands {
+			commands = append(commands, map[string]string{"name": command.Name, "description": command.Description})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"commands": commands})
+	})
 	auth.HandleFunc("PUT /app/v1/threads/{agent}/read", c.handleRead)
 	auth.HandleFunc("GET /app/v1/threads/{agent}/messages", c.handleMessages)
 	auth.HandleFunc("POST /app/v1/threads/{agent}/messages", c.handleSend)
@@ -310,7 +318,9 @@ func (c *Channel) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 	// Set before submitting: a fast turn's OnDone must win over this.
 	prev := c.agentState(n)
-	if !prev.Working {
+	// /stop is handled immediately and has no queued turn or OnDone.
+	// Marking an idle agent queued here would leave it working forever.
+	if !prev.Working && !strings.EqualFold(prompt, "/stop") {
 		c.setState(n, AgentState{Working: true, Detail: "Queued", Since: c.Now()})
 	}
 	if !c.Submit(msg) {

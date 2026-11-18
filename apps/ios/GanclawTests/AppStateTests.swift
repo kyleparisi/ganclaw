@@ -53,6 +53,17 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(state.agent("trader")?.lastMessage?.id, 12)
     }
 
+    func testSlashCommandSuggestionsMatchOnlyCommandDrafts() {
+        let commands = SlashCommand.builtIn
+        XCTAssertEqual(SlashCommand.suggestions(for: "/", commands: commands).count, 5)
+        XCTAssertEqual(SlashCommand.suggestions(for: "/st", commands: commands).map(\.name), ["stop", "status"])
+        XCTAssertEqual(SlashCommand.suggestions(for: "/RE", commands: commands).map(\.name), ["reset"])
+        XCTAssertTrue(SlashCommand.suggestions(for: "/stop", commands: commands).isEmpty)
+        XCTAssertTrue(SlashCommand.suggestions(for: "/stop now", commands: commands).isEmpty)
+        XCTAssertTrue(SlashCommand.suggestions(for: "hello /st", commands: commands).isEmpty)
+        XCTAssertTrue(SlashCommand.suggestions(for: "/unknown", commands: commands).isEmpty)
+    }
+
     func testUnreadFieldsAreBackwardCompatible() throws {
         let old = try JSON.decoder.decode(AgentSummary.self,
             from: Data(#"{"name":"support","state":{"working":false},"needs_you":false}"#.utf8))

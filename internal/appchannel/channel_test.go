@@ -109,6 +109,38 @@ func (h *harness) pair() {
 	h.token = resp.Token
 }
 
+func TestCommands(t *testing.T) {
+	subject := newHarness
+	t.Run("Lists router commands for paired devices", func(t *testing.T) {
+		h := subject(t, func(provider.Request) string { return "ok" })
+		assert.Equal(t, http.StatusUnauthorized, h.do("GET", "/app/v1/commands", nil, nil))
+		h.pair()
+		var response struct {
+			Commands []struct {
+				Name        string `json:"name"`
+				Description string `json:"description"`
+			} `json:"commands"`
+		}
+		require.Equal(t, http.StatusOK, h.do("GET", "/app/v1/commands", nil, &response))
+		require.Len(t, response.Commands, len(router.Commands))
+		for i, command := range router.Commands {
+			assert.Equal(t, command.Name, response.Commands[i].Name)
+			assert.Equal(t, command.Description, response.Commands[i].Description)
+		}
+	})
+}
+
+func TestStopMessageWhileIdle(t *testing.T) {
+	subject := newHarness
+	t.Run("Does not leave the agent working", func(t *testing.T) {
+		h := subject(t, func(provider.Request) string { return "ok" })
+		h.pair()
+		assert.Equal(t, http.StatusOK, h.do("POST", "/app/v1/threads/infra/messages", map[string]string{"text": "/stop"}, nil))
+		h.waitDone("infra", 2)
+		assert.False(t, h.ch.agentState("infra").Working)
+	})
+}
+
 func (h *harness) messages(agentName string) []store.AppMessage {
 	h.t.Helper()
 	var resp struct {

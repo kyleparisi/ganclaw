@@ -47,6 +47,12 @@ ganclaw run --agent infra --to app:infra --session nightly-log-check --quiet \
 The run shows up under Jobs, and "Ask about this run" replies to it in the
 agent's thread. `ganclaw send --to app:infra "text"` posts a plain message.
 
+## Slash commands
+
+Type `/` in a conversation to see the server's available commands. Select a
+suggestion to fill the composer, then send it. On the native Mac app, Tab
+completes the first suggestion. Older servers use the built-in command list.
+
 ## Reply to a message
 
 Swipe a message to the left to select it, then type your reply. The composer

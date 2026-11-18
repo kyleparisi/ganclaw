@@ -4,6 +4,17 @@ import XCTest
 
 @MainActor
 final class ComposerPasteTests: XCTestCase {
+    func testTabCompletesAnAvailableCommand() throws {
+        let view = ComposerNSTextView()
+        var completed = false
+        view.onComplete = { completed = true; return true }
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                   windowNumber: 0, context: nil, characters: "\t",
+                                                   charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: 48))
+        view.keyDown(with: event)
+        XCTAssertTrue(completed)
+    }
+
     func testImageEnablesPasteAndPreservesDraft() {
         let view = ComposerNSTextView()
         let image = PastedImage(data: Data([1, 2, 3]), mime: "image/png", name: "pasted.png")
