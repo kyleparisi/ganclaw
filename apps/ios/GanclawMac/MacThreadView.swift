@@ -25,7 +25,7 @@ struct MacThreadView: View {
     var body: some View {
         let t = store.state.thread(agent)
         let summary = store.state.agent(agent)
-        VStack(spacing: 0) {
+        MacDropTarget(content: VStack(spacing: 0) {
             messages(t)
             if let rid = t.replyTo { replyBar(rid) }
             if t.replyTo == nil, !recorder.recording {
@@ -40,7 +40,14 @@ struct MacThreadView: View {
                 }
             }
             composer(t)
-        }
+        }.environment(store), targeted: { dropTargeted = $0 }, perform: { items in
+            if store.state.attach.presented && store.state.attach.agent != agent {
+                store.send(.banner("Finish the current attachment before adding files here."))
+                return
+            }
+            if !store.state.attach.presented { store.send(.attachOpen(agent)) }
+            MacAttachSheet.add(items, to: store, agent: agent)
+        })
         .background(Theme.ground)
         .navigationTitle(Theme.displayName(agent))
         .navigationSubtitle(statusLine(summary))
@@ -55,10 +62,6 @@ struct MacThreadView: View {
                     .allowsHitTesting(false)
             }
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            attach(urls)
-            return !urls.isEmpty
-        } isTargeted: { dropTargeted = $0 }
         .task(id: agent) {
             if !capturedBoundary {
                 if (store.state.agent(agent)?.unreadCount ?? 0) > 0 {
@@ -351,13 +354,6 @@ struct MacThreadView: View {
 
     private func canSend(_ t: ThreadState) -> Bool {
         !t.sending && !t.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private func attach(_ urls: [URL]) {
-        let files = urls.filter(\.isFileURL)
-        guard !files.isEmpty else { return }
-        store.send(.attachOpen(agent))
-        MacAttachSheet.add(files, to: store)
     }
 
     private func toggleRecording() {

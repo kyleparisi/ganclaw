@@ -47,6 +47,9 @@ struct MacComposerField: NSViewRepresentable {
         view.isAutomaticQuoteSubstitutionEnabled = false
         view.isAutomaticDashSubstitutionEnabled = false
         view.setAccessibilityLabel("Message")
+        // Let the enclosing thread receive file and image drags after the
+        // text-view configuration has registered its own types.
+        view.registerTextDragTypes()
 
         let scroll = ComposerScrollView()
         scroll.drawsBackground = false
@@ -78,6 +81,7 @@ struct MacComposerField: NSViewRepresentable {
             context.coordinator.lastFocusRequest = focusRequest
             DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         }
+        view.registerTextDragTypes()
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
@@ -146,6 +150,16 @@ final class ComposerNSTextView: NSTextView {
     var onImage: (PastedImage) -> Void = { _ in }
     var onFiles: ([URL]) -> Void = { _ in }
     var onPasteError: () -> Void = {}
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        registerTextDragTypes()
+    }
+
+    func registerTextDragTypes() {
+        unregisterDraggedTypes()
+        registerForDraggedTypes([.string])
+    }
 
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()

@@ -14,6 +14,8 @@ final class AppStore {
     @ObservationIgnored let platform: Platform
     @ObservationIgnored private var threadLoadGeneration: [String: Int] = [:]
     @ObservationIgnored private var attachmentData: [String: Data] = [:]
+    @ObservationIgnored private(set) var attachmentSession = UUID()
+    private(set) var pendingDropLoads = 0
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Every action applied, newest last; the control server exposes it.
     @ObservationIgnored private(set) var actionLog: [String] = []
@@ -49,6 +51,12 @@ final class AppStore {
     }
 
     func send(_ action: AppState.Action) {
+        switch action {
+        case .attachOpen, .attachClose:
+            attachmentSession = UUID()
+            pendingDropLoads = 0
+        default: break
+        }
         let oldUnread = state.totalUnread
         state.apply(action)
         if state.totalUnread != oldUnread {
@@ -292,6 +300,9 @@ final class AppStore {
 
     // MARK: Attachments
 
+    func beginDropLoads(_ count: Int) { pendingDropLoads += count }
+    func finishDropLoad() { pendingDropLoads = max(0, pendingDropLoads - 1) }
+
     func addAttachment(name: String, mime: String, data: Data) {
         guard let agent = state.attach.agent, let client else { return }
         let id = UUID().uuidString
@@ -315,7 +326,7 @@ final class AppStore {
 
     func sendAttachments() async {
         let a = state.attach
-        guard let agent = a.agent, a.ready, !a.sending else { return }
+        guard let agent = a.agent, a.ready, !a.sending, pendingDropLoads == 0 else { return }
         send(.attachSending(true))
         let ids = a.pending.compactMap { $0.file?.id }
         let note = a.note.trimmingCharacters(in: .whitespacesAndNewlines)
