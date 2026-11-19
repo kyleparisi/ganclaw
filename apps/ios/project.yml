@@ -96,6 +96,7 @@ targets:
       - path: Ganclaw/Platform/PastedImage.swift
       - path: Ganclaw/Platform/Live/MacPasteboard.swift
       - path: GanclawMac/MacComposerField.swift
+      - path: GanclawMac/MacDropImporter.swift
       - path: GanclawMacTests
     settings:
       base:

@@ -13,7 +13,7 @@ struct MacAttachSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Send to \(Theme.displayName(a.agent ?? ""))").font(.headline)
 
-            VStack(spacing: 6) {
+            MacDropTarget(content: VStack(spacing: 6) {
                 if a.pending.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "tray.and.arrow.down").font(.system(size: 26)).foregroundStyle(Theme.muted)
@@ -31,15 +31,19 @@ struct MacAttachSheet: View {
                         Spacer()
                     }
                 }
-            }
+            }.environment(store), targeted: { dropTargeted = $0 }, perform: { items in
+                guard !store.state.attach.sending else {
+                    store.send(.banner("Wait for the current message to send before adding files."))
+                    return
+                }
+                if let agent = store.state.attach.agent { Self.add(items, to: store, agent: agent) }
+            })
+            .frame(minHeight: 160)
             .padding(10)
             .background(Theme.ground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(dropTargeted ? Theme.blue : Theme.line, style: StrokeStyle(lineWidth: dropTargeted ? 2 : 1, dash: a.pending.isEmpty ? [5, 4] : [])))
-            .dropDestination(for: URL.self) { urls, _ in
-                Self.add(urls.filter(\.isFileURL), to: store)
-                return !urls.isEmpty
-            } isTargeted: { dropTargeted = $0 }
+
 
             TextField("Add a note (optional)", text: Binding(get: { store.state.attach.note }, set: { store.send(.attachNote($0)) }), axis: .vertical)
                 .lineLimit(1...4)
@@ -51,7 +55,7 @@ struct MacAttachSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Button(sendLabel(a)) { Task { await store.sendAttachments() } }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!a.ready || a.sending)
+                    .disabled(!a.ready || a.sending || store.pendingDropLoads > 0)
             }
         }
         .padding(20)
@@ -87,6 +91,31 @@ struct MacAttachSheet: View {
         if a.sending { return "Sending…" }
         let n = a.pending.count
         return n <= 1 ? "Send" : "Send \(n) Files"
+    }
+
+    static func add(_ items: [NSPasteboardReading], to store: AppStore, agent: String) {
+        guard !store.state.attach.sending else {
+            store.send(.banner("Wait for the current message to send before adding files."))
+            return
+        }
+        let session = store.attachmentSession
+        store.beginDropLoads(items.count)
+        for item in items {
+            MacDropImporter.load(item) { result in
+                DispatchQueue.main.async {
+                    guard store.state.attach.presented, store.state.attach.agent == agent,
+                          store.attachmentSession == session, !store.state.attach.sending else {
+                        if !result.finished {
+                            store.send(.banner("Some dropped files arrived too late. Please drop them again."))
+                        }
+                        return
+                    }
+                    if result.finished { store.finishDropLoad() }
+                    for item in result.files { store.addAttachment(name: item.name, mime: item.mime, data: item.data) }
+                    if result.failed { store.send(.banner("Couldn't read one or more dropped files.")) }
+                }
+            }
+        }
     }
 
     /// Reads each file and starts its upload. Folders and unreadable files
