@@ -10,6 +10,12 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platforms to upload
+        type: choice
+        options: [all, mac]
+        default: all
 
 permissions:
   contents: read
@@ -26,7 +32,7 @@ jobs:
       # One at a time: both jobs register signing assets for the same team.
       max-parallel: 1
       matrix:
-        platform: [ios, mac]
+        platform: ${{ fromJSON(inputs.platform == 'mac' && '["mac"]' || '["ios", "mac"]') }}
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
