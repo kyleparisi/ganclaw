@@ -92,7 +92,9 @@ type client struct {
 	dec     *json.Decoder
 	req     provider.Request
 	servers []MCPServer
-	text    strings.Builder
+	// allowAll approves every tool, matching codex's danger-full-access.
+	allowAll bool
+	text     strings.Builder
 }
 
 func (c *client) call(id int, method string, params any) (json.RawMessage, error) {
@@ -136,7 +138,7 @@ func (c *client) call(id int, method string, params any) (json.RawMessage, error
 					} `json:"options"`
 				}
 				_ = json.Unmarshal(msg.Params, &p)
-				allowed := false
+				allowed := c.allowAll
 				for _, s := range c.servers {
 					if strings.HasPrefix(p.ToolCall.Name, "mcp_"+s.Name+"_") {
 						allowed = true
@@ -216,7 +218,8 @@ func (p *Provider) Run(ctx context.Context, req provider.Request) (provider.Resu
 		sessionServers[i] = server
 		sessionServers[i].Name = "gc_" + hex.EncodeToString(nonce[:])
 	}
-	c := &client{enc: json.NewEncoder(proc.Stdin), dec: json.NewDecoder(proc.Stdout), req: req, servers: sessionServers}
+	allowAll := sandbox == "danger-full-access" || p.cfg.Mode == "auto" || req.Settings.AntigravityMode == "auto"
+	c := &client{enc: json.NewEncoder(proc.Stdin), dec: json.NewDecoder(proc.Stdout), req: req, servers: sessionServers, allowAll: allowAll}
 	fail := func(err error) (provider.Result, error) {
 		if ctx.Err() != nil {
 			return provider.Result{}, ctx.Err()
@@ -320,11 +323,11 @@ func (p *Provider) Run(ctx context.Context, req provider.Request) (provider.Resu
 		return res, err
 	}
 	if result.StopReason != "end_turn" {
-		return res, fmt.Errorf("antigravity stopped: %s", result.StopReason)
+		return res, fmt.Errorf("antigravity: %w: stopped: %s", provider.ErrUnavailable, result.StopReason)
 	}
 	res.Text = strings.TrimSpace(c.text.String())
 	if res.Text == "" {
-		return res, errors.New("antigravity returned no response text")
+		return res, fmt.Errorf("antigravity: %w: no response text", provider.ErrUnavailable)
 	}
 	if req.OnDelta != nil {
 		req.OnDelta(res.Text)
