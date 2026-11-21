@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -158,3 +159,66 @@ const mediaAppendix = "# Sending files\n\n" +
 	"To send an image or file to the person you're chatting with, put `MEDIA: /absolute/path/to/file` on its own line in your reply, one line per file. " +
 	"ganclaw uploads each file after your message and removes the line. Images are shown as photos; up to 50 MB per file. " +
 	"Write your reply text as usual; Markdown is rendered."
+
+// writeGeminiMCPConfig merges configured servers into the dedicated CLI home.
+func writeGeminiMCPConfig(path string, servers []config.MCPServer) error {
+	type server struct {
+		Command string            `json:"command"`
+		Args    []string          `json:"args,omitempty"`
+		Env     map[string]string `json:"env,omitempty"`
+		Trust   bool              `json:"trust"`
+	}
+	doc := map[string]json.RawMessage{}
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("gemini settings: %w", err)
+		}
+	}
+	if doc == nil {
+		return fmt.Errorf("gemini settings must be a JSON object")
+	}
+	existing := map[string]json.RawMessage{}
+	if raw := doc["mcpServers"]; len(raw) > 0 {
+		if err := json.Unmarshal(raw, &existing); err != nil {
+			return fmt.Errorf("gemini MCP settings: %w", err)
+		}
+	}
+	if existing == nil {
+		existing = map[string]json.RawMessage{}
+	}
+	for _, m := range servers {
+		encoded, err := json.Marshal(server{Command: m.Command, Args: m.Args, Env: m.Env, Trust: true})
+		if err != nil {
+			return err
+		}
+		existing[m.Name] = encoded
+	}
+	doc["mcpServers"], err = json.Marshal(existing)
+	if err != nil {
+		return err
+	}
+	data, err = json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".gemini-settings-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}

@@ -116,3 +116,36 @@ func TestMCPServers(t *testing.T) {
 			claudeAllowedTools(cfg, []config.MCPServer{browserServer, {Name: "ganclaw"}}))
 	})
 }
+
+func TestWriteGeminiMCPConfig(t *testing.T) {
+	subject := writeGeminiMCPConfig
+	t.Run("Writes configured servers with explicit trust", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "gemini-mcp.json")
+		server := config.MCPServer{Name: "example", Command: "example-mcp", Args: []string{"serve"}, Env: map[string]string{"MODE": "test"}}
+		require.NoError(t, subject(path, []config.MCPServer{server}))
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var doc map[string]map[string]map[string]any
+		require.NoError(t, json.Unmarshal(data, &doc))
+		assert.Equal(t, "example-mcp", doc["mcpServers"]["example"]["command"])
+		assert.Equal(t, true, doc["mcpServers"]["example"]["trust"])
+	})
+	t.Run("Preserves other settings while updating configured servers", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "settings.json")
+		require.NoError(t, os.WriteFile(path, []byte(`{"general":{"vimMode":true},"mcpServers":{"other":{"command":"other"}}}`), 0o600))
+		require.NoError(t, subject(path, []config.MCPServer{{Name: "example", Command: "example-mcp"}}))
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var doc map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(data, &doc))
+		assert.JSONEq(t, `{"vimMode":true}`, string(doc["general"]))
+		var servers map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(doc["mcpServers"], &servers))
+		assert.Contains(t, servers, "other")
+		assert.Contains(t, servers, "example")
+	})
+
+}

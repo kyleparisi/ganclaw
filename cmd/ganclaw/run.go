@@ -23,6 +23,7 @@ import (
 	"github.com/kyleparisi/ganclaw/internal/provider"
 	"github.com/kyleparisi/ganclaw/internal/provider/claude"
 	"github.com/kyleparisi/ganclaw/internal/provider/codex"
+	"github.com/kyleparisi/ganclaw/internal/provider/gemini"
 	"github.com/kyleparisi/ganclaw/internal/router"
 	"github.com/kyleparisi/ganclaw/internal/store"
 	"github.com/kyleparisi/ganclaw/internal/telegram"
@@ -87,7 +88,7 @@ func cmdServe(ctx context.Context, args []string) error {
 			Appendix: appendix,
 			Settings: provider.Settings{
 				CodexModel: a.CodexModel, CodexSandbox: a.Sandbox,
-				ClaudeModel: a.ClaudeModel, PermissionMode: a.PermissionMode,
+				ClaudeModel: a.ClaudeModel, GeminiModel: a.GeminiModel, GeminiApprovalMode: a.GeminiApprovalMode, PermissionMode: a.PermissionMode,
 			},
 		}
 	}
@@ -254,6 +255,11 @@ func buildChain(ctx context.Context, cfg *config.Config, log *slog.Logger) (*pro
 		return nil, nil, err
 	}
 	var claudeMCP string
+	geminiHome := cfg.Gemini.Home
+	if geminiHome == "" {
+		geminiHome = filepath.Join(cfg.StateDir, "gemini")
+	}
+	var geminiServerNames []string
 	if len(servers) > 0 {
 		claudeMCP = filepath.Join(cfg.StateDir, "claude-mcp.json")
 		if err := os.MkdirAll(cfg.StateDir, 0o700); err != nil {
@@ -265,6 +271,7 @@ func buildChain(ctx context.Context, cfg *config.Config, log *slog.Logger) (*pro
 		names := make([]string, len(servers))
 		for i, m := range servers {
 			names[i] = m.Name
+			geminiServerNames = append(geminiServerNames, m.Name)
 		}
 		log.Info("mcp servers for agents", "servers", names)
 	}
@@ -273,10 +280,20 @@ func buildChain(ctx context.Context, cfg *config.Config, log *slog.Logger) (*pro
 	// provider only its own credentials.
 	codexEnv := func() []string {
 		return procexec.FilterEnv(os.Environ(), func(k string) bool {
-			return isGanclawVar(k) || k == "CLAUDE_CODE_OAUTH_TOKEN"
+			return isGanclawVar(k) || k == "CLAUDE_CODE_OAUTH_TOKEN" || k == "GEMINI_API_KEY"
 		})
 	}
-	claudeEnv := func() []string { return procexec.FilterEnv(os.Environ(), isGanclawVar) }
+	geminiCredential := func(k string) bool {
+		return k == "GEMINI_API_KEY"
+	}
+	claudeEnv := func() []string {
+		return procexec.FilterEnv(os.Environ(), func(k string) bool { return isGanclawVar(k) || geminiCredential(k) })
+	}
+	geminiEnv := func() []string {
+		return procexec.FilterEnv(os.Environ(), func(k string) bool {
+			return isGanclawVar(k) || k == "CLAUDE_CODE_OAUTH_TOKEN" || k == "ANTHROPIC_API_KEY" || k == "ANTHROPIC_AUTH_TOKEN" || k == "OPENAI_API_KEY" || k == "CODEX_HOME"
+		})
+	}
 	closeAll := func() {
 		for _, p := range chain.Providers {
 			p.Close()
@@ -300,6 +317,18 @@ func buildChain(ctx context.Context, cfg *config.Config, log *slog.Logger) (*pro
 				return nil, nil, err
 			}
 			chain.Providers = append(chain.Providers, p)
+		case "gemini":
+			if len(geminiServerNames) == 0 {
+				geminiServerNames = []string{"ganclaw-no-servers-configured"}
+			}
+			if err := writeGeminiMCPConfig(filepath.Join(geminiHome, ".gemini", "settings.json"), servers); err != nil {
+				closeAll()
+				return nil, nil, err
+			}
+			chain.Providers = append(chain.Providers, gemini.New(gemini.Config{
+				Bin: cfg.Gemini.Bin, Home: geminiHome, Model: cfg.Gemini.Model, ApprovalMode: cfg.Gemini.ApprovalMode,
+				ServerNames: geminiServerNames, Environ: geminiEnv,
+			}))
 		case "claude":
 			chain.Providers = append(chain.Providers, claude.New(claude.Config{
 				Bin:            cfg.Claude.Bin,

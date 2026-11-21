@@ -34,6 +34,7 @@ type Config struct {
 
 	Codex      Codex       `toml:"codex"`
 	Claude     Claude      `toml:"claude"`
+	Gemini     Gemini      `toml:"gemini"`
 	Transcribe Transcribe  `toml:"transcribe"`
 	Agents     []Agent     `toml:"agents"`
 	Telegram   []Telegram  `toml:"telegram"`
@@ -130,6 +131,13 @@ type Codex struct {
 	WebSearch string `toml:"web_search"`
 }
 
+type Gemini struct {
+	Home         string `toml:"home"`
+	Bin          string `toml:"bin"`
+	Model        string `toml:"model"`
+	ApprovalMode string `toml:"approval_mode"`
+}
+
 type Claude struct {
 	Bin            string   `toml:"bin"`
 	ConfigDir      string   `toml:"config_dir"`
@@ -192,10 +200,12 @@ type Agent struct {
 	// skipped.
 	InstructionFiles []string `toml:"instruction_files"`
 	// Per-agent provider options; empty uses the [codex]/[claude] values.
-	CodexModel     string `toml:"codex_model"`
-	Sandbox        string `toml:"sandbox"`
-	ClaudeModel    string `toml:"claude_model"`
-	PermissionMode string `toml:"permission_mode"`
+	CodexModel         string `toml:"codex_model"`
+	Sandbox            string `toml:"sandbox"`
+	ClaudeModel        string `toml:"claude_model"`
+	GeminiModel        string `toml:"gemini_model"`
+	GeminiApprovalMode string `toml:"gemini_approval_mode"`
+	PermissionMode     string `toml:"permission_mode"`
 }
 
 type Telegram struct {
@@ -286,15 +296,21 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("state_dir is required"))
 	}
 	for _, p := range c.Providers {
-		if p != "codex" && p != "claude" {
+		if p != "codex" && p != "claude" && p != "gemini" {
 			errs = append(errs, fmt.Errorf("providers: unknown provider %q", p))
 		}
+	}
+	if c.Gemini.ApprovalMode != "" && c.Gemini.ApprovalMode != "default" && c.Gemini.ApprovalMode != "auto_edit" && c.Gemini.ApprovalMode != "yolo" {
+		errs = append(errs, errors.New("gemini: approval_mode must be default, auto_edit or yolo"))
 	}
 	if c.Transcribe.WhisperBin != "" && c.Transcribe.Model == "" {
 		errs = append(errs, errors.New("transcribe: model is required when whisper_bin is set"))
 	}
 	agents := map[string]bool{}
 	for i, a := range c.Agents {
+		if a.GeminiApprovalMode != "" && a.GeminiApprovalMode != "default" && a.GeminiApprovalMode != "auto_edit" && a.GeminiApprovalMode != "yolo" {
+			errs = append(errs, fmt.Errorf("agent %q: invalid gemini_approval_mode", a.Name))
+		}
 		switch {
 		case a.Name == "":
 			errs = append(errs, fmt.Errorf("agents[%d]: name is required", i))

@@ -98,7 +98,7 @@ token_env = "T"
 
 	t.Run("All structural errors are reported together", func(t *testing.T) {
 		_, err := subject(writeConfig(t, `
-providers = ["codex", "gemini"]
+providers = ["codex", "unknown"]
 [[agents]]
 name = "a"
 [[agents]]
@@ -118,7 +118,7 @@ allow_users = [1]
 		require.Error(t, err)
 		for _, want := range []string{
 			"state_dir is required",
-			`unknown provider "gemini"`,
+			`unknown provider "unknown"`,
 			`agent "a": workspace is required`,
 			`duplicate name "a"`,
 			`telegram "bot": unknown agent "missing"`,
@@ -373,5 +373,37 @@ name = "build_mac"
 browser_server = "chrome_build"
 `))
 		require.NoError(t, err)
+	})
+}
+
+func TestGeminiConfig(t *testing.T) {
+	subject := Load
+	t.Run("Loads Gemini provider options", func(t *testing.T) {
+		path := writeConfig(t, `state_dir = "/tmp/state"
+providers = ["gemini"]
+[gemini]
+home = "/tmp/gemini"
+model = "example-model"
+approval_mode = "auto_edit"
+[[agents]]
+name = "support"
+workspace = "/tmp/workspace"
+gemini_model = "other-model"
+gemini_approval_mode = "default"
+`)
+		cfg, err := subject(path)
+		require.NoError(t, err)
+		assert.Equal(t, "example-model", cfg.Gemini.Model)
+		assert.Equal(t, "other-model", cfg.Agents[0].GeminiModel)
+		assert.Equal(t, "default", cfg.Agents[0].GeminiApprovalMode)
+	})
+	t.Run("Rejects invalid Gemini approval modes", func(t *testing.T) {
+		path := writeConfig(t, `state_dir = "/tmp/state"
+providers = ["gemini"]
+[gemini]
+approval_mode = "anything"
+`)
+		_, err := subject(path)
+		require.ErrorContains(t, err, "gemini: approval_mode")
 	})
 }

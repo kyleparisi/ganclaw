@@ -98,6 +98,12 @@ export CLAUDE_CODE_OAUTH_TOKEN=...
 Message your bot. If you're not in `allow_users` yet, ganclaw logs your
 Telegram user ID when it ignores you.
 
+## Gemini CLI provider
+
+Gemini is an optional provider, tested with CLI version 0.70.0. Install [Gemini CLI](https://github.com/google-gemini/gemini-cli) for the service user, configure its authentication, and add `"gemini"` to `providers`. `[gemini]` accepts `bin`, `home`, `model` and `approval_mode` (`default`, `auto_edit`, or `yolo`). An agent can override the model and approval mode with `gemini_model` and `gemini_approval_mode`. These settings are independent of Codex sandbox and Claude permission settings. The default approval mode is `default`; operations requiring interactive approval may be denied in headless mode. Gemini CLI can use `GEMINI_API_KEY` or its own configured login. The CLI home defaults to `<state_dir>/gemini`; set `home` to choose another directory. Authenticate using that home.
+
+Ganclaw passes agent instructions in the prompt for each turn, and merges its MCP servers into the Gemini home settings. Workspace settings can override those servers. Unlike Codex and Claude, Gemini provider health does not report live quota status. `ganclaw health` reports Gemini as unknown and cannot confirm availability for a Gemini-only configuration.
+
 ## Creating an agent
 
 An agent is a workspace directory plus two config entries. ganclaw has no

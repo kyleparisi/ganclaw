@@ -18,6 +18,7 @@ import (
 	"github.com/kyleparisi/ganclaw/internal/provider"
 	"github.com/kyleparisi/ganclaw/internal/provider/claude"
 	"github.com/kyleparisi/ganclaw/internal/provider/codex"
+	"github.com/kyleparisi/ganclaw/internal/provider/gemini"
 )
 
 var version = "dev"
@@ -111,7 +112,7 @@ other:
 // channel.
 func cmdAsk(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("ask", flag.ExitOnError)
-	use := fs.String("provider", "chain", "codex | claude | chain (codex, then claude)")
+	use := fs.String("provider", "chain", "codex | claude | gemini | chain (codex, then claude)")
 	codexBin := fs.String("codex", "codex", "codex executable")
 	codexHome := fs.String("codex-home", os.Getenv("CODEX_HOME"), "CODEX_HOME directory (login + thread state)")
 	codexSession := fs.String("codex-session", "", "codex thread ID to resume")
@@ -120,6 +121,9 @@ func cmdAsk(ctx context.Context, args []string) error {
 	claudeConfig := fs.String("claude-config-dir", "", "CLAUDE_CONFIG_DIR (login, settings, sessions); empty = ~/.claude")
 	claudeSession := fs.String("claude-session", "", "claude session ID to resume")
 	permission := fs.String("permission-mode", "default", "claude --permission-mode")
+	geminiBin := fs.String("gemini", "gemini", "gemini executable")
+	geminiHome := fs.String("gemini-home", "", "Gemini CLI home directory")
+	geminiSession := fs.String("gemini-session", "", "gemini session ID to resume")
 	cwd := fs.String("cwd", ".", "working directory for the agent")
 	instructions := fs.String("instructions", "", "system instructions for a new session")
 	logLevel := fs.String("log-level", "warn", "debug | info | warn | error")
@@ -151,11 +155,14 @@ func cmdAsk(ctx context.Context, args []string) error {
 			Bin: *claudeBin, ConfigDir: *claudeConfig, PermissionMode: *permission, Logger: log,
 		}))
 	}
+	if *use == "gemini" {
+		chain.Providers = append(chain.Providers, gemini.New(gemini.Config{Bin: *geminiBin, Home: *geminiHome}))
+	}
 	if len(chain.Providers) == 0 {
 		return fmt.Errorf("ask: unknown provider %q", *use)
 	}
 
-	sessions := provider.Sessions{"codex": *codexSession, "claude": *claudeSession}
+	sessions := provider.Sessions{"codex": *codexSession, "claude": *claudeSession, "gemini": *geminiSession}
 	used, _, err := chain.Run(ctx, sessions, provider.Request{
 		Cwd:          *cwd,
 		Instructions: *instructions,

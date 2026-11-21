@@ -15,6 +15,14 @@ home = "/var/lib/ganclaw/codex"
 sandbox = "workspace-write"        # read-only | workspace-write | danger-full-access
 # model = ""
 
+# Optional Gemini CLI provider; add "gemini" to providers above to enable it.
+# Authenticate Gemini CLI for the service user or provide GEMINI_API_KEY.
+[gemini]
+bin = "gemini"
+# home = "/var/lib/ganclaw/gemini" # Gemini creates .gemini inside this directory
+# model = "gemini-2.5-pro"
+# approval_mode = "default" # default, auto_edit, or yolo
+
 [claude]
 bin = "claude"
 # Keeps the bot's Claude login, settings and sessions separate from yours.
