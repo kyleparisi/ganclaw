@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/kyleparisi/ganclaw/internal/provider"
+	"github.com/kyleparisi/ganclaw/internal/provider/antigravity"
 	"github.com/kyleparisi/ganclaw/internal/provider/claude"
 	"github.com/kyleparisi/ganclaw/internal/provider/codex"
 )
@@ -111,7 +112,7 @@ other:
 // channel.
 func cmdAsk(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("ask", flag.ExitOnError)
-	use := fs.String("provider", "chain", "codex | claude | chain (codex, then claude)")
+	use := fs.String("provider", "chain", "codex | claude | antigravity | chain (codex, then claude)")
 	codexBin := fs.String("codex", "codex", "codex executable")
 	codexHome := fs.String("codex-home", os.Getenv("CODEX_HOME"), "CODEX_HOME directory (login + thread state)")
 	codexSession := fs.String("codex-session", "", "codex thread ID to resume")
@@ -120,6 +121,8 @@ func cmdAsk(ctx context.Context, args []string) error {
 	claudeConfig := fs.String("claude-config-dir", "", "CLAUDE_CONFIG_DIR (login, settings, sessions); empty = ~/.claude")
 	claudeSession := fs.String("claude-session", "", "claude session ID to resume")
 	permission := fs.String("permission-mode", "default", "claude --permission-mode")
+	antigravityBin := fs.String("antigravity", "agy", "Antigravity executable")
+	antigravitySession := fs.String("antigravity-session", "", "Antigravity conversation ID to resume")
 	cwd := fs.String("cwd", ".", "working directory for the agent")
 	instructions := fs.String("instructions", "", "system instructions for a new session")
 	logLevel := fs.String("log-level", "warn", "debug | info | warn | error")
@@ -151,11 +154,14 @@ func cmdAsk(ctx context.Context, args []string) error {
 			Bin: *claudeBin, ConfigDir: *claudeConfig, PermissionMode: *permission, Logger: log,
 		}))
 	}
+	if *use == "antigravity" {
+		chain.Providers = append(chain.Providers, antigravity.New(antigravity.Config{Bin: *antigravityBin, Sandbox: *sandbox}))
+	}
 	if len(chain.Providers) == 0 {
 		return fmt.Errorf("ask: unknown provider %q", *use)
 	}
 
-	sessions := provider.Sessions{"codex": *codexSession, "claude": *claudeSession}
+	sessions := provider.Sessions{"codex": *codexSession, "claude": *claudeSession, "antigravity": *antigravitySession}
 	used, _, err := chain.Run(ctx, sessions, provider.Request{
 		Cwd:          *cwd,
 		Instructions: *instructions,

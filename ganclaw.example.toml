@@ -15,6 +15,12 @@ home = "/var/lib/ganclaw/codex"
 sandbox = "workspace-write"        # read-only | workspace-write | danger-full-access
 # model = ""
 
+# Optional: add "antigravity" to providers after signing in as the service user.
+[antigravity]
+bin = "agy"
+mode = "accept-edits" # accept-edits, auto, or plan
+# model = ""
+
 [claude]
 bin = "claude"
 # Keeps the bot's Claude login, settings and sessions separate from yours.

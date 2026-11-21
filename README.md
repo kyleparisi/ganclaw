@@ -98,6 +98,12 @@ export CLAUDE_CODE_OAUTH_TOKEN=...
 Message your bot. If you're not in `allow_users` yet, ganclaw logs your
 Telegram user ID when it ignores you.
 
+## Antigravity CLI provider
+
+Install and sign in to the [Antigravity CLI](https://antigravity.google/docs/install?tab=cli) as the user running ganclaw, then add `"antigravity"` to `providers`. Configure `[antigravity]` with `bin`, optional `model`, and `mode` (`accept-edits`, `auto`, or `plan`); the default is `accept-edits`. The CLI must support ACP (tested with 1.5.14). Per-agent `antigravity_model` and `antigravity_mode` can override the global settings.
+
+Ganclaw passes configured MCP servers and agent instructions directly to each ACP session. Antigravity may also start MCP servers and load customizations from its own workspace and account configuration, even when they are not listed in Ganclaw. Use trusted workspaces and account configuration. Antigravity follows the Codex sandbox setting (workspace-write by default); read-only also selects plan mode. Attachments are available as files in the workspace rather than sent as native image content. Requests for other actions that require approval are denied in headless operation. Provider health is reported as unknown because Antigravity does not expose a live quota check through this adapter.
+
 ## Creating an agent
 
 An agent is a workspace directory plus two config entries. ganclaw has no

@@ -33,6 +33,12 @@ func TestObserve(t *testing.T) {
 		assert.Empty(t, subject(healthy(), nil, t0, settings))
 	})
 
+	t.Run("Unknown provider status does not report all providers down", func(t *testing.T) {
+		h := healthy()
+		h.Providers = []provider.Status{{Provider: "antigravity"}}
+		assert.Empty(t, subject(h, nil, t0, settings))
+	})
+
 	t.Run("Unreachable API is the only problem reported", func(t *testing.T) {
 		got := subject(healthy(), errors.New("connection refused"), t0, settings)
 

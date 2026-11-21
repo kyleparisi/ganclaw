@@ -32,14 +32,15 @@ type Config struct {
 	// <state_dir>/ganclaw.sock. Only its owner can connect.
 	APISocket string `toml:"api_socket"`
 
-	Codex      Codex       `toml:"codex"`
-	Claude     Claude      `toml:"claude"`
-	Transcribe Transcribe  `toml:"transcribe"`
-	Agents     []Agent     `toml:"agents"`
-	Telegram   []Telegram  `toml:"telegram"`
-	Contacts   []Contact   `toml:"contacts"`
-	MCPServers []MCPServer `toml:"mcp_servers"`
-	Machines   []Machine   `toml:"machines"`
+	Codex       Codex       `toml:"codex"`
+	Claude      Claude      `toml:"claude"`
+	Antigravity Antigravity `toml:"antigravity"`
+	Transcribe  Transcribe  `toml:"transcribe"`
+	Agents      []Agent     `toml:"agents"`
+	Telegram    []Telegram  `toml:"telegram"`
+	Contacts    []Contact   `toml:"contacts"`
+	MCPServers  []MCPServer `toml:"mcp_servers"`
+	Machines    []Machine   `toml:"machines"`
 
 	OpenClawCompat OpenClawCompat `toml:"openclaw_compat"`
 
@@ -130,6 +131,12 @@ type Codex struct {
 	WebSearch string `toml:"web_search"`
 }
 
+type Antigravity struct {
+	Bin   string `toml:"bin"`
+	Model string `toml:"model"`
+	Mode  string `toml:"mode"`
+}
+
 type Claude struct {
 	Bin            string   `toml:"bin"`
 	ConfigDir      string   `toml:"config_dir"`
@@ -192,10 +199,12 @@ type Agent struct {
 	// skipped.
 	InstructionFiles []string `toml:"instruction_files"`
 	// Per-agent provider options; empty uses the [codex]/[claude] values.
-	CodexModel     string `toml:"codex_model"`
-	Sandbox        string `toml:"sandbox"`
-	ClaudeModel    string `toml:"claude_model"`
-	PermissionMode string `toml:"permission_mode"`
+	CodexModel       string `toml:"codex_model"`
+	Sandbox          string `toml:"sandbox"`
+	AntigravityModel string `toml:"antigravity_model"`
+	AntigravityMode  string `toml:"antigravity_mode"`
+	ClaudeModel      string `toml:"claude_model"`
+	PermissionMode   string `toml:"permission_mode"`
 }
 
 type Telegram struct {
@@ -286,15 +295,21 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("state_dir is required"))
 	}
 	for _, p := range c.Providers {
-		if p != "codex" && p != "claude" {
+		if p != "codex" && p != "claude" && p != "antigravity" {
 			errs = append(errs, fmt.Errorf("providers: unknown provider %q", p))
 		}
+	}
+	if c.Antigravity.Mode != "" && c.Antigravity.Mode != "accept-edits" && c.Antigravity.Mode != "plan" && c.Antigravity.Mode != "auto" {
+		errs = append(errs, errors.New("antigravity: mode must be accept-edits, plan or auto"))
 	}
 	if c.Transcribe.WhisperBin != "" && c.Transcribe.Model == "" {
 		errs = append(errs, errors.New("transcribe: model is required when whisper_bin is set"))
 	}
 	agents := map[string]bool{}
 	for i, a := range c.Agents {
+		if a.AntigravityMode != "" && a.AntigravityMode != "accept-edits" && a.AntigravityMode != "plan" && a.AntigravityMode != "auto" {
+			errs = append(errs, fmt.Errorf("agent %q: invalid antigravity_mode", a.Name))
+		}
 		switch {
 		case a.Name == "":
 			errs = append(errs, fmt.Errorf("agents[%d]: name is required", i))

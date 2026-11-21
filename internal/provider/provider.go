@@ -39,10 +39,12 @@ type Request struct {
 // Settings are per-agent provider options. Zero values mean the provider's
 // configured defaults.
 type Settings struct {
-	CodexModel     string
-	CodexSandbox   string // read-only | workspace-write | danger-full-access
-	ClaudeModel    string
-	PermissionMode string // claude --permission-mode
+	CodexModel       string
+	CodexSandbox     string // read-only | workspace-write | danger-full-access
+	AntigravityModel string
+	AntigravityMode  string
+	ClaudeModel      string
+	PermissionMode   string // claude --permission-mode
 }
 
 // Attachment kinds.
