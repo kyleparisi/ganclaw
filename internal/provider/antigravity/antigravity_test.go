@@ -57,6 +57,37 @@ func TestRun(t *testing.T) {
 		assert.Equal(t, provider.Result{Session: "session-1", Text: "Final"}, res)
 		assert.Equal(t, "Final", text)
 	})
+	t.Run("Marks an empty response unavailable so the chain falls back", func(t *testing.T) {
+		p := subject(Config{Environ: func() []string { return []string{"HOME=" + t.TempDir(), "PATH=/usr/bin:/bin"} }, Exec: procexec.Exec{Start: func(ctx context.Context, cmd procexec.Cmd) (*procexec.Proc, error) {
+			inReader, inWriter := io.Pipe()
+			outReader, outWriter := io.Pipe()
+			go func() {
+				defer outWriter.Close()
+				dec := json.NewDecoder(inReader)
+				enc := json.NewEncoder(outWriter)
+				for {
+					var m struct {
+						ID     int    `json:"id"`
+						Method string `json:"method"`
+					}
+					if dec.Decode(&m) != nil {
+						return
+					}
+					result := map[string]any{}
+					switch m.Method {
+					case "session/new":
+						result["sessionId"] = "session-2"
+					case "session/prompt":
+						result["stopReason"] = "end_turn"
+					}
+					_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": result})
+				}
+			}()
+			return &procexec.Proc{Stdin: inWriter, Stdout: outReader, Wait: func() error { return nil }}, nil
+		}}})
+		_, err := p.Run(context.Background(), provider.Request{Cwd: t.TempDir(), Prompt: "hello"})
+		require.ErrorIs(t, err, provider.ErrUnavailable)
+	})
 	t.Run("Marks a failed start unavailable", func(t *testing.T) {
 		p := subject(Config{Environ: func() []string { return []string{"HOME=" + t.TempDir(), "PATH=/usr/bin:/bin"} }, Exec: procexec.Exec{Start: func(context.Context, procexec.Cmd) (*procexec.Proc, error) { return nil, errors.New("missing") }}})
 		_, err := p.Run(context.Background(), provider.Request{Cwd: t.TempDir()})
@@ -81,5 +112,18 @@ func TestPermissionRequests(t *testing.T) {
 		require.NoError(t, dec.Decode(&denied))
 		assert.Equal(t, "yes", allowed["result"].(map[string]any)["outcome"].(map[string]any)["optionId"])
 		assert.Equal(t, "no", denied["result"].(map[string]any)["outcome"].(map[string]any)["optionId"])
+	})
+	t.Run("Approves every tool when allowAll is set", func(t *testing.T) {
+		stream := `{"jsonrpc":"2.0","id":8,"method":"session/request_permission","params":{"toolCall":{"name":"run_command"},"options":[{"optionId":"yes","kind":"allow_once"},{"optionId":"no","kind":"reject_once"}]}}
+{"jsonrpc":"2.0","id":1,"result":{}}`
+		var out bytes.Buffer
+		c := &client{enc: json.NewEncoder(&out), dec: json.NewDecoder(strings.NewReader(stream)), allowAll: true}
+		_, err := subject(c, 1, "test", map[string]any{})
+		require.NoError(t, err)
+		dec := json.NewDecoder(&out)
+		var request, allowed map[string]any
+		require.NoError(t, dec.Decode(&request))
+		require.NoError(t, dec.Decode(&allowed))
+		assert.Equal(t, "yes", allowed["result"].(map[string]any)["outcome"].(map[string]any)["optionId"])
 	})
 }

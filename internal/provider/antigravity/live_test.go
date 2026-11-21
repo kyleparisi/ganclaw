@@ -31,6 +31,16 @@ func TestLiveConversation(t *testing.T) {
 		assert.Equal(t, first.Session, second.Session)
 		assert.Contains(t, second.Text, "banana")
 	})
+	t.Run("Runs shell commands under danger-full-access", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		cwd := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(cwd, "marker-7f3a.txt"), []byte("x"), 0o600))
+		p := subject(Config{Sandbox: "danger-full-access"})
+		res, err := p.Run(ctx, provider.Request{Cwd: cwd, Prompt: "Run `ls` in the current directory with your shell tool and reply with the file name you see."})
+		require.NoError(t, err)
+		assert.Contains(t, res.Text, "marker-7f3a")
+	})
 	t.Run("Calls a configured MCP tool", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
