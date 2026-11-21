@@ -21,6 +21,7 @@ import (
 	"github.com/kyleparisi/ganclaw/internal/gateway"
 	"github.com/kyleparisi/ganclaw/internal/procexec"
 	"github.com/kyleparisi/ganclaw/internal/provider"
+	"github.com/kyleparisi/ganclaw/internal/provider/antigravity"
 	"github.com/kyleparisi/ganclaw/internal/provider/claude"
 	"github.com/kyleparisi/ganclaw/internal/provider/codex"
 	"github.com/kyleparisi/ganclaw/internal/router"
@@ -87,7 +88,7 @@ func cmdServe(ctx context.Context, args []string) error {
 			Appendix: appendix,
 			Settings: provider.Settings{
 				CodexModel: a.CodexModel, CodexSandbox: a.Sandbox,
-				ClaudeModel: a.ClaudeModel, PermissionMode: a.PermissionMode,
+				AntigravityModel: a.AntigravityModel, AntigravityMode: a.AntigravityMode, ClaudeModel: a.ClaudeModel, PermissionMode: a.PermissionMode,
 			},
 		}
 	}
@@ -300,6 +301,19 @@ func buildChain(ctx context.Context, cfg *config.Config, log *slog.Logger) (*pro
 				return nil, nil, err
 			}
 			chain.Providers = append(chain.Providers, p)
+		case "antigravity":
+			mcp := make([]antigravity.MCPServer, 0, len(servers))
+			for _, server := range servers {
+				mcp = append(mcp, antigravity.MCPServer{Name: server.Name, Command: server.Command, Args: server.Args, Env: server.Env})
+			}
+			chain.Providers = append(chain.Providers, antigravity.New(antigravity.Config{
+				Bin: cfg.Antigravity.Bin, Model: cfg.Antigravity.Model, Mode: cfg.Antigravity.Mode, Sandbox: cfg.Codex.Sandbox, MCPServers: mcp,
+				Environ: func() []string {
+					return procexec.FilterEnv(os.Environ(), func(k string) bool {
+						return isGanclawVar(k) || k == "CLAUDE_CODE_OAUTH_TOKEN" || k == "ANTHROPIC_API_KEY" || k == "ANTHROPIC_AUTH_TOKEN" || k == "OPENAI_API_KEY" || k == "CODEX_HOME"
+					})
+				},
+			}))
 		case "claude":
 			chain.Providers = append(chain.Providers, claude.New(claude.Config{
 				Bin:            cfg.Claude.Bin,
@@ -343,7 +357,7 @@ func cmdHealth(ctx context.Context, args []string) error {
 	statuses := chain.Status(ctx)
 	fmt.Println(provider.FormatStatus(statuses, time.Now()))
 	for _, s := range statuses {
-		if s.Available {
+		if s.Available || !s.Known {
 			return nil
 		}
 	}

@@ -41,7 +41,7 @@ func Observe(h api.HealthResponse, apiErr error, now time.Time, s Settings) []Ob
 		anyUp := false
 		var parts []string
 		for _, p := range h.Providers {
-			if p.Available {
+			if p.Available || !p.Known {
 				anyUp = true
 				break
 			}
