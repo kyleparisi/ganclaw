@@ -11,18 +11,22 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/kyleparisi/ganclaw/internal/api"
+	"github.com/kyleparisi/ganclaw/internal/followup"
 	"github.com/kyleparisi/ganclaw/internal/store"
 )
 
 // Deps are the gateway calls the tools make; *api.Client provides them.
 type Deps struct {
-	OpenItems    func(context.Context, bool) ([]store.OpenItem, error)
-	OpenItem     func(context.Context, string) (store.OpenItem, error)
-	SaveOpenItem func(context.Context, store.OpenItem) (store.OpenItem, error)
-	Tasks        func(context.Context, string, string) (api.TasksResponse, error)
-	Send         func(ctx context.Context, req api.SendRequest) (api.SendResponse, error)
-	Run          func(ctx context.Context, req api.RunRequest) (api.RunResponse, error)
-	Agents       func(ctx context.Context) (api.AgentsResponse, error)
+	OpenItems        func(context.Context, bool) ([]store.OpenItem, error)
+	OpenItem         func(context.Context, string) (store.OpenItem, error)
+	SaveOpenItem     func(context.Context, store.OpenItem) (store.OpenItem, error)
+	ScheduleFollowup func(context.Context, api.FollowupRequest) (store.Followup, error)
+	Followups        func(context.Context, string, bool) ([]store.Followup, error)
+	CancelFollowup   func(context.Context, string) (store.Followup, error)
+	Tasks            func(context.Context, string, string) (api.TasksResponse, error)
+	Send             func(ctx context.Context, req api.SendRequest) (api.SendResponse, error)
+	Run              func(ctx context.Context, req api.RunRequest) (api.RunResponse, error)
+	Agents           func(ctx context.Context) (api.AgentsResponse, error)
 }
 
 type SendIn struct {
@@ -153,7 +157,71 @@ func NewServer(d Deps, version string) *mcp.Server {
 		out, err := d.SaveOpenItem(ctx, item)
 		return nil, out, err
 	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "schedule_followup",
+		Description: "Schedule a one-shot delayed checkback that wakes an agent after a delay and delivers its reply to a chat. Use this when waiting on external work (CI runs, builds, deploys, TestFlight) instead of holding a turn open or ending without a wakeup. Defaults to quiet=true so a check that finds work still in progress can schedule another follow-up and reply NO_REPLY without notifying the user.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ScheduleFollowupIn) (*mcp.CallToolResult, store.Followup, error) {
+		if d.ScheduleFollowup == nil {
+			return nil, store.Followup{}, errors.New("follow-ups unavailable")
+		}
+		if in.Agent == "" || in.To == "" || in.Prompt == "" || in.Delay == "" {
+			return nil, store.Followup{}, errors.New("agent, to, prompt, and delay are required")
+		}
+		delay, err := followup.ParseDelay(in.Delay)
+		if err != nil {
+			return nil, store.Followup{}, err
+		}
+		out, err := d.ScheduleFollowup(ctx, api.FollowupRequest{
+			Agent:        in.Agent,
+			To:           in.To,
+			Via:          in.Via,
+			Session:      in.Session,
+			Prompt:       in.Prompt,
+			DelaySeconds: int(delay.Seconds()),
+			Quiet:        in.Quiet,
+		})
+		return nil, out, err
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_followups",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		Description: "List scheduled follow-up checkbacks. Returns pending follow-ups by default; set all=true to include recent completed, failed, and cancelled ones.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		Agent string `json:"agent,omitempty" jsonschema:"optional agent name filter"`
+		All   bool   `json:"all,omitempty" jsonschema:"include recent completed, failed, and cancelled follow-ups"`
+	}) (*mcp.CallToolResult, api.FollowupsResponse, error) {
+		if d.Followups == nil {
+			return nil, api.FollowupsResponse{}, errors.New("follow-ups unavailable")
+		}
+		items, err := d.Followups(ctx, in.Agent, in.All)
+		return nil, api.FollowupsResponse{Followups: items}, err
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "cancel_followup",
+		Description: "Cancel a pending scheduled follow-up by ID.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		ID string `json:"id" jsonschema:"ID of the pending follow-up to cancel"`
+	}) (*mcp.CallToolResult, store.Followup, error) {
+		if d.CancelFollowup == nil {
+			return nil, store.Followup{}, errors.New("follow-ups unavailable")
+		}
+		if in.ID == "" {
+			return nil, store.Followup{}, errors.New("id is required")
+		}
+		out, err := d.CancelFollowup(ctx, in.ID)
+		return nil, out, err
+	})
 	return s
+}
+
+type ScheduleFollowupIn struct {
+	Agent   string `json:"agent" jsonschema:"agent to wake up; see list_agents"`
+	To      string `json:"to" jsonschema:"recipient chat: a contact name such as alex, app:<agent>, or telegram:<bot>:<chat>"`
+	Via     string `json:"via,omitempty" jsonschema:"bot override when addressing a contact"`
+	Session string `json:"session,omitempty" jsonschema:"optional separate named session; leave empty to continue the destination chat's conversation"`
+	Delay   string `json:"delay" jsonschema:"how long to wait before checking back, e.g. 30s, 2m, 1h, 2d (between 30s and 7d)"`
+	Prompt  string `json:"prompt" jsonschema:"what to check and report when waking up; include IDs, repo, and context"`
+	Quiet   *bool  `json:"quiet,omitempty" jsonschema:"suppress NO_REPLY answers and typing/streaming; defaults to true"`
 }
 
 // SaveOpenItemIn uses pointers so an update can tell omitted fields (kept)

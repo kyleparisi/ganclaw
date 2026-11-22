@@ -50,7 +50,7 @@ func TestTools(t *testing.T) {
 		for _, tl := range res.Tools {
 			names = append(names, tl.Name)
 		}
-		assert.ElementsMatch(t, []string{"list_agents", "send_message", "ask_agent", "hand_off", "task_status", "list_open_items", "save_open_item"}, names)
+		assert.ElementsMatch(t, []string{"list_agents", "send_message", "ask_agent", "hand_off", "task_status", "list_open_items", "save_open_item", "schedule_followup", "list_followups", "cancel_followup"}, names)
 	})
 
 	t.Run("send_message sends through the API", func(t *testing.T) {
@@ -185,5 +185,83 @@ func TestOpenItemTools(t *testing.T) {
 		want := existing
 		want.Title, want.FollowUp = "Review final draft", ""
 		assert.Equal(t, want, saved, "version is carried so a concurrent edit is rejected")
+	})
+}
+
+func TestFollowupTools(t *testing.T) {
+	subject := connect
+
+	t.Run("Schedules, lists, and cancels follow-ups", func(t *testing.T) {
+		var gotReq api.FollowupRequest
+		cs := subject(t, Deps{
+			ScheduleFollowup: func(ctx context.Context, req api.FollowupRequest) (store.Followup, error) {
+				gotReq = req
+				return store.Followup{ID: "f-1", Agent: req.Agent, To: "app:support", Prompt: req.Prompt, Quiet: true, State: store.FollowupPending}, nil
+			},
+			Followups: func(ctx context.Context, agent string, all bool) ([]store.Followup, error) {
+				assert.Equal(t, "support", agent)
+				assert.True(t, all)
+				return []store.Followup{{ID: "f-1", Agent: "support", State: store.FollowupPending}}, nil
+			},
+			CancelFollowup: func(ctx context.Context, id string) (store.Followup, error) {
+				assert.Equal(t, "f-1", id)
+				return store.Followup{ID: "f-1", State: store.FollowupCancelled}, nil
+			},
+		})
+
+		out, isErr := call(t, cs, "schedule_followup", map[string]any{
+			"agent":  "support",
+			"to":     "app:support",
+			"delay":  "2m30s",
+			"prompt": "Check GitHub Actions run 42",
+		})
+		assert.False(t, isErr)
+		assert.Equal(t, "f-1", out["id"])
+		assert.Equal(t, api.FollowupRequest{
+			Agent:        "support",
+			To:           "app:support",
+			Prompt:       "Check GitHub Actions run 42",
+			DelaySeconds: 150,
+		}, gotReq)
+
+		_, isErr = call(t, cs, "schedule_followup", map[string]any{
+			"agent":  "support",
+			"to":     "app:support",
+			"delay":  "1m",
+			"prompt": "Always notify",
+			"quiet":  false,
+		})
+		assert.False(t, isErr)
+		require.NotNil(t, gotReq.Quiet)
+		assert.False(t, *gotReq.Quiet)
+
+		listed, isErr := call(t, cs, "list_followups", map[string]any{"agent": "support", "all": true})
+		assert.False(t, isErr)
+		assert.Len(t, listed["followups"], 1)
+
+		cancelled, isErr := call(t, cs, "cancel_followup", map[string]any{"id": "f-1"})
+		assert.False(t, isErr)
+		assert.Equal(t, store.FollowupCancelled, cancelled["state"])
+	})
+
+	t.Run("Rejects invalid delay and missing required arguments", func(t *testing.T) {
+		cs := subject(t, Deps{
+			ScheduleFollowup: func(context.Context, api.FollowupRequest) (store.Followup, error) {
+				t.Fatal("invalid request must not reach the gateway")
+				return store.Followup{}, nil
+			},
+			CancelFollowup: func(context.Context, string) (store.Followup, error) {
+				t.Fatal("empty id must not reach the gateway")
+				return store.Followup{}, nil
+			},
+		})
+
+		_, isErr1 := call(t, cs, "schedule_followup", map[string]any{"agent": "support", "to": "app:support", "delay": "2s", "prompt": "too soon"})
+		_, isErr2 := call(t, cs, "schedule_followup", map[string]any{"agent": "support", "to": "app:support", "delay": "1m", "prompt": ""})
+		_, isErr3 := call(t, cs, "cancel_followup", map[string]any{"id": ""})
+
+		assert.True(t, isErr1)
+		assert.True(t, isErr2)
+		assert.True(t, isErr3)
 	})
 }

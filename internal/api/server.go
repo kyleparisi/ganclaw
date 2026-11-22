@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kyleparisi/ganclaw/internal/followup"
 	"github.com/kyleparisi/ganclaw/internal/logx"
 	"github.com/kyleparisi/ganclaw/internal/openitems"
 	"github.com/kyleparisi/ganclaw/internal/provider"
@@ -47,6 +48,10 @@ type Server struct {
 	Pair    func(ctx context.Context, name string) (PairResponse, error)
 	Devices func(ctx context.Context) ([]DeviceInfo, error)
 	Unpair  func(ctx context.Context, id string) error
+	// Follow-up checkbacks. Optional; without them follow-up routes report unavailable.
+	ScheduleFollowup func(ctx context.Context, req FollowupRequest, t Target) (store.Followup, error)
+	Followups        func(ctx context.Context, agent string, all bool) ([]store.Followup, error)
+	CancelFollowup   func(ctx context.Context, id string) (store.Followup, error)
 	// Store holds idempotency keys. Optional; without it keys are ignored.
 	Store  *store.Store
 	Logger *slog.Logger
@@ -62,6 +67,9 @@ func (s *Server) Handler() http.Handler {
 	openitems.Register(mux, "/v1/open-items", s.Store)
 	mux.HandleFunc("GET /v1/tasks", s.handleTasks)
 	mux.HandleFunc("GET /v1/tasks/{id}", s.handleTasks)
+	mux.HandleFunc("POST /v1/followups", s.handleScheduleFollowup)
+	mux.HandleFunc("GET /v1/followups", s.handleListFollowups)
+	mux.HandleFunc("DELETE /v1/followups/{id}", s.handleCancelFollowup)
 	mux.HandleFunc("GET /v1/agents", s.handleAgents)
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
 	mux.HandleFunc("POST /v1/app/pair", s.handlePair)
@@ -372,4 +380,107 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, TasksResponse{Tasks: tasks})
+}
+
+func (s *Server) handleScheduleFollowup(w http.ResponseWriter, r *http.Request) {
+	if s.ScheduleFollowup == nil {
+		writeErr(w, Errorf(CodeUnavailable, "follow-ups unavailable"))
+		return
+	}
+	var req FollowupRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	req.Agent = strings.TrimSpace(req.Agent)
+	req.To = strings.TrimSpace(req.To)
+	req.Via = strings.TrimSpace(req.Via)
+	req.Session = strings.TrimSpace(req.Session)
+	req.Prompt = strings.TrimSpace(req.Prompt)
+	switch {
+	case req.Agent == "":
+		writeErr(w, Errorf(CodeBadRequest, "agent is required"))
+		return
+	case req.To == "":
+		writeErr(w, Errorf(CodeBadRequest, "to is required"))
+		return
+	case req.Prompt == "":
+		writeErr(w, Errorf(CodeBadRequest, "prompt is required"))
+		return
+	}
+	if _, err := followup.ValidateDelaySeconds(req.DelaySeconds); err != nil {
+		writeErr(w, Errorf(CodeBadRequest, "%s", err.Error()))
+		return
+	}
+	if req.Quiet == nil {
+		quiet := true
+		req.Quiet = &quiet
+	}
+	s.idempotent(w, r, req.IdempotencyKey, func() (any, error) {
+		via := req.Via
+		if _, raw := ParseAddress(req.To); !raw && via == "" && s.AgentBot != nil {
+			via = s.AgentBot(req.Agent)
+		}
+		target, err := s.Resolve(req.To, via)
+		if err != nil {
+			return nil, err
+		}
+		f, err := s.ScheduleFollowup(r.Context(), req, target)
+		if err != nil {
+			return nil, mapFollowupErr(err)
+		}
+		logx.OrDiscard(s.Logger).Info("api followup scheduled", "id", f.ID, "agent", f.Agent, "target", f.To, "due_at", f.DueAt)
+		return f, nil
+	})
+}
+
+func (s *Server) handleListFollowups(w http.ResponseWriter, r *http.Request) {
+	if s.Followups == nil {
+		writeErr(w, Errorf(CodeUnavailable, "follow-ups unavailable"))
+		return
+	}
+	respond(w, func() (any, error) {
+		items, err := s.Followups(r.Context(), r.URL.Query().Get("agent"), r.URL.Query().Get("all") == "true")
+		if err != nil {
+			return nil, mapFollowupErr(err)
+		}
+		if items == nil {
+			items = []store.Followup{}
+		}
+		return FollowupsResponse{Followups: items}, nil
+	})
+}
+
+func (s *Server) handleCancelFollowup(w http.ResponseWriter, r *http.Request) {
+	if s.CancelFollowup == nil {
+		writeErr(w, Errorf(CodeUnavailable, "follow-ups unavailable"))
+		return
+	}
+	id := r.PathValue("id")
+	respond(w, func() (any, error) {
+		f, err := s.CancelFollowup(r.Context(), id)
+		if err != nil {
+			return nil, mapFollowupErr(err)
+		}
+		logx.OrDiscard(s.Logger).Info("api followup cancelled", "id", f.ID, "agent", f.Agent)
+		return f, nil
+	})
+}
+
+func mapFollowupErr(err error) error {
+	var ae *Error
+	if errors.As(err, &ae) {
+		return ae
+	}
+	switch {
+	case errors.Is(err, store.ErrInvalidFollowup), errors.Is(err, followup.ErrInvalidDelay):
+		return Errorf(CodeBadRequest, "%s", err.Error())
+	case errors.Is(err, store.ErrTooManyFollowups), errors.Is(err, store.ErrFollowupRateLimit):
+		return Errorf(CodeBusy, "%s", err.Error())
+	case errors.Is(err, store.ErrFollowupNotPending):
+		return Errorf(CodeConflict, "%s", err.Error())
+	case errors.Is(err, sql.ErrNoRows):
+		return Errorf(CodeNotFound, "follow-up not found")
+	default:
+		return err
+	}
 }

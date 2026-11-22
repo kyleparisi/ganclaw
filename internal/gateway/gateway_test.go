@@ -616,3 +616,138 @@ func TestGatewayApp(t *testing.T) {
 		assert.Equal(t, api.CodeUnknownAgent, e.Code)
 	})
 }
+
+func TestGatewayFollowup(t *testing.T) {
+	subject := (*Gateway).RunFollowup
+	ctx := context.Background()
+
+	t.Run("CheckRunTarget and CheckFollowupTarget validate agent, telegram bot, and app availability", func(t *testing.T) {
+		gw, db := newGateway(t, &sentMessages{}, nil)
+		var e *api.Error
+
+		require.NoError(t, gw.CheckRunTarget("assistant", api.Target{Channel: "telegram", Bot: "assistant", Chat: 111}))
+		require.NoError(t, gw.CheckFollowupTarget("assistant", "telegram:assistant:111"))
+
+		err := gw.CheckFollowupTarget("assistant", "not-an-address")
+		require.ErrorAs(t, err, &e)
+		assert.Equal(t, api.CodeBadRequest, e.Code)
+
+		err = gw.CheckRunTarget("ghost", api.Target{Channel: "telegram", Bot: "assistant", Chat: 111})
+		require.ErrorAs(t, err, &e)
+		assert.Equal(t, api.CodeUnknownAgent, e.Code)
+
+		err = gw.CheckRunTarget("assistant", api.Target{Channel: "telegram", Bot: "ghost", Chat: 111})
+		require.ErrorAs(t, err, &e)
+		assert.Equal(t, api.CodeUnknownBot, e.Code)
+
+		err = gw.CheckRunTarget("assistant", api.Target{Channel: "app", Bot: "assistant"})
+		require.ErrorAs(t, err, &e)
+		assert.Equal(t, api.CodeBadRequest, e.Code)
+
+		withApp(t, gw, db)
+		require.NoError(t, gw.CheckRunTarget("assistant", api.Target{Channel: "app", Bot: "assistant"}))
+	})
+
+	t.Run("RunFollowup wakes the agent in the destination conversation and honors quiet NO_REPLY", func(t *testing.T) {
+		sent := &sentMessages{}
+		replies := []string{"NO_REPLY", "CI run 42 passed."}
+		i := 0
+		gw, db := newGateway(t, sent, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+			assert.Contains(t, req.Prompt, "[Scheduled follow-up f-1]")
+			assert.Contains(t, req.Prompt, "Check CI run 42")
+			sessions["claude"] = "k-ci"
+			r := replies[i]
+			i++
+			return "claude", provider.Result{Text: r}, nil
+		})
+		withApp(t, gw, db)
+
+		f := store.Followup{ID: "f-1", Agent: "assistant", To: "app:assistant", Prompt: "Check CI run 42", Quiet: true}
+		require.NoError(t, subject(gw, ctx, f))
+
+		msgs, err := db.AppMessages(ctx, "assistant", 0, 10)
+		require.NoError(t, err)
+		assert.Empty(t, msgs, "NO_REPLY stays silent in the app thread")
+
+		require.NoError(t, subject(gw, ctx, f))
+
+		msgs, err = db.AppMessages(ctx, "assistant", 0, 10)
+		require.NoError(t, err)
+		require.Len(t, msgs, 1)
+		assert.Equal(t, "CI run 42 passed.", msgs[0].Text)
+		assert.Empty(t, msgs[0].Job, "follow-up replies appear in the conversation, not hidden in Jobs")
+		s, _ := db.Sessions(ctx, "app:assistant")
+		assert.Equal(t, provider.Sessions{"claude": "k-ci"}, s)
+	})
+
+	t.Run("RunFollowup with named session keeps app reply in conversation", func(t *testing.T) {
+		gw, db := newGateway(t, &sentMessages{}, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+			return "claude", provider.Result{Text: "Deploy healthy."}, nil
+		})
+		withApp(t, gw, db)
+
+		f := store.Followup{ID: "f-2", Agent: "assistant", To: "app:assistant", Session: "ci-watch", Prompt: "Check deploy", Quiet: true}
+		require.NoError(t, subject(gw, ctx, f))
+
+		msgs, err := db.AppMessages(ctx, "assistant", 0, 10)
+		require.NoError(t, err)
+		require.Len(t, msgs, 1)
+		assert.Equal(t, store.BackgroundJob, msgs[0].Job)
+		assert.False(t, msgs[0].IsScheduledJob())
+	})
+
+	t.Run("RunFollowup delivers to Telegram, rejects invalid targets, and serializes with active chat turns", func(t *testing.T) {
+		sent := &sentMessages{}
+		firstStarted := make(chan struct{})
+		releaseFirst := make(chan struct{})
+		var active atomic.Int32
+		var overlap atomic.Bool
+		var order []string
+		var mu sync.Mutex
+
+		gw, _ := newGateway(t, sent, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+			if active.Add(1) > 1 {
+				overlap.Store(true)
+			}
+			defer active.Add(-1)
+			mu.Lock()
+			if strings.Contains(req.Prompt, "live user turn") {
+				order = append(order, "live")
+				mu.Unlock()
+				close(firstStarted)
+				<-releaseFirst
+				sessions["claude"] = "s-1"
+				return "claude", provider.Result{Text: "live reply"}, nil
+			}
+			order = append(order, "followup")
+			assert.Equal(t, "s-1", sessions["claude"], "follow-up sees session saved by live turn")
+			mu.Unlock()
+			return "claude", provider.Result{Text: "CI passed"}, nil
+		})
+
+		var e *api.Error
+		err := subject(gw, ctx, store.Followup{ID: "bad", Agent: "assistant", To: "bad-target", Prompt: "x"})
+		require.ErrorAs(t, err, &e)
+		assert.Equal(t, api.CodeBadRequest, e.Code)
+
+		liveDone := make(chan error, 1)
+		go func() {
+			_, runErr := gw.Run(ctx, api.RunRequest{Agent: "assistant", Prompt: "live user turn"}, &api.Target{Channel: "telegram", Bot: "assistant", Chat: 111})
+			liveDone <- runErr
+		}()
+		<-firstStarted
+
+		followupDone := make(chan error, 1)
+		go func() {
+			followupDone <- subject(gw, ctx, store.Followup{ID: "f-tg", Agent: "assistant", To: "telegram:assistant:111", Prompt: "Check CI", Quiet: true})
+		}()
+
+		close(releaseFirst)
+		require.NoError(t, <-liveDone)
+		require.NoError(t, <-followupDone)
+
+		assert.False(t, overlap.Load(), "router must serialize follow-up behind live turn on the same chat")
+		assert.Equal(t, []string{"live", "followup"}, order)
+		assert.Equal(t, []string{"live reply", "CI passed"}, sent.all())
+	})
+}

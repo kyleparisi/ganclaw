@@ -18,6 +18,7 @@ import (
 	"github.com/kyleparisi/ganclaw/internal/appchannel"
 	"github.com/kyleparisi/ganclaw/internal/attachments"
 	"github.com/kyleparisi/ganclaw/internal/config"
+	"github.com/kyleparisi/ganclaw/internal/followup"
 	"github.com/kyleparisi/ganclaw/internal/gateway"
 	"github.com/kyleparisi/ganclaw/internal/procexec"
 	"github.com/kyleparisi/ganclaw/internal/provider"
@@ -187,6 +188,21 @@ func cmdServe(ctx context.Context, args []string) error {
 	}
 
 	gw := &gateway.Gateway{Ctx: ctx, Router: r, Agents: agents, Bots: bots, App: app, Logger: log}
+	sched := followup.New(followup.Config{
+		Store:    st,
+		Validate: gw.CheckFollowupTarget,
+		RunTurn:  gw.RunFollowup,
+		Notify:   gw.NotifyFollowup,
+		Logger:   log,
+	})
+	if err := sched.Interrupt(ctx); err != nil {
+		return err
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		sched.Run(ctx)
+	}()
 	apiSrv := &api.Server{
 		Resolve:  api.Resolver{Contacts: cfg.Contacts, Bots: botNames}.Resolve,
 		Send:     gw.Send,
@@ -196,8 +212,23 @@ func cmdServe(ctx context.Context, args []string) error {
 		AgentBot: gw.AgentBot,
 		Agents:   gw.ListAgents(contactNames(cfg.Contacts)),
 		Health:   gw.Health(version, chain.Status, monitorProbes(cfg), nil),
-		Store:    st,
-		Logger:   log,
+		ScheduleFollowup: func(ctx context.Context, req api.FollowupRequest, target api.Target) (store.Followup, error) {
+			delay, err := followup.ValidateDelaySeconds(req.DelaySeconds)
+			if err != nil {
+				return store.Followup{}, err
+			}
+			return sched.Schedule(ctx, store.Followup{
+				Agent:   req.Agent,
+				To:      target.String(),
+				Session: req.Session,
+				Prompt:  req.Prompt,
+				Quiet:   req.Quiet == nil || *req.Quiet,
+			}, delay)
+		},
+		Followups:      st.ListFollowups,
+		CancelFollowup: st.CancelFollowup,
+		Store:          st,
+		Logger:         log,
 	}
 	if app != nil {
 		apiSrv.Pair = func(_ context.Context, name string) (api.PairResponse, error) {
@@ -374,6 +405,11 @@ func housekeeping(ctx context.Context, log *slog.Logger, st *store.Store, agents
 			log.Warn("prune idempotency keys", "err", err)
 		} else if n > 0 {
 			log.Info("old idempotency keys removed", "count", n)
+		}
+		if n, err := st.PruneFollowups(ctx, 7*24*time.Hour); err != nil {
+			log.Warn("prune follow-ups", "err", err)
+		} else if n > 0 {
+			log.Info("old follow-ups removed", "count", n)
 		}
 		for _, a := range agents {
 			n, err := attachments.Sweep(attachments.Dir(a.Workspace), retention, time.Now())

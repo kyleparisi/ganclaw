@@ -18,6 +18,7 @@ import (
 	"github.com/kyleparisi/ganclaw/internal/agent"
 	"github.com/kyleparisi/ganclaw/internal/api"
 	"github.com/kyleparisi/ganclaw/internal/appchannel"
+	"github.com/kyleparisi/ganclaw/internal/followup"
 	"github.com/kyleparisi/ganclaw/internal/logx"
 	"github.com/kyleparisi/ganclaw/internal/provider"
 	"github.com/kyleparisi/ganclaw/internal/router"
@@ -166,15 +167,17 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 	if !ok {
 		return router.TurnResult{}, api.Errorf(api.CodeUnknownAgent, "no agent named %q", req.Agent)
 	}
+	if t != nil {
+		if err := g.CheckRunTarget(req.Agent, *t); err != nil {
+			return router.TurnResult{}, err
+		}
+	}
 	if req.Heartbeat {
 		req.Prompt = WithHeartbeat(req.Prompt, a.Workspace)
 	}
 
 	var m router.Message
 	if t != nil && t.Channel == "app" {
-		if err := g.checkApp(*t); err != nil {
-			return router.TurnResult{}, err
-		}
 		// The reply lands in the target agent's thread, tagged with the
 		// session as the job name so the app can list scheduled runs.
 		job := req.Session
@@ -193,10 +196,7 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 			m.ChatKey = JobKey(req.Agent, req.Session)
 		}
 	} else if t != nil {
-		b, ok := g.Bots[t.Bot]
-		if !ok {
-			return router.TurnResult{}, api.Errorf(api.CodeUnknownBot, "no bot named %q", t.Bot)
-		}
+		b := g.Bots[t.Bot]
 		m = b.Message(t.Chat, req.Agent, req.Prompt)
 		if req.Session != "" {
 			// Deliver to the chat but keep the work in its own conversation.
@@ -260,6 +260,71 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 	case <-g.Ctx.Done():
 		return router.TurnResult{Err: ErrShuttingDown, Text: ErrShuttingDown.Error()}, nil
 	}
+}
+
+// CheckRunTarget verifies that agentName exists and can deliver to t.
+func (g *Gateway) CheckRunTarget(agentName string, t api.Target) error {
+	if _, ok := g.Agents[agentName]; !ok {
+		return api.Errorf(api.CodeUnknownAgent, "no agent named %q", agentName)
+	}
+	if t.Channel == "app" {
+		return g.checkApp(t)
+	}
+	if _, ok := g.Bots[t.Bot]; !ok {
+		return api.Errorf(api.CodeUnknownBot, "no bot named %q", t.Bot)
+	}
+	return nil
+}
+
+// CheckFollowupTarget verifies that agentName exists and can deliver to the
+// canonical address string to.
+func (g *Gateway) CheckFollowupTarget(agentName, to string) error {
+	target, ok := api.ParseAddress(to)
+	if !ok {
+		return api.Errorf(api.CodeBadRequest, "invalid follow-up target %q", to)
+	}
+	return g.CheckRunTarget(agentName, target)
+}
+
+// RunFollowup runs one due follow-up turn against its resolved target.
+func (g *Gateway) RunFollowup(ctx context.Context, f store.Followup) error {
+	target, ok := api.ParseAddress(f.To)
+	if !ok {
+		return api.Errorf(api.CodeBadRequest, "invalid follow-up target %q", f.To)
+	}
+	req := api.RunRequest{
+		Agent:   f.Agent,
+		Prompt:  followup.BuildPrompt(f),
+		To:      f.To,
+		Session: f.Session,
+		Quiet:   f.Quiet,
+	}
+	if f.Session != "" {
+		// store.BackgroundJob keeps the reply visible in the app conversation
+		// instead of filing it under scheduled Jobs history.
+		req.Job = store.BackgroundJob
+	}
+	res, err := g.Run(ctx, req, &target)
+	if err != nil {
+		return err
+	}
+	if res.Err != nil {
+		if errors.Is(res.Err, ErrShuttingDown) {
+			return res.Err
+		}
+		// Router already delivered an error reply to the chat.
+		return followup.AlreadyNotified(res.Err)
+	}
+	return nil
+}
+
+// NotifyFollowup delivers a plain failure notice to a follow-up's destination.
+func (g *Gateway) NotifyFollowup(ctx context.Context, f store.Followup, text string) error {
+	target, ok := api.ParseAddress(f.To)
+	if !ok {
+		return api.Errorf(api.CodeBadRequest, "invalid follow-up target %q", f.To)
+	}
+	return g.Send(ctx, target, text)
 }
 
 // checkApp reports whether t can be delivered to the app channel.

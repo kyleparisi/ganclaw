@@ -79,7 +79,7 @@ func TestToolsAppendix(t *testing.T) {
 			{Name: "quiet"},
 		}})
 
-		assert.Equal(t, "# Tool servers (provided by ganclaw)\n\n- browser: headless, logged out\n- ganclaw: message a person (send_message), ask another agent and get its answer (ask_agent), hand a task to another agent whose reply goes to a person (hand_off), list agents and contacts (list_agents).", got)
+		assert.Equal(t, "# Tool servers (provided by ganclaw)\n\n- browser: headless, logged out\n- ganclaw: message a person (send_message), ask another agent and get its answer (ask_agent), hand a task to another agent whose reply goes to a person (hand_off), list agents and contacts (list_agents), and schedule/list/cancel delayed follow-up checkbacks (schedule_followup, list_followups, cancel_followup).", got)
 	})
 
 	t.Run("Nothing to describe", func(t *testing.T) {

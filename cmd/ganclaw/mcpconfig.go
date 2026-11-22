@@ -144,7 +144,7 @@ func toolsAppendix(cfg *config.Config) string {
 		}
 	}
 	if !cfg.DisableAgentTools {
-		lines = append(lines, "- ganclaw: message a person (send_message), ask another agent and get its answer (ask_agent), hand a task to another agent whose reply goes to a person (hand_off), list agents and contacts (list_agents).")
+		lines = append(lines, "- ganclaw: message a person (send_message), ask another agent and get its answer (ask_agent), hand a task to another agent whose reply goes to a person (hand_off), list agents and contacts (list_agents), and schedule/list/cancel delayed follow-up checkbacks (schedule_followup, list_followups, cancel_followup).")
 	}
 	if len(lines) == 0 {
 		return ""
