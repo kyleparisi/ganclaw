@@ -5,7 +5,7 @@
 log_level = "info"                 # debug | info | warn | error
 state_dir = "/var/lib/ganclaw"     # SQLite database lives here
 providers = ["codex", "claude"]    # fallback order
-turn_timeout = "20m"
+turn_timeout = "35m"
 attachment_retention = "168h"      # files users send, kept in <workspace>/.ganclaw/attachments
 
 [codex]

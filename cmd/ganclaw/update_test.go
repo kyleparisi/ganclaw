@@ -96,3 +96,17 @@ func TestPlatforms(t *testing.T) {
 		assert.ErrorContains(t, err, "only Linux")
 	})
 }
+
+func TestResolveUpdateWait(t *testing.T) {
+	subject := resolveUpdateWait
+
+	t.Run("Defaults to turn timeout plus margin when flag is unset", func(t *testing.T) {
+		assert.Equal(t, 45*time.Minute, subject(0, false, 35*time.Minute))
+		assert.Equal(t, 70*time.Minute, subject(0, false, time.Hour))
+	})
+
+	t.Run("Respects explicit flag value including zero", func(t *testing.T) {
+		assert.Equal(t, 5*time.Minute, subject(5*time.Minute, true, 35*time.Minute))
+		assert.Equal(t, time.Duration(0), subject(0, true, 35*time.Minute))
+	})
+}

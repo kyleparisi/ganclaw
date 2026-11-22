@@ -49,7 +49,7 @@ func TestLoad(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "info", cfg.LogLevel)
 		assert.Equal(t, []string{"codex", "claude"}, cfg.Providers)
-		assert.Equal(t, 20*time.Minute, cfg.TurnTimeout.Duration)
+		assert.Equal(t, 35*time.Minute, cfg.TurnTimeout.Duration)
 		assert.Equal(t, 7*24*time.Hour, cfg.AttachmentRetention.Duration)
 		assert.Equal(t, "/var/lib/ganclaw/codex", cfg.Codex.Home)
 		assert.Equal(t, DefaultInstructionFiles, cfg.Agents[0].InstructionFiles)
