@@ -34,7 +34,9 @@ every agent. Idle, it uses about 20 MB.
 - **Agent tools via MCP.** Any stdio MCP server (for example a Playwright
   browser) is given to every agent, and ganclaw adds its own tools so agents
   can message people (`send_message`), ask another agent (`ask_agent`), hand
-  work to one (`hand_off`) and see who's available (`list_agents`).
+  work to one (`hand_off`), see who's available (`list_agents`), and schedule
+  persisted one-shot checkbacks (`schedule_followup`, `list_followups`,
+  `cancel_followup`) when waiting on CI, builds, or external work.
 - **A local API and CLI** for schedulers and scripts (cron, systemd timers,
   [Dagu](https://github.com/dagu-org/dagu), …): send a message or run an agent,
   optionally delivering its reply to a chat. Idempotency keys make retries
@@ -260,6 +262,9 @@ service user and root are refused (checked with `SO_PEERCRED`).
 | `POST /v1/run` | `{agent, prompt, to?, via?, session?, timeout_seconds?, quiet?, heartbeat?, async?, idempotency_key?}` |
 | `GET /v1/tasks/{id}` | persisted background task status |
 | `GET /v1/tasks?agent=support` | latest 50 tasks, optional agent filter |
+| `POST /v1/followups` | `{agent, to, via?, session?, prompt, delay_seconds, quiet?, idempotency_key?}` → schedule a one-shot delayed checkback |
+| `GET /v1/followups?agent=support&all=true` | list pending follow-ups (or recent history when `all=true`) |
+| `DELETE /v1/followups/{id}` | cancel a pending follow-up |
 | `GET /v1/status` | provider availability and limits |
 | `GET /v1/agents` | agents, their bots, and contacts |
 | `GET /v1/health` | providers, bot polling state and probe results |

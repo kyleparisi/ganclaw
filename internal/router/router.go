@@ -539,7 +539,9 @@ func (r *Router) process(m Message) {
 func turnBudgetInstructions(budget time.Duration) string {
 	return fmt.Sprintf(`# Long-running work
 
-Each turn is limited to about %s. Break anything that might take a while (builds, test suites, migrations, waiting on CI) into small units of safe, resumable work. Save progress as you go, and if work remains, end with a clear handoff: what's done, what's left, and the next step. Don't claim unfinished work is complete.`, shortDuration(budget))
+Each turn is limited to about %s. Break anything that might take a while (builds, test suites, migrations, waiting on CI) into small units of safe, resumable work. Save progress as you go, and if work remains, end with a clear handoff: what's done, what's left, and the next step. Don't claim unfinished work is complete.
+
+Once your turn ends, nothing wakes you up unless a follow-up checkback is scheduled. Never say you will monitor CI, builds, deploys, or follow up later unless you actually schedule a checkback before ending your turn.`, shortDuration(budget))
 }
 
 // shortDuration formats d without trailing zero units: 20m, 1h, 1m30s.

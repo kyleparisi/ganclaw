@@ -24,6 +24,18 @@ type Store struct {
 const schema = `
 CREATE TABLE IF NOT EXISTS open_items (id TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE IF NOT EXISTS worker_tasks (id TEXT PRIMARY KEY, data BLOB NOT NULL);
+CREATE TABLE IF NOT EXISTS followups (
+	id              TEXT PRIMARY KEY,
+	agent           TEXT NOT NULL,
+	state           TEXT NOT NULL,
+	due_unix_ms     INTEGER NOT NULL,
+	created_unix_ms INTEGER NOT NULL,
+	updated_unix_ms INTEGER NOT NULL,
+	data            BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS followups_due ON followups (state, due_unix_ms);
+CREATE INDEX IF NOT EXISTS followups_agent_state ON followups (agent, state);
+CREATE INDEX IF NOT EXISTS followups_agent_created ON followups (agent, created_unix_ms);
 CREATE TABLE IF NOT EXISTS sessions (
 	chat_key   TEXT NOT NULL,
 	provider   TEXT NOT NULL,

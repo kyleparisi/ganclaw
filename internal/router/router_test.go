@@ -862,6 +862,7 @@ func TestTurnBudgetInstructions(t *testing.T) {
 		assert.Contains(t, subject(20*time.Minute), "limited to about 20m.")
 		assert.Contains(t, subject(time.Hour), "limited to about 1h.")
 		assert.Contains(t, subject(90*time.Second), "limited to about 1m30s.")
+		assert.Contains(t, subject(20*time.Minute), "follow-up checkback")
 	})
 }
 

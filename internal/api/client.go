@@ -159,3 +159,22 @@ func (c *Client) SaveOpenItem(ctx context.Context, item store.OpenItem) (store.O
 	err := c.do(ctx, method, path, item, &out)
 	return out, err
 }
+
+func (c *Client) ScheduleFollowup(ctx context.Context, req FollowupRequest) (store.Followup, error) {
+	var out store.Followup
+	err := c.do(ctx, http.MethodPost, "/v1/followups", req, &out)
+	return out, err
+}
+
+func (c *Client) Followups(ctx context.Context, agent string, all bool) ([]store.Followup, error) {
+	var out FollowupsResponse
+	path := fmt.Sprintf("/v1/followups?agent=%s&all=%t", url.QueryEscape(agent), all)
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out.Followups, err
+}
+
+func (c *Client) CancelFollowup(ctx context.Context, id string) (store.Followup, error) {
+	var out store.Followup
+	err := c.do(ctx, http.MethodDelete, "/v1/followups/"+url.PathEscape(id), nil, &out)
+	return out, err
+}

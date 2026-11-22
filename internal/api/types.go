@@ -152,6 +152,8 @@ const (
 	CodeUnknownContact = "unknown_contact"
 	CodeUnknownBot     = "unknown_bot"
 	CodeUnknownAgent   = "unknown_agent"
+	CodeNotFound       = "not_found"
+	CodeConflict       = "conflict"
 	CodeInProgress     = "in_progress"
 	CodeBusy           = "busy"
 	CodeUnavailable    = "unavailable"
@@ -165,6 +167,8 @@ var codeStatus = map[string]int{
 	CodeUnknownContact: http.StatusNotFound,
 	CodeUnknownBot:     http.StatusNotFound,
 	CodeUnknownAgent:   http.StatusNotFound,
+	CodeNotFound:       http.StatusNotFound,
+	CodeConflict:       http.StatusConflict,
 	CodeInProgress:     http.StatusConflict,
 	CodeBusy:           http.StatusTooManyRequests,
 	CodeUnavailable:    http.StatusServiceUnavailable,
@@ -218,4 +222,21 @@ func ParseAddress(s string) (Target, bool) {
 
 type TasksResponse struct {
 	Tasks []store.Task `json:"tasks"`
+}
+
+// FollowupRequest schedules a one-shot delayed checkback for an agent.
+type FollowupRequest struct {
+	Agent          string `json:"agent"`
+	To             string `json:"to"`
+	Via            string `json:"via,omitempty"`
+	Session        string `json:"session,omitempty"`
+	Prompt         string `json:"prompt"`
+	DelaySeconds   int    `json:"delay_seconds"`
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	// Quiet suppresses typing, streaming, and NO_REPLY answers. Defaults to true when omitted.
+	Quiet *bool `json:"quiet,omitempty"`
+}
+
+type FollowupsResponse struct {
+	Followups []store.Followup `json:"followups"`
 }
