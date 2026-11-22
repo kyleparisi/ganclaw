@@ -102,7 +102,7 @@ type Config struct {
 	// it audio is passed to the agent as a file only.
 	Transcribe func(ctx context.Context, path string) (string, error)
 
-	TurnTimeout    time.Duration // default 20m
+	TurnTimeout    time.Duration // default 35m
 	TypingInterval time.Duration // default 4s
 	IdleTimeout    time.Duration // idle per-chat worker exits after this; default 5m
 	QueueSize      int           // pending messages per chat; default 16
@@ -123,7 +123,7 @@ type Router struct {
 // New returns a router whose workers stop when ctx is cancelled.
 func New(ctx context.Context, cfg Config) *Router {
 	if cfg.TurnTimeout == 0 {
-		cfg.TurnTimeout = 20 * time.Minute
+		cfg.TurnTimeout = 35 * time.Minute
 	}
 	if cfg.TypingInterval == 0 {
 		cfg.TypingInterval = 4 * time.Second

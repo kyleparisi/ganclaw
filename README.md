@@ -352,7 +352,7 @@ Each download is checked against its published SHA-256 and must report the
 expected version before it replaces the old binary, which is kept as
 `<bin>.prev`. A new `claude` is used from the next turn. A new `codex` needs
 a gateway restart, which happens once no turn is running (`-wait`, default
-30m); if the gateway doesn't come back, both binaries are restored.
+`turn_timeout` + 10m); if the gateway doesn't come back, both binaries are restored.
 
 ## Security model
 

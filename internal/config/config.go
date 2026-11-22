@@ -257,7 +257,7 @@ func (c *Config) applyDefaults() {
 		c.Providers = []string{"codex", "claude"}
 	}
 	if c.TurnTimeout.Duration == 0 {
-		c.TurnTimeout.Duration = 20 * time.Minute
+		c.TurnTimeout.Duration = 35 * time.Minute
 	}
 	if c.AttachmentRetention.Duration == 0 {
 		c.AttachmentRetention.Duration = 7 * 24 * time.Hour

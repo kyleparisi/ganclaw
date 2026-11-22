@@ -28,11 +28,17 @@ func cmdUpdateCLIs(ctx context.Context, args []string) error {
 	channel := fs.String("channel", "stable", "claude release channel: stable or latest")
 	check := fs.Bool("check", false, "only show installed and available versions")
 	restart := fs.Bool("restart", true, "restart ganclaw when idle if codex was updated")
-	wait := fs.Duration("wait", 30*time.Minute, "how long to wait for running turns to finish before restarting")
+	wait := fs.Duration("wait", 0, "how long to wait for running turns to finish before restarting (default turn_timeout + 10m)")
 	unit := fs.String("unit", "ganclaw", "systemd unit to restart")
 	if err := fs.Parse(args); err != nil {
 		return &exitError{code: exitUsage, err: err}
 	}
+	waitSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "wait" {
+			waitSet = true
+		}
+	})
 	if *channel != "stable" && *channel != "latest" {
 		return &exitError{code: exitUsage, err: fmt.Errorf("update-clis: -channel must be stable or latest")}
 	}
@@ -105,7 +111,7 @@ func cmdUpdateCLIs(ctx context.Context, args []string) error {
 			Sleep:   time.Sleep,
 			Log:     func(s string) { fmt.Println(s) },
 		}
-		if err := r.restartWhenIdle(ctx, *wait); err != nil {
+		if err := r.restartWhenIdle(ctx, resolveUpdateWait(*wait, waitSet, cfg.TurnTimeout.Duration)); err != nil {
 			fmt.Println("ganclaw didn't come back after the restart; restoring the previous binaries")
 			for _, bin := range updated {
 				if rerr := updater.Rollback(bin); rerr != nil {
@@ -131,7 +137,17 @@ type restarter struct {
 	Log     func(string)
 }
 
-const pollEvery = 5 * time.Second
+const (
+	pollEvery        = 5 * time.Second
+	updateWaitMargin = 10 * time.Minute
+)
+
+func resolveUpdateWait(flagWait time.Duration, flagSet bool, turnTimeout time.Duration) time.Duration {
+	if flagSet {
+		return flagWait
+	}
+	return turnTimeout + updateWaitMargin
+}
 
 // restartWhenIdle waits up to wait for running turns to finish, restarts,
 // and waits for the gateway to answer again. A gateway that isn't running
