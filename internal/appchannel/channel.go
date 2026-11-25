@@ -271,12 +271,13 @@ func (c *Channel) Message(agentName, text, job string) router.Message {
 		runKind, runLabel = "job", job
 	}
 	return router.Message{
-		ChatKey:  ChatKey(agentName),
-		Agent:    agentName,
-		RunKind:  runKind,
-		RunLabel: runLabel,
-		Text:     text,
-		Reply:    t.reply,
+		ChatKey:   ChatKey(agentName),
+		Agent:     agentName,
+		RunKind:   runKind,
+		RunLabel:  runLabel,
+		AppThread: job == "" || job == backgroundJob,
+		Text:      text,
+		Reply:     t.reply,
 		Typing: func(context.Context) error {
 			c.setState(agentName, AgentState{Working: true, Detail: "Working", Since: c.Now()})
 			return nil

@@ -28,7 +28,10 @@ type Message struct {
 	RunKind string
 	// RunLabel is an optional safe label for live status (e.g. job or session name).
 	RunLabel string
-	runID    string
+	// AppThread marks turns that drive the agent's app-thread working state so the
+	// app can deduplicate them against the working AgentRow.
+	AppThread bool
+	runID     string
 	// AppInboxIDs identifies durable app inputs being handed to this turn.
 	AppInboxIDs []int64
 	// Batch marks ordinary chat messages that may share a turn with queued messages.
@@ -171,6 +174,10 @@ func (r *Router) Submit(m Message) bool {
 		return true
 	}
 	r.mu.Lock()
+	if r.ctx.Err() != nil {
+		r.mu.Unlock()
+		return false
+	}
 	q, ok := r.queues[m.ChatKey]
 	if !ok {
 		q = make(chan Message, r.cfg.QueueSize)
@@ -225,6 +232,9 @@ func (r *Router) worker(key string, q chan Message) {
 			r.processBatch(batch)
 			idle.Reset(r.cfg.IdleTimeout)
 		case <-r.ctx.Done():
+			r.mu.Lock()
+			delete(r.queues, key)
+			r.mu.Unlock()
 			r.drainQueueRuns(q)
 			return
 		case <-idle.C:
@@ -358,9 +368,8 @@ func (r *Router) process(m Message) {
 	}
 
 	var result TurnResult
-	if m.runID != "" {
-		r.startRun(m.runID)
-		defer r.finishRun(m.runID)
+	if m.OnDone != nil {
+		defer func() { m.OnDone(result) }()
 	}
 	if m.TaskID != "" {
 		r.taskUpdate(m.TaskID, "running", "Router started handling task")
@@ -372,8 +381,9 @@ func (r *Router) process(m Message) {
 			r.taskUpdate(m.TaskID, state, progress)
 		}()
 	}
-	if m.OnDone != nil {
-		defer func() { m.OnDone(result) }()
+	if m.runID != "" {
+		r.startRun(m.runID)
+		defer r.finishRun(m.runID)
 	}
 
 	reply := func(text string) {

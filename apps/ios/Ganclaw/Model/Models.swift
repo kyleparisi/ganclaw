@@ -119,6 +119,7 @@ struct ActiveRun: Codable, Hashable, Identifiable {
     var kind: String // app | telegram | handoff | ask | followup | job | run
     var label: String?
     var taskId: String?
+    var appThread: Bool?
     var state: String // queued | running
     var progress: String?
     var startedAt: Date

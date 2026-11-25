@@ -162,4 +162,89 @@ func TestActiveRuns(t *testing.T) {
 		<-secondDone
 		require.Eventually(t, func() bool { return len(subject(r)) == 0 }, time.Second, 5*time.Millisecond)
 	})
+
+	t.Run("Full queue does not leak a run or notify", func(t *testing.T) {
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		var mu sync.Mutex
+		var notifyCount int
+		r := newRouter(t, Config{
+			Agents:    testAgents(),
+			Store:     store.NewTestStore(t),
+			QueueSize: 1,
+			OnRunsChanged: func([]ActiveRun) {
+				mu.Lock()
+				notifyCount++
+				mu.Unlock()
+			},
+			Run: func(ctx context.Context, _ provider.Sessions, _ provider.Request) (string, provider.Result, error) {
+				select {
+				case entered <- struct{}{}:
+				default:
+				}
+				<-release
+				return "codex", provider.Result{Text: "ok"}, nil
+			},
+		})
+		require.True(t, r.Submit(Message{ChatKey: "job:assistant:q", Agent: "assistant", Text: "1", Reply: func(context.Context, string) error { return nil }}))
+		<-entered
+		require.True(t, r.Submit(Message{ChatKey: "job:assistant:q", Agent: "assistant", Text: "2", Reply: func(context.Context, string) error { return nil }}))
+		mu.Lock()
+		before := notifyCount
+		mu.Unlock()
+		assert.False(t, r.Submit(Message{ChatKey: "job:assistant:q", Agent: "assistant", Text: "3", Reply: func(context.Context, string) error { return nil }}))
+		assert.Len(t, subject(r), 2)
+		mu.Lock()
+		assert.Equal(t, before, notifyCount)
+		mu.Unlock()
+		close(release)
+		require.Eventually(t, func() bool { return len(subject(r)) == 0 }, time.Second, 5*time.Millisecond)
+	})
+
+	t.Run("OnDone sees the finished run already cleared and shutdown drains queued runs", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		var activeAtOnDone int
+		done := make(chan struct{})
+		r := New(ctx, Config{
+			Agents: testAgents(),
+			Store:  store.NewTestStore(t),
+			Run: func(ctx context.Context, _ provider.Sessions, req provider.Request) (string, provider.Result, error) {
+				if req.Prompt == "sync" {
+					return "codex", provider.Result{Text: "done"}, nil
+				}
+				entered <- struct{}{}
+				select {
+				case <-release:
+				case <-ctx.Done():
+					return "", provider.Result{}, ctx.Err()
+				}
+				return "codex", provider.Result{Text: "done"}, nil
+			},
+		})
+		require.True(t, r.Submit(Message{
+			ChatKey: "job:assistant:sync",
+			Agent:   "assistant",
+			Text:    "sync",
+			Reply:   func(context.Context, string) error { return nil },
+			OnDone: func(TurnResult) {
+				activeAtOnDone = len(subject(r))
+				close(done)
+			},
+		}))
+		<-done
+		assert.Equal(t, 0, activeAtOnDone, "finishRun runs before OnDone")
+
+		require.True(t, r.Submit(Message{ChatKey: "job:assistant:drain", Agent: "assistant", Text: "first", Reply: func(context.Context, string) error { return nil }}))
+		<-entered
+		require.True(t, r.Submit(Message{ChatKey: "job:assistant:drain", Agent: "assistant", Text: "queued", Reply: func(context.Context, string) error { return nil }}))
+		assert.Len(t, subject(r), 2)
+		cancel()
+		r.Wait()
+		assert.Empty(t, subject(r), "shutdown drains queued runs")
+		assert.False(t, r.Submit(Message{ChatKey: "job:assistant:drain", Agent: "assistant", Text: "late", Reply: func(context.Context, string) error { return nil }}))
+		assert.Empty(t, subject(r))
+		close(release)
+	})
 }

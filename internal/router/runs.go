@@ -13,11 +13,12 @@ import (
 type ActiveRun struct {
 	ID        string    `json:"id"`
 	Agent     string    `json:"agent"`
-	Kind      string    `json:"kind"`               // app | telegram | handoff | ask | followup | job | run
-	Label     string    `json:"label,omitempty"`    // optional safe label (e.g. job or session name)
-	TaskID    string    `json:"task_id,omitempty"`  // linked worker_tasks ID if backed by a persisted task
-	State     string    `json:"state"`              // queued | running
-	Progress  string    `json:"progress,omitempty"` // latest safe provider activity
+	Kind      string    `json:"kind"`                 // app | telegram | handoff | ask | followup | job | run
+	Label     string    `json:"label,omitempty"`      // optional safe label (e.g. job or session name)
+	TaskID    string    `json:"task_id,omitempty"`    // linked worker_tasks ID if backed by a persisted task
+	AppThread bool      `json:"app_thread,omitempty"` // true when this turn also drives the agent's app-thread working state
+	State     string    `json:"state"`                // queued | running
+	Progress  string    `json:"progress,omitempty"`   // latest safe provider activity
 	StartedAt time.Time `json:"started_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -83,6 +84,7 @@ func (r *Router) queueRunLocked(m *Message) {
 		Kind:      inferRunKind(*m),
 		Label:     m.RunLabel,
 		TaskID:    m.TaskID,
+		AppThread: m.AppThread,
 		State:     "queued",
 		Progress:  "Waiting in router queue",
 		StartedAt: now,

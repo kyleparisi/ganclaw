@@ -311,7 +311,7 @@ struct ActiveRunRow: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Theme.blue)
                         .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Theme.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                        .background(Theme.blueSoft, in: RoundedRectangle(cornerRadius: 6))
                     if let label = run.label, !label.isEmpty {
                         Text(jobTitle(label))
                             .font(.system(size: 12))
@@ -356,7 +356,7 @@ struct RunningView: View {
                     .control("running.empty")
             }
             ForEach(workingAgents) { a in
-                CButton("inbox.row.\(a.name)") { openAgent(a.name) } label: {
+                CButton("running.agent.\(a.name)") { openAgent(a.name) } label: {
                     AgentRow(agent: a, streaming: s.thread(a.name).streaming)
                 }
                 .buttonStyle(.plain)

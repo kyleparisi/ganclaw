@@ -195,7 +195,8 @@ struct AppState: Codable, Equatable {
     /// Active turns across ganclaw that aren't already shown as a working app-chat row.
     var backgroundRuns: [ActiveRun] {
         activeRuns.filter { run in
-            !(run.kind == "app" && agent(run.agent)?.state.working == true)
+            let representsAppThread = run.appThread ?? (run.kind == "app")
+            return !(representsAppThread && agent(run.agent)?.state.working == true)
         }
     }
 
@@ -296,7 +297,10 @@ struct AppState: Codable, Equatable {
             self = AppState()
             pairing.error = reason
         case .connection(let s):
-            if connection != .unpaired { connection = s }
+            if connection != .unpaired {
+                connection = s
+                if s == .disconnected { activeRuns = [] }
+            }
 
         case .commandsLoaded(let commands):
             self.commands = commands

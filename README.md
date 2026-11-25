@@ -259,7 +259,7 @@ service user and root are refused (checked with `SO_PEERCRED`).
 | Endpoint | Purpose |
 |---|---|
 | `POST /v1/send` | `{to, via?, text, idempotency_key?}` |
-| `POST /v1/run` | `{agent, prompt, to?, via?, session?, timeout_seconds?, quiet?, heartbeat?, async?, idempotency_key?}` |
+| `POST /v1/run` | `{agent, prompt, to?, via?, session?, timeout_seconds?, quiet?, heartbeat?, async?, source?, idempotency_key?}` |
 | `GET /v1/tasks/{id}` | persisted background task status |
 | `GET /v1/tasks?agent=support` | latest 50 tasks, optional agent filter |
 | `POST /v1/followups` | `{agent, to, via?, session?, prompt, delay_seconds, quiet?, idempotency_key?}` → schedule a one-shot delayed checkback |

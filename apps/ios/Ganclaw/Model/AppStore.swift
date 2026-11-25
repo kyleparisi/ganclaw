@@ -13,6 +13,7 @@ final class AppStore {
     /// Every device access goes through here (Platform/).
     @ObservationIgnored let platform: Platform
     @ObservationIgnored private var threadLoadGeneration: [String: Int] = [:]
+    @ObservationIgnored private var runsEventGeneration = 0
     @ObservationIgnored private var attachmentData: [String: Data] = [:]
     @ObservationIgnored private(set) var attachmentSession = UUID()
     private(set) var pendingDropLoads = 0
@@ -188,6 +189,7 @@ final class AppStore {
 
     func refresh() async {
         guard let client else { return }
+        let runsGen = runsEventGeneration
         do {
             async let agents = client.agents()
             async let jobs = client.jobs()
@@ -197,7 +199,8 @@ final class AppStore {
             send(.agentsLoaded(a))
             await platform.notifications.setBadge(state.totalUnread)
             send(.jobsLoaded(j))
-            if let r { send(.activeRunsLoaded(r)) }
+            // Don't let a slower HTTP snapshot overwrite a newer WebSocket runs event.
+            if let r, runsEventGeneration == runsGen { send(.activeRunsLoaded(r)) }
             send(.banner(nil))
             for case .thread(let name) in state.path { await loadThread(name) }
         } catch {
@@ -463,6 +466,9 @@ final class AppStore {
             // Catch up on anything missed while disconnected.
             Task { await refresh() }
             return
+        }
+        if e.type == "runs", e.runs != nil {
+            runsEventGeneration += 1
         }
         send(.event(e))
         if e.type == "message", let m = e.message {

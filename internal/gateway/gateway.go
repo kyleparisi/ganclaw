@@ -195,6 +195,11 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 		if req.Session != "" {
 			m.ChatKey = JobKey(req.Agent, req.Session)
 		}
+		if m.ChatKey != appchannel.ChatKey(t.Bot) || (job != "" && job != store.BackgroundJob) {
+			// Separate-session jobs and follow-ups don't occupy the agent's
+			// interactive app thread; keep them out of AgentState.Working.
+			m.Typing, m.OnDone, m.AppThread = nil, nil, false
+		}
 	} else if t != nil {
 		b := g.Bots[t.Bot]
 		m = b.Message(t.Chat, req.Agent, req.Prompt)
@@ -220,6 +225,7 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 	// the chat's conversation: the contact may reply to the result.
 	if req.Async && req.Session == "" && t != nil && t.Channel == "app" {
 		m.ChatKey = JobKey(req.Agent, "")
+		m.AppThread = false
 	}
 	m.RunKind = runKind(req, t)
 	m.RunLabel = runLabel(req)
@@ -354,7 +360,8 @@ func chain(first, next func(router.TurnResult)) func(router.TurnResult) {
 
 // runKind classifies an API run for live activity views.
 func runKind(req api.RunRequest, t *api.Target) string {
-	if req.Source != "" {
+	switch req.Source {
+	case "ask", "handoff", "followup":
 		return req.Source
 	}
 	if req.Async {
@@ -405,6 +412,7 @@ func IsQuiet(text string) bool {
 func quiet(m *router.Message) {
 	m.Stream = nil
 	m.Typing = nil
+	m.AppThread = false
 	reply := m.Reply
 	m.Reply = func(ctx context.Context, text string) error {
 		if IsQuiet(text) {
