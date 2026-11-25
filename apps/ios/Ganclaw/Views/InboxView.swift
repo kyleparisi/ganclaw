@@ -9,7 +9,7 @@ struct InboxView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     header
-                    FilterBar(selected: s.filter) { store.send(.setFilter($0)) }
+                    FilterBar(selected: s.filter, runningCount: s.runningCount) { store.send(.setFilter($0)) }
                     if s.connection == .disconnected {
                         Label("Reconnecting…", systemImage: "wifi.exclamationmark")
                             .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.muted)
@@ -56,11 +56,12 @@ struct InboxView: View {
     @ViewBuilder
     private func rows(_ s: AppState) -> some View {
         let rows = s.inboxRows
+        let background = s.filter == .running ? s.backgroundRuns : []
         VStack(spacing: 8) {
             if !s.agentsLoaded {
                 ProgressView().frame(maxWidth: .infinity).padding(.top, 40)
-            } else if rows.isEmpty {
-                Text(s.filter == .running ? "No agent is working right now." : s.filter == .needsYou ? "Nothing needs you." : "No agents configured.")
+            } else if rows.isEmpty && background.isEmpty {
+                Text(s.filter == .running ? "Nothing is running right now." : s.filter == .needsYou ? "Nothing needs you." : "No agents configured.")
                     .font(.system(size: 15)).foregroundStyle(Theme.muted)
                     .frame(maxWidth: .infinity).padding(.top, 40)
                     .control("inbox.empty")
@@ -69,11 +70,23 @@ struct InboxView: View {
                 CButton("inbox.row.\(a.name)") { store.openThread(a.name) } label: { AgentRow(agent: a, streaming: s.thread(a.name).streaming) }
                     .buttonStyle(.plain)
             }
+            ForEach(background) { run in
+                CButton("running.row.\(run.id)") { open(run, state: s) } label: { ActiveRunRow(run: run) }
+                    .buttonStyle(.plain)
+            }
             if s.filter == .all, !s.jobs.isEmpty {
                 CButton("inbox.jobs") { store.send(.push(.jobs)) } label: { JobsSummaryRow(jobs: s.jobs) }
                     .buttonStyle(.plain)
                     .padding(.top, 4)
             }
+        }
+    }
+
+    private func open(_ run: ActiveRun, state s: AppState) {
+        if run.kind == "job", let label = run.label, s.jobs.contains(where: { $0.name == label }) {
+            store.openJob(label)
+        } else if s.agent(run.agent) != nil {
+            store.openThread(run.agent)
         }
     }
 
@@ -105,18 +118,24 @@ struct InboxView: View {
 
 struct FilterBar: View {
     var selected: InboxFilter
+    var runningCount: Int = 0
     var select: (InboxFilter) -> Void
 
     var body: some View {
         HStack(spacing: 6) {
             ForEach(InboxFilter.allCases) { f in
                 CButton("filter.\(f.rawValue)") { select(f) } label: {
-                    Text(f.title)
-                        .font(.system(size: 13, weight: f == selected ? .semibold : .medium))
-                        .foregroundStyle(f == selected ? Theme.ink : Color(hex: 0x55565B))
-                        .frame(maxWidth: .infinity).frame(height: 36)
-                        .background(f == selected ? Theme.card : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                        .shadow(color: .black.opacity(f == selected ? 0.06 : 0), radius: 1, y: 1)
+                    HStack(spacing: 5) {
+                        Text(f.title)
+                        if f == .running && runningCount > 0 {
+                            Circle().fill(Theme.blue).frame(width: 6, height: 6)
+                        }
+                    }
+                    .font(.system(size: 13, weight: f == selected ? .semibold : .medium))
+                    .foregroundStyle(f == selected ? Theme.ink : Color(hex: 0x55565B))
+                    .frame(maxWidth: .infinity).frame(height: 36)
+                    .background(f == selected ? Theme.card : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .shadow(color: .black.opacity(f == selected ? 0.06 : 0), radius: 1, y: 1)
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(f == selected ? .isSelected : [])
@@ -255,5 +274,118 @@ struct JobsSummaryRow: View {
         .foregroundStyle(Theme.ink)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+    }
+}
+
+struct ActiveRunRow: View {
+    var run: ActiveRun
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            AgentAvatar(name: run.agent, dim: false)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(Theme.displayName(run.agent))
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Theme.ink)
+                    Spacer()
+                    if run.isRunning {
+                        Text(run.startedAt, style: .timer)
+                            .font(.system(size: 12).monospacedDigit())
+                            .foregroundStyle(Theme.muted)
+                        Text("Running")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.blue)
+                    } else {
+                        Text("Queued")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.amberText)
+                    }
+                }
+                Text(subtitle)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.text2)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(run.kindTitle)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.blue)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Theme.blueSoft, in: RoundedRectangle(cornerRadius: 6))
+                    if let label = run.label, !label.isEmpty {
+                        Text(jobTitle(label))
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.text2)
+                            .lineLimit(1)
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Theme.chip, in: RoundedRectangle(cornerRadius: 6))
+                    }
+                }
+                .padding(.top, 4)
+            }
+        }
+        .padding(14)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.line))
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+
+    private var subtitle: String {
+        if let progress = run.progress, !progress.isEmpty { return progress }
+        return run.isRunning ? "Working" : "Waiting in queue"
+    }
+}
+
+/// Shared Running view used by the Mac sidebar and Route.running.
+struct RunningView: View {
+    @Environment(AppStore.self) private var store
+    var onOpenAgent: ((String) -> Void)?
+    var onOpenJob: ((String) -> Void)?
+    @State private var showHistory = false
+
+    var body: some View {
+        let s = store.state
+        let workingAgents = s.sortedAgents.filter { $0.state.working }
+        let background = s.backgroundRuns
+        VStack(alignment: .leading, spacing: 12) {
+            if workingAgents.isEmpty && background.isEmpty {
+                Text("Nothing is running right now.")
+                    .font(.system(size: 15)).foregroundStyle(Theme.muted)
+                    .frame(maxWidth: .infinity).padding(.top, 40)
+                    .control("running.empty")
+            }
+            ForEach(workingAgents) { a in
+                CButton("running.agent.\(a.name)") { openAgent(a.name) } label: {
+                    AgentRow(agent: a, streaming: s.thread(a.name).streaming)
+                }
+                .buttonStyle(.plain)
+            }
+            ForEach(background) { run in
+                CButton("running.row.\(run.id)") { open(run, state: s) } label: {
+                    ActiveRunRow(run: run)
+                }
+                .buttonStyle(.plain)
+            }
+            CButton("running.history", title: showHistory ? "Hide background task history" : "Background task history") {
+                showHistory.toggle()
+            }
+            .padding(.top, 8)
+            if showHistory {
+                TaskList()
+            }
+        }
+    }
+
+    private func openAgent(_ agent: String) {
+        if let onOpenAgent { onOpenAgent(agent) } else { store.openThread(agent) }
+    }
+
+    private func open(_ run: ActiveRun, state s: AppState) {
+        if run.kind == "job", let label = run.label, s.jobs.contains(where: { $0.name == label }) {
+            if let onOpenJob { onOpenJob(label) } else { store.openJob(label) }
+        } else if s.agent(run.agent) != nil {
+            openAgent(run.agent)
+        }
     }
 }

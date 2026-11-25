@@ -103,13 +103,41 @@ struct Device: Codable, Hashable {
 /// A WebSocket event from /app/v1/events.
 struct ServerEvent: Codable, Equatable {
     var read: ReadState?
-    var type: String // hello | message | delta | agent
+    var type: String // hello | message | job | delta | agent | read | runs
     var message: AppMessage?
     var id: Int64?
     var thread: String?
     var text: String?
     var agent: String?
     var state: AgentState?
+    var runs: [ActiveRun]?
+}
+
+struct ActiveRun: Codable, Hashable, Identifiable {
+    var id: String
+    var agent: String
+    var kind: String // app | telegram | handoff | ask | followup | job | run
+    var label: String?
+    var taskId: String?
+    var appThread: Bool?
+    var state: String // queued | running
+    var progress: String?
+    var startedAt: Date
+    var updatedAt: Date
+
+    var isRunning: Bool { state == "running" }
+
+    var kindTitle: String {
+        switch kind {
+        case "app": "App chat"
+        case "telegram": "Telegram"
+        case "handoff": "Background task"
+        case "ask": "Agent request"
+        case "followup": "Follow-up"
+        case "job": "Scheduled job"
+        default: "Background run"
+        }
+    }
 }
 
 struct APIErrorBody: Codable {

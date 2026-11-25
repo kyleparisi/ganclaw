@@ -10,6 +10,7 @@ import (
 	"github.com/kyleparisi/ganclaw/internal/appchannel"
 	"github.com/kyleparisi/ganclaw/internal/provider"
 	"github.com/kyleparisi/ganclaw/internal/router"
+	"github.com/kyleparisi/ganclaw/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -129,5 +130,118 @@ func TestUnnamedWorkerSessions(t *testing.T) {
 				t.Fatal("unnamed workers shared a conversation queue")
 			}
 		}
+	})
+}
+
+func TestActiveRunMetadata(t *testing.T) {
+	subject := (*Gateway).Run
+
+	t.Run("Tracks ask_agent, hand_off, and quiet follow-ups in router ActiveRuns", func(t *testing.T) {
+		ctx := context.Background()
+		entered := make(chan struct{}, 3)
+		release := make(chan struct{})
+		g, db := newGateway(t, &sentMessages{}, func(ctx context.Context, _ provider.Sessions, req provider.Request) (string, provider.Result, error) {
+			if req.OnProgress != nil {
+				req.OnProgress("Tool activity observed")
+			}
+			entered <- struct{}{}
+			<-release
+			return "fake", provider.Result{Text: "NO_REPLY"}, nil
+		})
+		g.App = &appchannel.Channel{Agents: g.Agents, Store: db, FilesDir: t.TempDir()}
+
+		askDone := make(chan error, 1)
+		go func() {
+			_, err := subject(g, ctx, api.RunRequest{Agent: "support", Prompt: "review diff", Session: "code-review", Source: "ask"}, nil)
+			askDone <- err
+		}()
+		handoffRes, err := subject(g, ctx, api.RunRequest{Agent: "assistant", Prompt: "bg task", Session: "bg-1", Async: true, Source: "handoff"}, &api.Target{Channel: "app", Bot: "assistant"})
+		require.NoError(t, err)
+
+		followupDone := make(chan error, 1)
+		go func() {
+			followupDone <- g.RunFollowup(ctx, store.Followup{ID: "f-1", Agent: "support", To: "app:support", Session: "ci-watch", Prompt: "check ci", Quiet: true})
+		}()
+
+		for i := 0; i < 3; i++ {
+			<-entered
+		}
+
+		runs := g.Router.ActiveRuns()
+		require.Len(t, runs, 3)
+		byKind := map[string]router.ActiveRun{}
+		for _, run := range runs {
+			byKind[run.Kind] = run
+		}
+		assert.Equal(t, "code-review", byKind["ask"].Label)
+		assert.Equal(t, "support", byKind["ask"].Agent)
+		assert.Equal(t, "Tool activity observed", byKind["ask"].Progress)
+		assert.False(t, byKind["ask"].AppThread)
+		assert.Equal(t, handoffRes.TaskID, byKind["handoff"].TaskID)
+		assert.Equal(t, "bg-1", byKind["handoff"].Label)
+		assert.False(t, byKind["handoff"].AppThread)
+		assert.Equal(t, "ci-watch", byKind["followup"].Label)
+		assert.False(t, byKind["followup"].AppThread)
+
+		close(release)
+		require.NoError(t, <-askDone)
+		require.NoError(t, <-followupDone)
+		require.Eventually(t, func() bool { return len(g.Router.ActiveRuns()) == 0 }, time.Second, 5*time.Millisecond)
+	})
+
+	t.Run("Classifies scheduled app jobs, plain app turns, non-quiet follow-ups, and rejects unknown sources", func(t *testing.T) {
+		ctx := context.Background()
+		entered := make(chan struct{}, 4)
+		release := make(chan struct{})
+		g, db := newGateway(t, &sentMessages{}, func(ctx context.Context, _ provider.Sessions, _ provider.Request) (string, provider.Result, error) {
+			entered <- struct{}{}
+			<-release
+			return "fake", provider.Result{Text: "ok"}, nil
+		})
+		g.App = &appchannel.Channel{Agents: g.Agents, Store: db, FilesDir: t.TempDir()}
+
+		errs := make(chan error, 4)
+		// 1. Synchronous scheduled job delivered to app: must NOT set AppThread.
+		go func() {
+			_, err := subject(g, ctx, api.RunRequest{Agent: "support", Prompt: "check logs", Session: "nightly"}, &api.Target{Channel: "app", Bot: "support"})
+			errs <- err
+		}()
+		// 2. Plain app turn with no session: joins app:assistant and sets AppThread.
+		go func() {
+			_, err := subject(g, ctx, api.RunRequest{Agent: "assistant", Prompt: "hello"}, &api.Target{Channel: "app", Bot: "assistant"})
+			errs <- err
+		}()
+		// 3. Unknown/spoofed source without target: ignored and falls back to "run".
+		go func() {
+			_, err := subject(g, ctx, api.RunRequest{Agent: "support", Prompt: "cli work", Source: "app"}, nil)
+			errs <- err
+		}()
+		// 4. Non-quiet in-thread follow-up (empty session) targeting app: sets AppThread so UI deduplicates it.
+		go func() {
+			errs <- g.RunFollowup(ctx, store.Followup{ID: "f-2", Agent: "support", To: "app:support", Prompt: "ping", Quiet: false})
+		}()
+
+		for i := 0; i < 4; i++ {
+			<-entered
+		}
+
+		runs := g.Router.ActiveRuns()
+		require.Len(t, runs, 4)
+		byKind := map[string]router.ActiveRun{}
+		for _, run := range runs {
+			byKind[run.Kind] = run
+		}
+		assert.Equal(t, "nightly", byKind["job"].Label)
+		assert.False(t, byKind["job"].AppThread, "scheduled job runs in its own session, not the app chat thread")
+		assert.True(t, byKind["app"].AppThread)
+		assert.Equal(t, "support", byKind["run"].Agent)
+		assert.False(t, byKind["run"].AppThread, "spoofed source:app must not hide background runs")
+		assert.True(t, byKind["followup"].AppThread, "non-quiet in-thread follow-up joins the app chat thread")
+
+		close(release)
+		for i := 0; i < 4; i++ {
+			require.NoError(t, <-errs)
+		}
+		assert.Empty(t, g.Router.ActiveRuns())
 	})
 }

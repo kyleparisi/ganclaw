@@ -97,6 +97,44 @@ final class AppStateTests: XCTestCase {
         XCTAssertFalse(task.isActive)
     }
 
+    func testActiveRunsEventsDeduplicateWorkingAppChatsAndKeepBackgroundRuns() throws {
+        var state = AppState()
+        state.apply(.paired(server: URL(string: "https://g.example")!, deviceName: "phone"))
+        state.apply(.agentsLoaded([
+            agent("infra", working: true),
+            agent("research", working: false),
+        ]))
+        let json = """
+        {"type":"runs","runs":[
+          {"id":"run-app","agent":"infra","kind":"app","app_thread":true,"state":"running","progress":"Writing","started_at":"2026-11-25T04:00:00Z","updated_at":"2026-11-25T04:00:01Z"},
+          {"id":"run-app-idle","agent":"research","kind":"app","app_thread":true,"state":"queued","progress":"Waiting in router queue","started_at":"2026-11-25T04:00:01Z","updated_at":"2026-11-25T04:00:01Z"},
+          {"id":"run-followup-thread","agent":"infra","kind":"followup","app_thread":true,"state":"running","progress":"Starting","started_at":"2026-11-25T04:00:02Z","updated_at":"2026-11-25T04:00:02Z"},
+          {"id":"run-job","agent":"infra","kind":"job","label":"nightly","state":"running","progress":"Tool activity observed","started_at":"2026-11-25T04:00:02Z","updated_at":"2026-11-25T04:00:03Z"},
+          {"id":"run-ask","agent":"research","kind":"ask","label":"code-review","state":"running","progress":"Tool activity observed","started_at":"2026-11-25T04:00:02Z","updated_at":"2026-11-25T04:00:03Z"},
+          {"id":"task-9","agent":"infra","kind":"handoff","label":"ci-check","task_id":"task-9","state":"queued","progress":"Waiting in router queue","started_at":"2026-11-25T04:00:04Z","updated_at":"2026-11-25T04:00:04Z"}
+        ]}
+        """
+        let event = try JSON.decoder.decode(ServerEvent.self, from: Data(json.utf8))
+        state.apply(.event(event))
+        XCTAssertEqual(state.activeRuns.count, 6)
+        XCTAssertEqual(state.backgroundRuns.map(\.id), ["run-app-idle", "run-job", "run-ask", "task-9"], "in-thread runs for working agents are not duplicated, while separate-session jobs and idle queued runs stay visible")
+        XCTAssertEqual(state.backgroundRuns[1].kindTitle, "Scheduled job")
+        XCTAssertEqual(state.backgroundRuns[2].kindTitle, "Agent request")
+        XCTAssertEqual(state.backgroundRuns[3].kindTitle, "Background task")
+        XCTAssertEqual(state.runningCount, 5)
+
+        let clear = try JSON.decoder.decode(ServerEvent.self, from: Data(#"{"type":"runs","runs":[]}"#.utf8))
+        state.apply(.event(clear))
+        XCTAssertTrue(state.activeRuns.isEmpty)
+        XCTAssertTrue(state.backgroundRuns.isEmpty)
+        XCTAssertEqual(state.runningCount, 1)
+
+        state.apply(.activeRunsLoaded(event.runs ?? []))
+        XCTAssertEqual(state.activeRuns.count, 6)
+        state.apply(.connection(.disconnected))
+        XCTAssertTrue(state.activeRuns.isEmpty, "disconnect clears stale active runs until reconnect")
+    }
+
     func testInboxOrder() {
         var s = AppState()
         s.apply(.agentsLoaded([

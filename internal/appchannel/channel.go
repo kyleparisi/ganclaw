@@ -41,6 +41,8 @@ type Channel struct {
 	Store  *store.Store
 	// Submit queues a turn, typically (*router.Router).Submit.
 	Submit func(router.Message) bool
+	// ActiveRuns returns currently queued or running turns across the router. Optional.
+	ActiveRuns func() []router.ActiveRun
 	// FilesDir holds uploaded files and copies of files agents send.
 	FilesDir string
 	Logger   *slog.Logger
@@ -168,15 +170,25 @@ func ChatKey(agentName string) string { return "app:" + agentName }
 // Event is pushed to every connected client.
 type Event struct {
 	Read    *store.AppReadState `json:"read,omitempty"`
-	Type    string              `json:"type"` // message | job | delta | agent | read
+	Type    string              `json:"type"` // message | job | delta | agent | read | runs
 	Message *store.AppMessage   `json:"message,omitempty"`
 	// Delta events carry the whole streamed text so far, so a client that
 	// missed one loses nothing.
-	ID     int64       `json:"id,omitempty"`
-	Thread string      `json:"thread,omitempty"`
-	Text   string      `json:"text,omitempty"`
-	Agent  string      `json:"agent,omitempty"`
-	State  *AgentState `json:"state,omitempty"`
+	ID     int64               `json:"id,omitempty"`
+	Thread string              `json:"thread,omitempty"`
+	Text   string              `json:"text,omitempty"`
+	Agent  string              `json:"agent,omitempty"`
+	State  *AgentState         `json:"state,omitempty"`
+	Runs   *[]router.ActiveRun `json:"runs,omitempty"`
+}
+
+// PublishRuns pushes the current active-run snapshot to all connected clients.
+func (c *Channel) PublishRuns(runs []router.ActiveRun) {
+	c.setup()
+	if runs == nil {
+		runs = []router.ActiveRun{}
+	}
+	c.hub.publish(Event{Type: "runs", Runs: &runs})
 }
 
 func (c *Channel) publishMessage(m store.AppMessage) {
@@ -254,11 +266,18 @@ func (c *Channel) PostMessage(ctx context.Context, m store.AppMessage) (store.Ap
 func (c *Channel) Message(agentName, text, job string) router.Message {
 	c.setup()
 	t := &turn{c: c, agent: agentName, job: job}
+	runKind, runLabel := "app", ""
+	if job != "" && job != backgroundJob {
+		runKind, runLabel = "job", job
+	}
 	return router.Message{
-		ChatKey: ChatKey(agentName),
-		Agent:   agentName,
-		Text:    text,
-		Reply:   t.reply,
+		ChatKey:   ChatKey(agentName),
+		Agent:     agentName,
+		RunKind:   runKind,
+		RunLabel:  runLabel,
+		AppThread: job == "" || job == backgroundJob,
+		Text:      text,
+		Reply:     t.reply,
 		Typing: func(context.Context) error {
 			c.setState(agentName, AgentState{Working: true, Detail: "Working", Since: c.Now()})
 			return nil

@@ -61,6 +61,8 @@ type RunRequest struct {
 	Heartbeat bool `json:"heartbeat,omitempty"`
 	// Async queues the run and returns immediately with queued=true.
 	Async bool `json:"async,omitempty"`
+	// Source classifies the caller for live run visibility (e.g. "ask", "handoff", "followup").
+	Source string `json:"source,omitempty"`
 }
 
 type RunResponse struct {

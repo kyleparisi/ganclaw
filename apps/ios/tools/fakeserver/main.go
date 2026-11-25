@@ -87,7 +87,8 @@ func run(addr, adminAddr, dir string, delay time.Duration) error {
 	}
 	f := &fake{hold: make(chan struct{}), delay: delay}
 	r := router.New(ctx, router.Config{Agents: agents, Store: st, Run: f.run, Logger: log, TypingInterval: 500 * time.Millisecond})
-	ch := &appchannel.Channel{Agents: agents, Store: st, Submit: r.Submit, FilesDir: filepath.Join(dir, "app-files"), Logger: log}
+	ch := &appchannel.Channel{Agents: agents, Store: st, Submit: r.Submit, ActiveRuns: r.ActiveRuns, FilesDir: filepath.Join(dir, "app-files"), Logger: log}
+	r.SetOnRunsChanged(ch.PublishRuns)
 	if err := ch.Start(ctx); err != nil {
 		return err
 	}
@@ -133,6 +134,9 @@ func (f *fake) run(ctx context.Context, sessions provider.Sessions, req provider
 	case strings.HasPrefix(req.Prompt, appchannel.VoicePrefix):
 		text = "Yes, it's live. The alarm is set. Nothing needs you right now.\n---\nDeployed at 7:58 AM. Alarm: queue message size > 200 KB."
 	case strings.Contains(lower, "hold"):
+		if req.OnProgress != nil {
+			req.OnProgress("Tool activity observed")
+		}
 		select {
 		case <-hold:
 		case <-ctx.Done():
@@ -195,6 +199,29 @@ func (f *fake) admin(ch *appchannel.Channel, st *store.Store, dir string) http.H
 		m := ch.Message(req.Agent, req.Prompt, req.Job)
 		if req.Job != "" {
 			m.ChatKey = "job:" + req.Agent + ":" + req.Job
+		}
+		writeJSON(w, map[string]bool{"ok": ch.Submit(m)})
+	})
+	mux.HandleFunc("POST /admin/background", func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Agent, Prompt, Kind, Label string }
+		if json.NewDecoder(r.Body).Decode(&req) != nil {
+			http.Error(w, "bad json", 400)
+			return
+		}
+		if req.Kind == "" {
+			req.Kind = "ask"
+		}
+		session := req.Label
+		if session == "" {
+			session = fmt.Sprintf("bg-%d", time.Now().UnixNano())
+		}
+		m := router.Message{
+			ChatKey:  "job:" + req.Agent + ":" + session,
+			Agent:    req.Agent,
+			RunKind:  req.Kind,
+			RunLabel: req.Label,
+			Text:     req.Prompt,
+			Reply:    func(context.Context, string) error { return nil },
 		}
 		writeJSON(w, map[string]bool{"ok": ch.Submit(m)})
 	})

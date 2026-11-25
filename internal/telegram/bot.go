@@ -294,6 +294,7 @@ func (b *Bot) Message(chatID int64, agent, text string) router.Message {
 	return router.Message{
 		ChatKey: b.ChatKey(chatID, agent),
 		Agent:   agent,
+		RunKind: "telegram",
 		Text:    text,
 		Reply: func(ctx context.Context, text string) error {
 			return b.Client.SendMessage(ctx, chatID, text)

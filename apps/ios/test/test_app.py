@@ -470,3 +470,21 @@ def test_focusing_or_resting_at_the_bottom_marks_a_thread_read(paired, fake):
     app.screenshot("unread-bottom-dwell")
     app.tap("thread.back")
     app.wait_screen("inbox")
+
+
+def test_background_runs_appear_in_running_tab(paired, fake):
+    app = paired
+    app.post("/navigate", {"route": "inbox"})
+    app.tap("filter.running")
+    fake.post("/admin/background", {
+        "agent": "builder",
+        "prompt": "hold for code review",
+        "kind": "ask",
+        "label": "code-review",
+    })
+    run_id = wait_for(lambda: (app.state().get("background_runs") or [None])[0], what="background run pushed")
+    wait_for(lambda: app.element(f"running.row.{run_id}"), what="background run row")
+    app.screenshot("running-background")
+    fake.post("/admin/release", {})
+    wait_for(lambda: not app.state().get("background_runs"), what="background run cleared")
+    app.tap("filter.all")

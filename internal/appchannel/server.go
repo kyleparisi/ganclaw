@@ -55,6 +55,7 @@ func (c *Channel) Handler(version string) http.Handler {
 	auth.HandleFunc("POST /app/v1/threads/{agent}/files", c.handleUpload)
 	auth.HandleFunc("GET /app/v1/files/{id}", c.handleFile)
 	openitems.Register(auth, "/app/v1/open-items", c.Store)
+	auth.HandleFunc("GET /app/v1/runs", c.handleRuns)
 	auth.HandleFunc("GET /app/v1/tasks", c.handleTasks)
 	auth.HandleFunc("GET /app/v1/tasks/{task}/messages", c.handleTaskMessages)
 	auth.HandleFunc("GET /app/v1/jobs", c.handleJobs)
@@ -565,6 +566,15 @@ func (c *Channel) handleEvents(w http.ResponseWriter, r *http.Request) {
 			if err := send(Event{Type: "agent", Agent: n, State: &s}); err != nil {
 				return
 			}
+		}
+	}
+	if c.ActiveRuns != nil {
+		runs := c.ActiveRuns()
+		if runs == nil {
+			runs = []router.ActiveRun{}
+		}
+		if err := send(Event{Type: "runs", Runs: &runs}); err != nil {
+			return
 		}
 	}
 	ping := time.NewTicker(30 * time.Second)

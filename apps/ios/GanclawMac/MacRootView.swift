@@ -70,6 +70,9 @@ struct MacRootView: View {
         }
         return List(selection: selection) {
             Section {
+                Label("Running", systemImage: "bolt.horizontal.circle")
+                    .badge(s.runningCount)
+                    .tag(Route.running)
                 Label("Open items", systemImage: "checklist")
                     .badge(s.agents.filter(\.needsYou).count)
                     .tag(Route.openItems)
@@ -144,6 +147,19 @@ struct MacRootView: View {
         case .job(let j)?:
             JobView(job: j)
                 .navigationTitle(jobTitle(j))
+        case .running?:
+            ScrollView {
+                RunningView(
+                    onOpenAgent: { store.select(.thread($0)) },
+                    onOpenJob: { store.select(.job($0)) }
+                )
+                .padding(20)
+                .frame(maxWidth: 760)
+            }
+            .frame(maxWidth: .infinity)
+            .background(Theme.ground)
+            .navigationTitle("Running")
+            .navigationSubtitle(s.runningCount == 0 ? "Idle" : "\(s.runningCount) active")
         case .openItems?:
             ScrollView { OpenItemsView().padding(20).frame(maxWidth: 760) }
                 .frame(maxWidth: .infinity)

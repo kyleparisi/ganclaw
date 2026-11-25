@@ -157,12 +157,14 @@ func cmdServe(ctx context.Context, args []string) error {
 	var app *appchannel.Channel
 	if cfg.App.Enabled() {
 		app = &appchannel.Channel{
-			Agents:   agents,
-			Store:    st,
-			Submit:   r.Submit,
-			FilesDir: filepath.Join(cfg.StateDir, "app-files"),
-			Logger:   log,
+			Agents:     agents,
+			Store:      st,
+			Submit:     r.Submit,
+			ActiveRuns: r.ActiveRuns,
+			FilesDir:   filepath.Join(cfg.StateDir, "app-files"),
+			Logger:     log,
 		}
+		r.SetOnRunsChanged(app.PublishRuns)
 		sender, err := apns.New(cfg.App.APNs)
 		if err != nil {
 			return err
