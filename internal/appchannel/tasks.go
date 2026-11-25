@@ -34,6 +34,17 @@ func (c *Channel) TrackTask(m *router.Message, id string) {
 	}
 }
 
+func (c *Channel) handleRuns(w http.ResponseWriter, r *http.Request) {
+	var runs []router.ActiveRun
+	if c.ActiveRuns != nil {
+		runs = c.ActiveRuns()
+	}
+	if runs == nil {
+		runs = []router.ActiveRun{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+}
+
 func (c *Channel) handleTasks(w http.ResponseWriter, r *http.Request) {
 	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
 	tasks, err := c.Store.AppTasks(r.Context(), r.URL.Query().Get("archived") == "true", before)

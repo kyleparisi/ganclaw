@@ -23,6 +23,12 @@ import (
 // Message is one incoming chat message, with callbacks into its channel.
 type Message struct {
 	TaskID string
+	// RunKind classifies where this turn came from ("app", "telegram",
+	// "handoff", "ask", "followup", "job", "run"). Optional.
+	RunKind string
+	// RunLabel is an optional safe label for live status (e.g. job or session name).
+	RunLabel string
+	runID    string
 	// AppInboxIDs identifies durable app inputs being handed to this turn.
 	AppInboxIDs []int64
 	// Batch marks ordinary chat messages that may share a turn with queued messages.
@@ -101,6 +107,8 @@ type Config struct {
 	// Transcribe turns an audio attachment into text. Optional; without
 	// it audio is passed to the agent as a file only.
 	Transcribe func(ctx context.Context, path string) (string, error)
+	// OnRunsChanged is notified whenever active runs are added, updated, or finished. Optional.
+	OnRunsChanged func([]ActiveRun)
 
 	TurnTimeout    time.Duration // default 35m
 	TypingInterval time.Duration // default 4s
@@ -114,10 +122,13 @@ type Router struct {
 	log *slog.Logger
 	ctx context.Context
 
-	mu     sync.Mutex
-	queues map[string]chan Message
-	active map[string]context.CancelCauseFunc // running turn per chat
-	wg     sync.WaitGroup
+	mu            sync.Mutex
+	notifyMu      sync.Mutex
+	queues        map[string]chan Message
+	active        map[string]context.CancelCauseFunc // running turn per chat
+	runs          map[string]ActiveRun
+	onRunsChanged func([]ActiveRun)
+	wg            sync.WaitGroup
 }
 
 // New returns a router whose workers stop when ctx is cancelled.
@@ -138,11 +149,13 @@ func New(ctx context.Context, cfg Config) *Router {
 		cfg.Now = time.Now
 	}
 	return &Router{
-		cfg:    cfg,
-		log:    logx.OrDiscard(cfg.Logger),
-		ctx:    ctx,
-		queues: map[string]chan Message{},
-		active: map[string]context.CancelCauseFunc{},
+		cfg:           cfg,
+		log:           logx.OrDiscard(cfg.Logger),
+		ctx:           ctx,
+		queues:        map[string]chan Message{},
+		active:        map[string]context.CancelCauseFunc{},
+		runs:          map[string]ActiveRun{},
+		onRunsChanged: cfg.OnRunsChanged,
 	}
 }
 
@@ -158,7 +171,6 @@ func (r *Router) Submit(m Message) bool {
 		return true
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	q, ok := r.queues[m.ChatKey]
 	if !ok {
 		q = make(chan Message, r.cfg.QueueSize)
@@ -166,10 +178,20 @@ func (r *Router) Submit(m Message) bool {
 		r.wg.Add(1)
 		go r.worker(m.ChatKey, q)
 	}
+	r.queueRunLocked(&m)
 	select {
 	case q <- m:
+		tracked := m.runID != ""
+		r.mu.Unlock()
+		if tracked {
+			r.notifyRuns()
+		}
 		return true
 	default:
+		if m.runID != "" {
+			delete(r.runs, m.runID)
+		}
+		r.mu.Unlock()
 		r.log.Warn("chat queue full, dropping message", "chat", m.ChatKey)
 		return false
 	}
@@ -203,6 +225,7 @@ func (r *Router) worker(key string, q chan Message) {
 			r.processBatch(batch)
 			idle.Reset(r.cfg.IdleTimeout)
 		case <-r.ctx.Done():
+			r.drainQueueRuns(q)
 			return
 		case <-idle.C:
 			// Exit only if nothing arrived; Submit holds mu while sending,
@@ -233,12 +256,17 @@ func (r *Router) processBatch(batch []Message) {
 	}
 	m := batch[0]
 	var prompts []string
-	for _, item := range batch {
+	var absorbed []string
+	for i, item := range batch {
 		prompts = append(prompts, item.Text)
-		if len(prompts) > 1 {
+		if i > 0 {
 			m.AppInboxIDs = append(m.AppInboxIDs, item.AppInboxIDs...)
+			if item.runID != "" {
+				absorbed = append(absorbed, item.runID)
+			}
 		}
 	}
+	r.removeRuns(absorbed)
 	m.Text = "The following messages arrived in order while you were working. Consider all of them in this turn:\n\n"
 	for i, prompt := range prompts {
 		m.Text += fmt.Sprintf("Message %d:\n%s\n\n", i+1, prompt)
@@ -330,6 +358,10 @@ func (r *Router) process(m Message) {
 	}
 
 	var result TurnResult
+	if m.runID != "" {
+		r.startRun(m.runID)
+		defer r.finishRun(m.runID)
+	}
 	if m.TaskID != "" {
 		r.taskUpdate(m.TaskID, "running", "Router started handling task")
 		defer func() {
@@ -471,8 +503,15 @@ func (r *Router) process(m Message) {
 		Attachments:  atts,
 		Settings:     a.Settings,
 	}
-	if m.TaskID != "" {
-		req.OnProgress = progressWriter(func(activity string) { r.taskUpdate(m.TaskID, "running", activity) }, 2*time.Second, time.Now)
+	if m.TaskID != "" || m.runID != "" {
+		req.OnProgress = progressWriter(func(activity string) {
+			if m.TaskID != "" {
+				r.taskUpdate(m.TaskID, "running", activity)
+			}
+			if m.runID != "" {
+				r.updateRunProgress(m.runID, activity)
+			}
+		}, 2*time.Second, r.cfg.Now)
 	}
 	var stream *ReplyStream
 	if m.Stream != nil {

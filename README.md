@@ -434,8 +434,11 @@ an explicit job label remains supported. Original result delivery (including to
 `app:<agent>`) and local status-query APIs/MCP tools remain intact. The delivered
 result intentionally remains visible in the requesting conversation.
 
-Authenticated app routes are `GET /app/v1/tasks` (active by default;
-`archived=true` for terminal history) and `GET /app/v1/tasks/{id}/messages`.
+Authenticated app routes are `GET /app/v1/runs` (currently queued and running
+turns across all channels and background work, also pushed live as `runs` events
+over `/app/v1/events` for the **Running** tab and Mac sidebar), `GET /app/v1/tasks`
+(active by default; `archived=true` for terminal history) and
+`GET /app/v1/tasks/{id}/messages`.
 Task lists page by `before=<cursor>` with 100 records per page; message history
 pages by `before=<message_id>`. These share the app's existing paired-device
 trust boundary, with no per-device task ownership restriction.

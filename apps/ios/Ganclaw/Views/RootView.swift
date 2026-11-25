@@ -18,6 +18,7 @@ struct RootView: View {
                             case .voiceSettings: VoiceSettingsView()
                             case .jobs: JobsView()
                             case .job(let j): JobView(job: j)
+                            case .running: ScrollView { RunningView().padding(20) }.background(Theme.ground)
                             case .openItems: ScrollView { OpenItemsView().padding(20) }.background(Theme.ground)
                             }
                         }

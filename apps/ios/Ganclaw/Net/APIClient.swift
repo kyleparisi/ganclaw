@@ -140,6 +140,11 @@ struct APIClient {
         _ = try await send(request("DELETE", "/app/v1/open-items/\(escape(id))"), as: R.self)
     }
 
+    func activeRuns() async throws -> [ActiveRun] {
+        struct R: Decodable { var runs: [ActiveRun] }
+        return try await send(request("GET", "/app/v1/runs"), as: R.self).runs
+    }
+
     func tasks(archived: Bool, before: Int64? = nil) async throws -> [WorkerTask] {
         struct R: Decodable { var tasks: [WorkerTask] }
         var query = [URLQueryItem(name: "archived", value: String(archived))]

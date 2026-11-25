@@ -97,6 +97,34 @@ final class AppStateTests: XCTestCase {
         XCTAssertFalse(task.isActive)
     }
 
+    func testActiveRunsEventsDeduplicateWorkingAppChatsAndKeepBackgroundRuns() throws {
+        var state = AppState()
+        state.apply(.agentsLoaded([
+            agent("infra", working: true),
+            agent("research", working: false),
+        ]))
+        let json = """
+        {"type":"runs","runs":[
+          {"id":"run-app","agent":"infra","kind":"app","state":"running","progress":"Writing","started_at":"2026-11-25T04:00:00Z","updated_at":"2026-11-25T04:00:01Z"},
+          {"id":"run-ask","agent":"research","kind":"ask","label":"code-review","state":"running","progress":"Tool activity observed","started_at":"2026-11-25T04:00:02Z","updated_at":"2026-11-25T04:00:03Z"},
+          {"id":"task-9","agent":"infra","kind":"handoff","label":"ci-check","task_id":"task-9","state":"queued","progress":"Waiting in router queue","started_at":"2026-11-25T04:00:04Z","updated_at":"2026-11-25T04:00:04Z"}
+        ]}
+        """
+        let event = try JSON.decoder.decode(ServerEvent.self, from: Data(json.utf8))
+        state.apply(.event(event))
+        XCTAssertEqual(state.activeRuns.count, 3)
+        XCTAssertEqual(state.backgroundRuns.map(\.id), ["run-ask", "task-9"], "working app chat is not duplicated")
+        XCTAssertEqual(state.backgroundRuns[0].kindTitle, "Agent request")
+        XCTAssertEqual(state.backgroundRuns[1].kindTitle, "Background task")
+        XCTAssertEqual(state.runningCount, 3)
+
+        let clear = try JSON.decoder.decode(ServerEvent.self, from: Data(#"{"type":"runs","runs":[]}"#.utf8))
+        state.apply(.event(clear))
+        XCTAssertTrue(state.activeRuns.isEmpty)
+        XCTAssertTrue(state.backgroundRuns.isEmpty)
+        XCTAssertEqual(state.runningCount, 1)
+    }
+
     func testInboxOrder() {
         var s = AppState()
         s.apply(.agentsLoaded([

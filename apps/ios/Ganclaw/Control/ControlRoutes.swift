@@ -141,6 +141,7 @@ struct ControlRoutes {
               var obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return .error("encode failed", status: 500) }
         obj["screen"] = store.state.currentScreen
         obj["inbox_rows"] = store.state.inboxRows.map(\.name)
+        obj["background_runs"] = store.state.backgroundRuns.map(\.id)
         if let fake = server.fakeSpeech {
             obj["speech"] = ["spoken": fake.spoken, "voices_used": fake.voicesUsed, "voice": fake.preferences.voiceID,
                              "listening": fake.listening, "speaking": fake.isSpeaking] as [String: Any]

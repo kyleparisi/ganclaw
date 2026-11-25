@@ -97,7 +97,7 @@ func NewServer(d Deps, version string) *mcp.Server {
 		if in.Agent == "" || in.Prompt == "" {
 			return nil, AskOut{}, errors.New("agent and prompt are required")
 		}
-		resp, err := d.Run(ctx, api.RunRequest{Agent: in.Agent, Prompt: in.Prompt, Session: in.Session})
+		resp, err := d.Run(ctx, api.RunRequest{Agent: in.Agent, Prompt: in.Prompt, Session: in.Session, Source: "ask"})
 		return nil, AskOut{Agent: in.Agent, Provider: resp.Provider, Answer: resp.Text}, err
 	})
 
@@ -108,7 +108,7 @@ func NewServer(d Deps, version string) *mcp.Server {
 		if in.Agent == "" || in.Prompt == "" || in.To == "" {
 			return nil, HandOffOut{}, errors.New("agent, prompt and to are required")
 		}
-		req := api.RunRequest{Agent: in.Agent, Prompt: in.Prompt, To: in.To, Session: in.Session, Async: true}
+		req := api.RunRequest{Agent: in.Agent, Prompt: in.Prompt, To: in.To, Session: in.Session, Async: true, Source: "handoff"}
 		if in.Session != "" {
 			// One "background" job in the app, not one per task; it also
 			// tells drive mode the result isn't an answer to a question.

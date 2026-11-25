@@ -221,6 +221,8 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 	if req.Async && req.Session == "" && t != nil && t.Channel == "app" {
 		m.ChatKey = JobKey(req.Agent, "")
 	}
+	m.RunKind = runKind(req, t)
+	m.RunLabel = runLabel(req)
 	log := logx.OrDiscard(g.Logger).With("agent", req.Agent, "chat", m.ChatKey)
 	if req.Async {
 		task, err := g.Router.CreateTask(ctx, req.Agent)
@@ -298,6 +300,7 @@ func (g *Gateway) RunFollowup(ctx context.Context, f store.Followup) error {
 		To:      f.To,
 		Session: f.Session,
 		Quiet:   f.Quiet,
+		Source:  "followup",
 	}
 	if f.Session != "" {
 		// store.BackgroundJob keeps the reply visible in the app conversation
@@ -347,6 +350,30 @@ func chain(first, next func(router.TurnResult)) func(router.TurnResult) {
 		first(res)
 		next(res)
 	}
+}
+
+// runKind classifies an API run for live activity views.
+func runKind(req api.RunRequest, t *api.Target) string {
+	if req.Source != "" {
+		return req.Source
+	}
+	if req.Async {
+		return "handoff"
+	}
+	if (req.Job != "" && req.Job != store.BackgroundJob) || (req.Session != "" && t != nil && t.Channel == "app") {
+		return "job"
+	}
+	if !req.Quiet && req.Session == "" && req.Job == "" && t != nil && t.Channel == "app" && req.Agent == t.Bot {
+		return "app"
+	}
+	return "run"
+}
+
+func runLabel(req api.RunRequest) string {
+	if req.Job != "" && req.Job != store.BackgroundJob {
+		return req.Job
+	}
+	return req.Session
 }
 
 // JobKey is the conversation key for runs that aren't delivered to a chat.

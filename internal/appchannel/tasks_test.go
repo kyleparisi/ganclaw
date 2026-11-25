@@ -2,12 +2,17 @@ package appchannel
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/coder/websocket"
 	"github.com/kyleparisi/ganclaw/internal/provider"
+	"github.com/kyleparisi/ganclaw/internal/router"
 	"github.com/kyleparisi/ganclaw/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -71,5 +76,64 @@ func TestTaskThreads(t *testing.T) {
 		}
 		assert.Equal(t, 200, h.do("GET", "/app/v1/jobs", nil, &jobs))
 		assert.Empty(t, jobs.Jobs)
+	})
+}
+
+func TestActiveRunsEndpointAndEvents(t *testing.T) {
+	subject := (*Channel).PublishRuns
+
+	t.Run("Serves active runs and pushes non-nil snapshots including empty clears over WebSocket", func(t *testing.T) {
+		h := newHarness(t, func(provider.Request) string { return "ok" })
+		now := time.Date(2026, 11, 25, 4, 0, 0, 0, time.UTC)
+		current := []router.ActiveRun{{
+			ID:        "run-1",
+			Agent:     "infra",
+			Kind:      "ask",
+			Label:     "code-review",
+			State:     "running",
+			Progress:  "Tool activity observed",
+			StartedAt: now,
+			UpdatedAt: now,
+		}}
+		h.ch.ActiveRuns = func() []router.ActiveRun { return current }
+
+		assert.Equal(t, http.StatusUnauthorized, h.do("GET", "/app/v1/runs", nil, nil))
+		h.pair()
+
+		var resp struct {
+			Runs []router.ActiveRun `json:"runs"`
+		}
+		require.Equal(t, http.StatusOK, h.do("GET", "/app/v1/runs", nil, &resp))
+		require.Len(t, resp.Runs, 1)
+		assert.Equal(t, "code-review", resp.Runs[0].Label)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		wsURL := strings.Replace(h.srv.URL, "http", "ws", 1) + "/app/v1/events"
+		conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+			HTTPHeader: http.Header{"Authorization": []string{"Bearer " + h.token}},
+		})
+		require.NoError(t, err)
+		defer conn.CloseNow()
+
+		readEvent := func() Event {
+			_, data, err := conn.Read(ctx)
+			require.NoError(t, err)
+			var e Event
+			require.NoError(t, json.Unmarshal(data, &e))
+			return e
+		}
+		assert.Equal(t, "hello", readEvent().Type)
+		initial := readEvent()
+		assert.Equal(t, "runs", initial.Type)
+		require.NotNil(t, initial.Runs)
+		require.Len(t, *initial.Runs, 1)
+		assert.Equal(t, "ask", (*initial.Runs)[0].Kind)
+
+		subject(h.ch, nil)
+		cleared := readEvent()
+		assert.Equal(t, "runs", cleared.Type)
+		require.NotNil(t, cleared.Runs, "empty clears must serialize runs as [] rather than omitting it")
+		assert.Empty(t, *cleared.Runs)
 	})
 }

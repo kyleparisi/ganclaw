@@ -12,6 +12,8 @@ enum Route: Codable, Hashable {
     case voiceSettings
     case jobs
     case job(String)
+    /// The Mac sidebar's Running page (iOS shows running work as an inbox filter).
+    case running
     /// The Mac sidebar's Open items page (iOS shows them as an inbox filter).
     case openItems
 }
@@ -129,6 +131,7 @@ struct AppState: Codable, Equatable {
     var agentsLoaded = false
     var filter: InboxFilter = .all
     var threads: [String: ThreadState] = [:]
+    var activeRuns: [ActiveRun] = []
     var jobs: [JobSummary] = []
     var jobRuns: [String: [AppMessage]] = [:]
 
@@ -157,6 +160,7 @@ struct AppState: Codable, Equatable {
         case .voiceSettings: return "settings:voice"
         case .jobs: return "jobs"
         case .job(let j): return "job:\(j)"
+        case .running: return "running"
         case .openItems: return "open-items"
         case nil: return "inbox"
         }
@@ -186,6 +190,17 @@ struct AppState: Codable, Equatable {
         case .running: sortedAgents.filter { $0.state.working }
         case .needsYou: sortedAgents.filter { $0.needsYou }
         }
+    }
+
+    /// Active turns across ganclaw that aren't already shown as a working app-chat row.
+    var backgroundRuns: [ActiveRun] {
+        activeRuns.filter { run in
+            !(run.kind == "app" && agent(run.agent)?.state.working == true)
+        }
+    }
+
+    var runningCount: Int {
+        agents.filter(\.state.working).count + backgroundRuns.count
     }
 
     /// A message a thread quotes. "Ask about this run" replies to a job run,
@@ -219,6 +234,7 @@ struct AppState: Codable, Equatable {
         case threadFailed(String, String)
         case jobsLoaded([JobSummary])
         case jobRunsLoaded(String, [AppMessage])
+        case activeRunsLoaded([ActiveRun])
         case event(ServerEvent)
 
         case setFilter(InboxFilter)
@@ -335,6 +351,8 @@ struct AppState: Codable, Equatable {
             jobs = j
         case let .jobRunsLoaded(job, runs):
             jobRuns[job] = runs
+        case .activeRunsLoaded(let runs):
+            activeRuns = runs
         case .event(let e):
             applyEvent(e)
 
@@ -441,6 +459,8 @@ struct AppState: Codable, Equatable {
         case "agent":
             guard let a = e.agent, let st = e.state else { return }
             setState(a, st)
+        case "runs":
+            if let runs = e.runs { activeRuns = runs }
         default:
             break
         }

@@ -1,0 +1,165 @@
+package router
+
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/kyleparisi/ganclaw/internal/provider"
+	"github.com/kyleparisi/ganclaw/internal/store"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestActiveRuns(t *testing.T) {
+	subject := (*Router).ActiveRuns
+
+	t.Run("Tracks queued, running, progress, and completion across concurrent turns", func(t *testing.T) {
+		entered := make(chan string, 2)
+		release := make(chan struct{})
+		now := time.Date(2026, 11, 25, 4, 0, 0, 0, time.UTC)
+		var nowMu sync.Mutex
+		clock := func() time.Time {
+			nowMu.Lock()
+			defer nowMu.Unlock()
+			now = now.Add(3 * time.Second)
+			return now
+		}
+
+		var snapsMu sync.Mutex
+		var snaps [][]ActiveRun
+		r := newRouter(t, Config{
+			Agents: testAgents(),
+			Store:  store.NewTestStore(t),
+			Now:    clock,
+			OnRunsChanged: func(runs []ActiveRun) {
+				snapsMu.Lock()
+				snaps = append(snaps, runs)
+				snapsMu.Unlock()
+			},
+			Run: func(ctx context.Context, _ provider.Sessions, req provider.Request) (string, provider.Result, error) {
+				if req.OnProgress != nil {
+					req.OnProgress("Tool activity observed")
+				}
+				entered <- req.Prompt
+				select {
+				case <-release:
+				case <-ctx.Done():
+					return "", provider.Result{}, ctx.Err()
+				}
+				return "codex", provider.Result{Text: "done"}, nil
+			},
+		})
+
+		require.True(t, r.Submit(Message{
+			ChatKey:  "job:assistant:code-review",
+			Agent:    "assistant",
+			RunKind:  "ask",
+			RunLabel: "code-review",
+			Text:     "first",
+			Reply:    func(context.Context, string) error { return nil },
+		}))
+		assert.Equal(t, "first", <-entered)
+
+		// Second message on the same chat queues behind the first.
+		require.True(t, r.Submit(Message{
+			ChatKey:  "job:assistant:code-review",
+			Agent:    "assistant",
+			RunKind:  "handoff",
+			RunLabel: "follow-on",
+			TaskID:   "task-2",
+			Text:     "second",
+			Reply:    func(context.Context, string) error { return nil },
+		}))
+
+		runs := subject(r)
+		require.Len(t, runs, 2)
+		assert.Equal(t, "running", runs[0].State)
+		assert.Equal(t, "assistant", runs[0].Agent)
+		assert.Equal(t, "ask", runs[0].Kind)
+		assert.Equal(t, "code-review", runs[0].Label)
+		assert.Equal(t, "Tool activity observed", runs[0].Progress)
+
+		assert.Equal(t, "queued", runs[1].State)
+		assert.Equal(t, "handoff", runs[1].Kind)
+		assert.Equal(t, "task-2", runs[1].ID)
+		assert.Equal(t, "task-2", runs[1].TaskID)
+
+		close(release)
+		assert.Equal(t, "second", <-entered)
+		require.Eventually(t, func() bool { return len(subject(r)) == 0 }, time.Second, 5*time.Millisecond)
+
+		snapsMu.Lock()
+		last := snaps[len(snaps)-1]
+		snapsMu.Unlock()
+		assert.Empty(t, last)
+	})
+
+	t.Run("Ignores built-in slash commands", func(t *testing.T) {
+		var notified bool
+		r := newRouter(t, Config{
+			Agents: testAgents(),
+			Store:  store.NewTestStore(t),
+			OnRunsChanged: func([]ActiveRun) {
+				notified = true
+			},
+		})
+		done := make(chan struct{})
+		require.True(t, r.Submit(Message{
+			ChatKey: "app:assistant",
+			Agent:   "assistant",
+			Text:    "/new",
+			Reply:   func(context.Context, string) error { return nil },
+			OnDone:  func(TurnResult) { close(done) },
+		}))
+		<-done
+		assert.False(t, notified)
+		assert.Empty(t, subject(r))
+	})
+
+	t.Run("Removes absorbed queued runs when messages are batched", func(t *testing.T) {
+		entered := make(chan struct{}, 2)
+		release := make(chan struct{})
+		secondDone := make(chan struct{})
+		r := newRouter(t, Config{
+			Agents: testAgents(),
+			Store:  store.NewTestStore(t),
+			Run: func(ctx context.Context, _ provider.Sessions, req provider.Request) (string, provider.Result, error) {
+				entered <- struct{}{}
+				if req.Prompt == "first" {
+					<-release
+				}
+				return "codex", provider.Result{Text: "ok"}, nil
+			},
+		})
+		require.True(t, r.Submit(Message{
+			ChatKey: "app:assistant",
+			Agent:   "assistant",
+			Batch:   true,
+			Text:    "first",
+			Reply:   func(context.Context, string) error { return nil },
+		}))
+		<-entered
+		require.True(t, r.Submit(Message{
+			ChatKey: "app:assistant",
+			Agent:   "assistant",
+			Batch:   true,
+			Text:    "second",
+			Reply:   func(context.Context, string) error { return nil },
+		}))
+		require.True(t, r.Submit(Message{
+			ChatKey: "app:assistant",
+			Agent:   "assistant",
+			Batch:   true,
+			Text:    "third",
+			Reply:   func(context.Context, string) error { return nil },
+			OnDone:  func(TurnResult) { close(secondDone) },
+		}))
+		assert.Len(t, subject(r), 3)
+		close(release)
+		<-entered
+		<-secondDone
+		require.Eventually(t, func() bool { return len(subject(r)) == 0 }, time.Second, 5*time.Millisecond)
+	})
+}

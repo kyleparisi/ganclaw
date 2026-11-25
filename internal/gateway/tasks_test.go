@@ -10,6 +10,7 @@ import (
 	"github.com/kyleparisi/ganclaw/internal/appchannel"
 	"github.com/kyleparisi/ganclaw/internal/provider"
 	"github.com/kyleparisi/ganclaw/internal/router"
+	"github.com/kyleparisi/ganclaw/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -129,5 +130,59 @@ func TestUnnamedWorkerSessions(t *testing.T) {
 				t.Fatal("unnamed workers shared a conversation queue")
 			}
 		}
+	})
+}
+
+func TestActiveRunMetadata(t *testing.T) {
+	subject := (*Gateway).Run
+
+	t.Run("Tracks ask_agent, hand_off, and quiet follow-ups in router ActiveRuns", func(t *testing.T) {
+		ctx := context.Background()
+		entered := make(chan struct{}, 3)
+		release := make(chan struct{})
+		g, db := newGateway(t, &sentMessages{}, func(ctx context.Context, _ provider.Sessions, req provider.Request) (string, provider.Result, error) {
+			if req.OnProgress != nil {
+				req.OnProgress("Tool activity observed")
+			}
+			entered <- struct{}{}
+			<-release
+			return "fake", provider.Result{Text: "NO_REPLY"}, nil
+		})
+		g.App = &appchannel.Channel{Agents: g.Agents, Store: db, FilesDir: t.TempDir()}
+
+		askDone := make(chan error, 1)
+		go func() {
+			_, err := subject(g, ctx, api.RunRequest{Agent: "support", Prompt: "review diff", Session: "code-review", Source: "ask"}, nil)
+			askDone <- err
+		}()
+		handoffRes, err := subject(g, ctx, api.RunRequest{Agent: "assistant", Prompt: "bg task", Session: "bg-1", Async: true, Source: "handoff"}, &api.Target{Channel: "app", Bot: "assistant"})
+		require.NoError(t, err)
+
+		followupDone := make(chan error, 1)
+		go func() {
+			followupDone <- g.RunFollowup(ctx, store.Followup{ID: "f-1", Agent: "support", To: "app:support", Session: "ci-watch", Prompt: "check ci", Quiet: true})
+		}()
+
+		for i := 0; i < 3; i++ {
+			<-entered
+		}
+
+		runs := g.Router.ActiveRuns()
+		require.Len(t, runs, 3)
+		byKind := map[string]router.ActiveRun{}
+		for _, run := range runs {
+			byKind[run.Kind] = run
+		}
+		assert.Equal(t, "code-review", byKind["ask"].Label)
+		assert.Equal(t, "support", byKind["ask"].Agent)
+		assert.Equal(t, "Tool activity observed", byKind["ask"].Progress)
+		assert.Equal(t, handoffRes.TaskID, byKind["handoff"].TaskID)
+		assert.Equal(t, "bg-1", byKind["handoff"].Label)
+		assert.Equal(t, "ci-watch", byKind["followup"].Label)
+
+		close(release)
+		require.NoError(t, <-askDone)
+		require.NoError(t, <-followupDone)
+		require.Eventually(t, func() bool { return len(g.Router.ActiveRuns()) == 0 }, time.Second, 5*time.Millisecond)
 	})
 }

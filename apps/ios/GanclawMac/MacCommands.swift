@@ -55,6 +55,8 @@ struct MacCommands: Commands {
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(agent == nil)
             Divider()
+            Button("Running") { store.select(.running) }
+                .disabled(!paired)
             Button("Open Items") { store.select(.openItems) }
                 .keyboardShortcut("0")
                 .disabled(!paired)

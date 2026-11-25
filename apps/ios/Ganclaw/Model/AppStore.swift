@@ -191,10 +191,13 @@ final class AppStore {
         do {
             async let agents = client.agents()
             async let jobs = client.jobs()
+            async let runs = client.activeRuns()
             let (a, j) = try await (agents, jobs)
+            let r = try? await runs
             send(.agentsLoaded(a))
             await platform.notifications.setBadge(state.totalUnread)
             send(.jobsLoaded(j))
+            if let r { send(.activeRunsLoaded(r)) }
             send(.banner(nil))
             for case .thread(let name) in state.path { await loadThread(name) }
         } catch {
