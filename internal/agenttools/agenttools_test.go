@@ -50,7 +50,7 @@ func TestTools(t *testing.T) {
 		for _, tl := range res.Tools {
 			names = append(names, tl.Name)
 		}
-		assert.ElementsMatch(t, []string{"list_agents", "send_message", "ask_agent", "hand_off", "task_status", "list_open_items", "save_open_item", "schedule_followup", "list_followups", "cancel_followup"}, names)
+		assert.ElementsMatch(t, []string{"list_agents", "send_message", "ask_agent", "cross_review", "hand_off", "task_status", "list_open_items", "save_open_item", "schedule_followup", "list_followups", "cancel_followup"}, names)
 	})
 
 	t.Run("send_message sends through the API", func(t *testing.T) {
@@ -76,6 +76,67 @@ func TestTools(t *testing.T) {
 		assert.False(t, isErr)
 		assert.Equal(t, "12 signups.", out["answer"])
 		assert.Equal(t, "claude", out["provider"])
+	})
+
+	t.Run("cross_review runs a read-only pinned review and formats its label", func(t *testing.T) {
+		var gotReqs []api.RunRequest
+		cs := connect(t, Deps{Run: func(ctx context.Context, req api.RunRequest) (api.RunResponse, error) {
+			gotReqs = append(gotReqs, req)
+			return api.RunResponse{OK: true, Provider: req.Provider, Text: "No high severity findings."}, nil
+		}})
+
+		out, isErr := call(t, cs, "cross_review", map[string]any{
+			"agent":    "support",
+			"provider": "claude",
+			"prompt":   "Review branch feat/auth",
+			"label":    "auth-pr",
+			"session":  "auth-round-1",
+		})
+		assert.False(t, isErr)
+		assert.Equal(t, "support", out["agent"])
+		assert.Equal(t, "claude", out["provider"])
+		assert.Equal(t, "No high severity findings.", out["review"])
+
+		_, isErr = call(t, cs, "cross_review", map[string]any{
+			"agent":    " support ",
+			"provider": " codex ",
+			"prompt":   " Review latest commit ",
+		})
+		assert.False(t, isErr)
+
+		require.Len(t, gotReqs, 2)
+		assert.Equal(t, api.RunRequest{
+			Agent:    "support",
+			Prompt:   "Review branch feat/auth",
+			Session:  "auth-round-1",
+			Provider: "claude",
+			ReadOnly: true,
+			Source:   "review",
+			Label:    "claude: auth-pr",
+		}, gotReqs[0])
+		assert.Equal(t, api.RunRequest{
+			Agent:    "support",
+			Prompt:   "Review latest commit",
+			Provider: "codex",
+			ReadOnly: true,
+			Source:   "review",
+			Label:    "codex",
+		}, gotReqs[1])
+	})
+
+	t.Run("cross_review rejects missing required fields", func(t *testing.T) {
+		cs := connect(t, Deps{Run: func(ctx context.Context, req api.RunRequest) (api.RunResponse, error) {
+			t.Fatal("invalid request must not reach the gateway")
+			return api.RunResponse{}, nil
+		}})
+
+		_, isErr1 := call(t, cs, "cross_review", map[string]any{"agent": "support", "provider": "", "prompt": "review"})
+		_, isErr2 := call(t, cs, "cross_review", map[string]any{"agent": "", "provider": "claude", "prompt": "review"})
+		_, isErr3 := call(t, cs, "cross_review", map[string]any{"agent": "support", "provider": "claude", "prompt": "   "})
+
+		assert.True(t, isErr1)
+		assert.True(t, isErr2)
+		assert.True(t, isErr3)
 	})
 
 	t.Run("hand_off queues a delivered run", func(t *testing.T) {

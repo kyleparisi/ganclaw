@@ -248,3 +248,70 @@ func TestActiveRuns(t *testing.T) {
 		close(release)
 	})
 }
+
+func TestPinnedReadOnlyTurns(t *testing.T) {
+	subject := (*Router).Submit
+
+	t.Run("Applies read-only settings, pinned provider, custom instructions, and disables file sending", func(t *testing.T) {
+		var got provider.Request
+		var sentFile bool
+		done := make(chan TurnResult, 1)
+		r := newRouter(t, Config{
+			Agents: testAgents(),
+			Store:  store.NewTestStore(t),
+			Run: func(ctx context.Context, _ provider.Sessions, req provider.Request) (string, provider.Result, error) {
+				got = req
+				return "claude", provider.Result{Text: "LGTM\nMEDIA: /etc/passwd"}, nil
+			},
+		})
+		require.True(t, subject(r, Message{
+			ChatKey:      "job:assistant:review:pr-1",
+			Agent:        "assistant",
+			RunKind:      "review",
+			RunLabel:     "claude: pr-1",
+			Provider:     "claude",
+			ReadOnly:     true,
+			Instructions: "Independent reviewer only.",
+			Text:         "Review commit abc",
+			Reply:        func(context.Context, string) error { return nil },
+			SendFile:     func(context.Context, string) error { sentFile = true; return nil },
+			OnDone:       func(res TurnResult) { done <- res },
+		}))
+		res := <-done
+		require.NoError(t, res.Err)
+		assert.Equal(t, "claude", res.Provider)
+		assert.Equal(t, "LGTM\nMEDIA: /etc/passwd", res.Text)
+		assert.False(t, sentFile, "read-only turns must not upload files via MEDIA: lines")
+		assert.Equal(t, "claude", got.Provider)
+		assert.Contains(t, got.Instructions, "Independent reviewer only.")
+		assert.Contains(t, got.Instructions, "Each turn is limited to about")
+		assert.NotContains(t, got.Instructions, "follow-up checkback")
+		assert.Equal(t, "read-only", got.Settings.CodexSandbox)
+		assert.Equal(t, "plan", got.Settings.PermissionMode)
+		assert.Equal(t, "plan", got.Settings.AntigravityMode)
+		assert.True(t, got.Settings.NoMCP)
+	})
+
+	t.Run("Reports pinned provider unavailability accurately", func(t *testing.T) {
+		done := make(chan TurnResult, 1)
+		r := newRouter(t, Config{
+			Agents: testAgents(),
+			Store:  store.NewTestStore(t),
+			Run: func(ctx context.Context, _ provider.Sessions, req provider.Request) (string, provider.Result, error) {
+				return "", provider.Result{}, provider.ErrUnavailable
+			},
+		})
+		require.True(t, subject(r, Message{
+			ChatKey:  "job:assistant:review:pr-2",
+			Agent:    "assistant",
+			Provider: "claude",
+			ReadOnly: true,
+			Text:     "Review commit def",
+			Reply:    func(context.Context, string) error { return nil },
+			OnDone:   func(res TurnResult) { done <- res },
+		}))
+		res := <-done
+		require.ErrorIs(t, res.Err, provider.ErrUnavailable)
+		assert.Contains(t, res.Text, "Provider claude is unavailable right now.")
+	})
+}

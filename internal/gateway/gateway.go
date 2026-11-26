@@ -34,8 +34,10 @@ type Gateway struct {
 	Agents map[string]agent.Agent
 	Bots   map[string]*telegram.Bot
 	// App is the native-app channel, nil when it is off.
-	App    *appchannel.Channel
-	Logger *slog.Logger
+	App *appchannel.Channel
+	// HasProvider reports whether a named provider is configured. Optional.
+	HasProvider func(string) bool
+	Logger      *slog.Logger
 }
 
 // Probe is an HTTP check reported by Health.
@@ -167,6 +169,13 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 	if !ok {
 		return router.TurnResult{}, api.Errorf(api.CodeUnknownAgent, "no agent named %q", req.Agent)
 	}
+	prov := strings.TrimSpace(req.Provider)
+	if prov != "" && g.HasProvider != nil && !g.HasProvider(prov) {
+		return router.TurnResult{}, api.Errorf(api.CodeBadRequest, "provider %q is not configured", prov)
+	}
+	if req.Source != "review" && strings.HasPrefix(req.Session, "review:") {
+		return router.TurnResult{}, api.Errorf(api.CodeBadRequest, "session prefix %q is reserved for reviews", "review:")
+	}
 	if t != nil {
 		if err := g.CheckRunTarget(req.Agent, *t); err != nil {
 			return router.TurnResult{}, err
@@ -192,24 +201,32 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 		if req.Agent != t.Bot {
 			m.ChatKey += ":" + req.Agent
 		}
-		if req.Session != "" {
+		if req.Source == "review" {
+			m.ChatKey = reviewKey(req.Agent, req.Session)
+		} else if req.Session != "" {
 			m.ChatKey = JobKey(req.Agent, req.Session)
 		}
 		if m.ChatKey != appchannel.ChatKey(t.Bot) || (job != "" && job != store.BackgroundJob) {
-			// Separate-session jobs and follow-ups don't occupy the agent's
-			// interactive app thread; keep them out of AgentState.Working.
+			// Separate-session jobs, reviews, and follow-ups don't occupy the
+			// agent's interactive app thread; keep them out of AgentState.Working.
 			m.Typing, m.OnDone, m.AppThread = nil, nil, false
 		}
 	} else if t != nil {
 		b := g.Bots[t.Bot]
 		m = b.Message(t.Chat, req.Agent, req.Prompt)
-		if req.Session != "" {
+		if req.Source == "review" {
+			m.ChatKey = reviewKey(req.Agent, req.Session)
+		} else if req.Session != "" {
 			// Deliver to the chat but keep the work in its own conversation.
 			m.ChatKey = JobKey(req.Agent, req.Session)
 		}
 	} else {
+		chatKey := JobKey(req.Agent, req.Session)
+		if req.Source == "review" {
+			chatKey = reviewKey(req.Agent, req.Session)
+		}
 		m = router.Message{
-			ChatKey: JobKey(req.Agent, req.Session),
+			ChatKey: chatKey,
 			Agent:   req.Agent,
 			Text:    req.Prompt,
 			Reply:   func(context.Context, string) error { return nil }, // returned to the caller instead
@@ -223,12 +240,18 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 	// Unnamed background work in the app runs in its own conversation, so it
 	// neither blocks nor joins the thread's. Telegram handoffs keep joining
 	// the chat's conversation: the contact may reply to the result.
-	if req.Async && req.Session == "" && t != nil && t.Channel == "app" {
+	if req.Async && req.Session == "" && req.Source != "review" && t != nil && t.Channel == "app" {
 		m.ChatKey = JobKey(req.Agent, "")
 		m.AppThread = false
 	}
 	m.RunKind = runKind(req, t)
 	m.RunLabel = runLabel(req)
+	m.Provider = prov
+	m.ReadOnly = req.ReadOnly
+	if req.Source == "review" {
+		m.ReadOnly = true
+		m.Instructions = reviewInstructions
+	}
 	log := logx.OrDiscard(g.Logger).With("agent", req.Agent, "chat", m.ChatKey)
 	if req.Async {
 		task, err := g.Router.CreateTask(ctx, req.Agent)
@@ -358,10 +381,19 @@ func chain(first, next func(router.TurnResult)) func(router.TurnResult) {
 	}
 }
 
+const reviewInstructions = `# Code review
+
+You are performing an independent, read-only code review in this workspace.
+
+- Inspect the requested git diff, commits, or files directly using read-only file reads (and read-only commands where permitted).
+- Do not modify files, commit, push, or run destructive commands.
+- Report concrete findings ranked by severity (High, Medium, Low) with file paths and line references, plus any missing tests or edge cases.
+- End with a clear verdict on whether the change is ready to push or needs revisions first.`
+
 // runKind classifies an API run for live activity views.
 func runKind(req api.RunRequest, t *api.Target) string {
 	switch req.Source {
-	case "ask", "handoff", "followup":
+	case "ask", "handoff", "followup", "review":
 		return req.Source
 	}
 	if req.Async {
@@ -377,6 +409,9 @@ func runKind(req api.RunRequest, t *api.Target) string {
 }
 
 func runLabel(req api.RunRequest) string {
+	if req.Label != "" {
+		return req.Label
+	}
 	if req.Job != "" && req.Job != store.BackgroundJob {
 		return req.Job
 	}
@@ -392,6 +427,17 @@ func JobKey(agentName, session string) string {
 		session = "once:" + hex.EncodeToString(b[:])
 	}
 	return "job:" + agentName + ":" + session
+}
+
+// reviewKey isolates read-only review sessions under a reserved namespace so
+// they never share provider sessions with interactive chats or writable jobs.
+func reviewKey(agentName, session string) string {
+	if session == "" {
+		var b [8]byte
+		_, _ = rand.Read(b[:])
+		session = "once:" + hex.EncodeToString(b[:])
+	}
+	return "job:" + agentName + ":review:" + session
 }
 
 // QuietReplies are answers that mean "nothing to tell the user".

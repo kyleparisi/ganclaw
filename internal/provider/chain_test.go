@@ -149,6 +149,44 @@ func TestChainRun(t *testing.T) {
 
 		assert.EqualError(t, err, "no providers configured")
 	})
+
+	t.Run("Pinned provider runs only that provider and never falls back", func(t *testing.T) {
+		codexCalls, claudeCalls := 0, 0
+		subject := &Chain{Providers: []Provider{
+			&Funcs{ProviderName: "codex", RunFunc: func(ctx context.Context, req Request) (Result, error) {
+				codexCalls++
+				return Result{Text: "codex"}, nil
+			}},
+			&Funcs{ProviderName: "claude", RunFunc: func(ctx context.Context, req Request) (Result, error) {
+				claudeCalls++
+				if req.Prompt == "fail" {
+					return Result{}, errors.Join(ErrUnavailable, errors.New("rate limited"))
+				}
+				return Result{Session: "c-1", Text: "review ok"}, nil
+			}},
+		}}
+
+		used, res, err := subject.Run(context.Background(), Sessions{}, Request{Provider: "claude", Prompt: "ok"})
+		require.NoError(t, err)
+		assert.Equal(t, "claude", used)
+		assert.Equal(t, "review ok", res.Text)
+		assert.Equal(t, 0, codexCalls)
+		assert.Equal(t, 1, claudeCalls)
+
+		used, _, err = subject.Run(context.Background(), Sessions{}, Request{Provider: "claude", Prompt: "fail"})
+		assert.Empty(t, used)
+		assert.ErrorIs(t, err, ErrUnavailable)
+		assert.Equal(t, 0, codexCalls, "pinned request must not fall back to another provider")
+		assert.Equal(t, 2, claudeCalls)
+
+		_, _, err = subject.Run(context.Background(), Sessions{}, Request{Provider: "missing", Prompt: "ok"})
+		assert.EqualError(t, err, `provider "missing" is not configured`)
+		assert.False(t, errors.Is(err, ErrUnavailable))
+		assert.Equal(t, 0, codexCalls)
+		assert.True(t, subject.Has("claude"))
+		assert.True(t, subject.Has("codex"))
+		assert.False(t, subject.Has("missing"))
+	})
 }
 
 // limitErr is an unavailable error that knows when it clears.

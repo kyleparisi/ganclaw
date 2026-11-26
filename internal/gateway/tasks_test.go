@@ -244,4 +244,129 @@ func TestActiveRunMetadata(t *testing.T) {
 		}
 		assert.Empty(t, g.Router.ActiveRuns())
 	})
+
+	t.Run("Tracks cross-model reviews as read-only pinned runs with isolated sessions", func(t *testing.T) {
+		ctx := context.Background()
+		entered := make(chan struct{}, 2)
+		release := make(chan struct{})
+		var gotReviewReq provider.Request
+		g, db := newGateway(t, &sentMessages{}, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+			if req.Provider == "claude" {
+				gotReviewReq = req
+				sessions["claude"] = "claude-review-1"
+			} else {
+				sessions["codex"] = "codex-job-1"
+			}
+			entered <- struct{}{}
+			<-release
+			return req.Provider, provider.Result{Text: "Ready to push."}, nil
+		})
+
+		reviewDone := make(chan router.TurnResult, 1)
+		go func() {
+			res, err := subject(g, ctx, api.RunRequest{
+				Agent:    "support",
+				Prompt:   "Review the diff on branch feat/demo",
+				Session:  "pr-42",
+				Provider: "claude",
+				Source:   "review",
+				Label:    "claude: pr-42",
+			}, nil)
+			require.NoError(t, err)
+			reviewDone <- res
+		}()
+		askDone := make(chan error, 1)
+		go func() {
+			_, err := subject(g, ctx, api.RunRequest{
+				Agent:   "support",
+				Prompt:  "Normal job sharing the same session label",
+				Session: "pr-42",
+				Source:  "ask",
+			}, nil)
+			askDone <- err
+		}()
+
+		for i := 0; i < 2; i++ {
+			select {
+			case <-entered:
+			case <-time.After(time.Second):
+				t.Fatal("review session collided with ask session of the same name")
+			}
+		}
+
+		runs := g.Router.ActiveRuns()
+		require.Len(t, runs, 2)
+		byKind := map[string]router.ActiveRun{}
+		for _, run := range runs {
+			byKind[run.Kind] = run
+		}
+		assert.Equal(t, "claude: pr-42", byKind["review"].Label)
+		assert.Equal(t, "support", byKind["review"].Agent)
+		assert.False(t, byKind["review"].AppThread)
+
+		close(release)
+		res := <-reviewDone
+		require.NoError(t, res.Err)
+		require.NoError(t, <-askDone)
+		assert.Equal(t, "claude", gotReviewReq.Provider)
+		assert.Equal(t, "read-only", gotReviewReq.Settings.CodexSandbox)
+		assert.Equal(t, "plan", gotReviewReq.Settings.PermissionMode)
+		assert.Equal(t, "plan", gotReviewReq.Settings.AntigravityMode)
+		assert.True(t, gotReviewReq.Settings.NoMCP)
+		assert.Contains(t, gotReviewReq.Instructions, "read-only code review")
+
+		reviewSessions, err := db.Sessions(ctx, "job:support:review:pr-42")
+		require.NoError(t, err)
+		assert.Equal(t, "claude-review-1", reviewSessions["claude"])
+		jobSessions, err := db.Sessions(ctx, "job:support:pr-42")
+		require.NoError(t, err)
+		assert.Equal(t, "codex-job-1", jobSessions["codex"])
+	})
+
+	t.Run("Validates pinned provider, reserves review prefix, and isolates targeted empty-session reviews", func(t *testing.T) {
+		ctx := context.Background()
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		g, db := newGateway(t, &sentMessages{}, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+			sessions["claude"] = "claude-targeted-1"
+			close(entered)
+			<-release
+			return "claude", provider.Result{Text: "Looks good."}, nil
+		})
+		g.App = &appchannel.Channel{Agents: g.Agents, Store: db, FilesDir: t.TempDir()}
+		g.HasProvider = func(name string) bool { return name == "claude" }
+
+		_, err := subject(g, ctx, api.RunRequest{Agent: "support", Prompt: "check", Provider: "Claude"}, nil)
+		var apiErr *api.Error
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, api.CodeBadRequest, apiErr.Code)
+
+		_, err = subject(g, ctx, api.RunRequest{Agent: "support", Prompt: "hijack", Session: "review:pr-42", Source: "ask"}, nil)
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, api.CodeBadRequest, apiErr.Code)
+
+		done := make(chan error, 1)
+		go func() {
+			_, runErr := subject(g, ctx, api.RunRequest{
+				Agent:    "support",
+				Prompt:   "Review diff",
+				Provider: "claude",
+				Source:   "review",
+				Label:    "claude: ad-hoc",
+			}, &api.Target{Channel: "app", Bot: "support"})
+			done <- runErr
+		}()
+		<-entered
+		runs := g.Router.ActiveRuns()
+		require.Len(t, runs, 1)
+		assert.Equal(t, "review", runs[0].Kind)
+		assert.Equal(t, "claude: ad-hoc", runs[0].Label)
+		assert.False(t, runs[0].AppThread, "even a targeted review without a session must not join the interactive app thread")
+		close(release)
+		require.NoError(t, <-done)
+
+		appSessions, err := db.Sessions(ctx, appchannel.ChatKey("support"))
+		require.NoError(t, err)
+		assert.Empty(t, appSessions, "targeted review must not store sessions under app:<agent>")
+	})
 }

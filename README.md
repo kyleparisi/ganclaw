@@ -33,7 +33,8 @@ every agent. Idle, it uses about 20 MB.
   chats to their session IDs). Messages in a chat run one at a time.
 - **Agent tools via MCP.** Any stdio MCP server (for example a Playwright
   browser) is given to every agent, and ganclaw adds its own tools so agents
-  can message people (`send_message`), ask another agent (`ask_agent`), hand
+  can message people (`send_message`), ask another agent (`ask_agent`), run a
+  read-only cross-model code review on a pinned provider (`cross_review`), hand
   work to one (`hand_off`), see who's available (`list_agents`), and schedule
   persisted one-shot checkbacks (`schedule_followup`, `list_followups`,
   `cancel_followup`) when waiting on CI, builds, or external work.
@@ -104,7 +105,7 @@ Telegram user ID when it ignores you.
 
 Install and sign in to the [Antigravity CLI](https://antigravity.google/docs/install?tab=cli) as the user running ganclaw, then add `"antigravity"` to `providers`. Configure `[antigravity]` with `bin`, optional `model`, and `mode` (`accept-edits`, `auto`, or `plan`); the default is `accept-edits`. The CLI must support ACP (tested with 1.5.14). Per-agent `antigravity_model` and `antigravity_mode` can override the global settings.
 
-Ganclaw passes configured MCP servers and agent instructions directly to each ACP session. Antigravity may also start MCP servers and load customizations from its own workspace and account configuration, even when they are not listed in Ganclaw. Use trusted workspaces and account configuration. Antigravity follows the Codex sandbox setting (workspace-write by default); read-only also selects plan mode. Attachments are available as files in the workspace rather than sent as native image content. Requests for other actions that require approval are denied in headless operation. Provider health is reported as unknown because Antigravity does not expose a live quota check through this adapter.
+Ganclaw passes configured MCP servers and agent instructions directly to each ACP session. Antigravity may also start MCP servers and load customizations from its own workspace and account configuration, even when they are not listed in Ganclaw. Use trusted workspaces and account configuration. Antigravity follows the Codex sandbox setting (workspace-write by default); read-only also selects plan mode. In `plan` or `read-only` mode (including `cross_review`), Ganclaw denies approval-gated tool calls such as `run_command` and omits configured MCP servers during `NoMCP` turns, so Antigravity code reviews rely on file reads and any diff included in the prompt. Attachments are available as files in the workspace rather than sent as native image content. Requests for other actions that require approval are denied in headless operation. Provider health is reported as unknown because Antigravity does not expose a live quota check through this adapter.
 
 ## Creating an agent
 
@@ -259,7 +260,7 @@ service user and root are refused (checked with `SO_PEERCRED`).
 | Endpoint | Purpose |
 |---|---|
 | `POST /v1/send` | `{to, via?, text, idempotency_key?}` |
-| `POST /v1/run` | `{agent, prompt, to?, via?, session?, timeout_seconds?, quiet?, heartbeat?, async?, source?, idempotency_key?}` |
+| `POST /v1/run` | `{agent, prompt, to?, via?, session?, timeout_seconds?, quiet?, heartbeat?, async?, source?, provider?, read_only?, label?, idempotency_key?}` |
 | `GET /v1/tasks/{id}` | persisted background task status |
 | `GET /v1/tasks?agent=support` | latest 50 tasks, optional agent filter |
 | `POST /v1/followups` | `{agent, to, via?, session?, prompt, delay_seconds, quiet?, idempotency_key?}` → schedule a one-shot delayed checkback |

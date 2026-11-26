@@ -189,7 +189,7 @@ func cmdServe(ctx context.Context, args []string) error {
 		return err
 	}
 
-	gw := &gateway.Gateway{Ctx: ctx, Router: r, Agents: agents, Bots: bots, App: app, Logger: log}
+	gw := &gateway.Gateway{Ctx: ctx, Router: r, Agents: agents, Bots: bots, App: app, HasProvider: chain.Has, Logger: log}
 	sched := followup.New(followup.Config{
 		Store:    st,
 		Validate: gw.CheckFollowupTarget,

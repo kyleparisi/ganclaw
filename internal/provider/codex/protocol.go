@@ -21,14 +21,25 @@ type initializeResponse struct {
 }
 
 type threadParams struct {
-	ThreadID              string `json:"threadId,omitempty"` // resume only
-	Cwd                   string `json:"cwd,omitempty"`
-	Model                 string `json:"model,omitempty"`
-	DeveloperInstructions string `json:"developerInstructions,omitempty"`
-	ApprovalPolicy        string `json:"approvalPolicy,omitempty"` // untrusted | on-request | never
-	Sandbox               string `json:"sandbox,omitempty"`        // read-only | workspace-write | danger-full-access
-	ServiceName           string `json:"serviceName,omitempty"`    // start only
-	ExcludeTurns          bool   `json:"excludeTurns,omitempty"`   // resume only
+	ThreadID              string         `json:"threadId,omitempty"` // resume only
+	Cwd                   string         `json:"cwd,omitempty"`
+	Model                 string         `json:"model,omitempty"`
+	DeveloperInstructions string         `json:"developerInstructions,omitempty"`
+	ApprovalPolicy        string         `json:"approvalPolicy,omitempty"` // untrusted | on-request | never
+	Sandbox               string         `json:"sandbox,omitempty"`        // read-only | workspace-write | danger-full-access
+	Config                map[string]any `json:"config,omitempty"`         // per-thread config overrides
+	ServiceName           string         `json:"serviceName,omitempty"`    // start only
+	ExcludeTurns          bool           `json:"excludeTurns,omitempty"`   // resume only
+}
+
+type configReadParams struct {
+	Cwd string `json:"cwd,omitempty"`
+}
+
+type configReadResponse struct {
+	Config struct {
+		MCPServers map[string]json.RawMessage `json:"mcp_servers"`
+	} `json:"config"`
 }
 
 type threadResponse struct {

@@ -24,10 +24,16 @@ import (
 type Message struct {
 	TaskID string
 	// RunKind classifies where this turn came from ("app", "telegram",
-	// "handoff", "ask", "followup", "job", "run"). Optional.
+	// "handoff", "ask", "followup", "job", "review", "run"). Optional.
 	RunKind string
 	// RunLabel is an optional safe label for live status (e.g. job or session name).
 	RunLabel string
+	// Provider, if non-empty, pins this turn to that configured provider with no fallback.
+	Provider string
+	// ReadOnly forces read-only / plan mode and disables MCP servers where supported.
+	ReadOnly bool
+	// Instructions, if non-empty, replaces the agent's workspace instruction files for this turn.
+	Instructions string
 	// AppThread marks turns that drive the agent's app-thread working state so the
 	// app can deduplicate them against the working AgentRow.
 	AppThread bool
@@ -254,7 +260,7 @@ func (r *Router) worker(key string, q chan Message) {
 
 // batchable excludes callers with individual cancellation or task outcomes.
 func batchable(m Message) bool {
-	return m.Batch && m.Ctx == nil && m.TaskID == "" && (m.Fetch != nil || command(m.Text) == "")
+	return m.Batch && m.Ctx == nil && m.TaskID == "" && m.Provider == "" && !m.ReadOnly && m.Instructions == "" && (m.Fetch != nil || command(m.Text) == "")
 }
 
 // processBatch delivers queued chat messages together while preserving each
@@ -460,12 +466,17 @@ func (r *Router) process(m Message) {
 		reply("Couldn't load the conversation: " + err.Error())
 		return
 	}
-	instructions, err := a.Instructions()
-	if err != nil {
-		result.Err = errors.New("task setup failed")
-		log.Error("load instructions", "err", err)
-		reply("Couldn't load the agent's instructions: " + err.Error())
-		return
+	var instructions string
+	if m.Instructions != "" {
+		instructions = m.Instructions
+	} else {
+		instructions, err = a.Instructions()
+		if err != nil {
+			result.Err = errors.New("task setup failed")
+			log.Error("load instructions", "err", err)
+			reply("Couldn't load the agent's instructions: " + err.Error())
+			return
+		}
 	}
 
 	r.mu.Lock()
@@ -504,14 +515,25 @@ func (r *Router) process(m Message) {
 	if m.attachmentNotes != nil {
 		m.Text += *m.attachmentNotes
 	}
-	instructions += "\n\n" + turnBudgetInstructions(r.cfg.TurnTimeout)
+	if instructions != "" {
+		instructions += "\n\n"
+	}
+	instructions += turnBudgetInstructions(r.cfg.TurnTimeout, m.ReadOnly)
+	settings := a.Settings
+	if m.ReadOnly {
+		settings.CodexSandbox = "read-only"
+		settings.PermissionMode = "plan"
+		settings.AntigravityMode = "plan"
+		settings.NoMCP = true
+	}
 
 	req := provider.Request{
 		Cwd:          a.Workspace,
 		Instructions: instructions,
 		Prompt:       BuildPrompt(m.Text, atts),
 		Attachments:  atts,
-		Settings:     a.Settings,
+		Settings:     settings,
+		Provider:     m.Provider,
 	}
 	if m.TaskID != "" || m.runID != "" {
 		req.OnProgress = progressWriter(func(activity string) {
@@ -557,7 +579,7 @@ func (r *Router) process(m Message) {
 
 	if runErr != nil {
 		log.Warn("turn failed", "err", runErr, "duration", time.Since(start))
-		reply(r.userError(ctx, runErr))
+		reply(r.userError(ctx, m.Provider, runErr))
 		result.Err = runErr
 		if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
 			result.Err = errors.Join(runErr, cause)
@@ -567,7 +589,7 @@ func (r *Router) process(m Message) {
 	log.Info("turn answered", "provider", used, "reply_len", len(res.Text), "duration", time.Since(start))
 	text := res.Text
 	var media []string
-	if m.SendFile != nil {
+	if m.SendFile != nil && !m.ReadOnly {
 		text, media = ExtractMedia(text)
 		if strings.TrimSpace(text) == "" && len(media) > 0 {
 			text = "📎"
@@ -585,12 +607,14 @@ func (r *Router) process(m Message) {
 // It depends only on config, never on per-turn state like the deadline, so
 // the instructions stay identical across turns and providers' prompt caches
 // keep hitting on resumed conversations.
-func turnBudgetInstructions(budget time.Duration) string {
-	return fmt.Sprintf(`# Long-running work
+func turnBudgetInstructions(budget time.Duration, readOnly bool) string {
+	text := fmt.Sprintf(`# Long-running work
 
-Each turn is limited to about %s. Break anything that might take a while (builds, test suites, migrations, waiting on CI) into small units of safe, resumable work. Save progress as you go, and if work remains, end with a clear handoff: what's done, what's left, and the next step. Don't claim unfinished work is complete.
-
-Once your turn ends, nothing wakes you up unless a follow-up checkback is scheduled. Never say you will monitor CI, builds, deploys, or follow up later unless you actually schedule a checkback before ending your turn.`, shortDuration(budget))
+Each turn is limited to about %s. Break anything that might take a while (builds, test suites, migrations, waiting on CI) into small units of safe, resumable work. Save progress as you go, and if work remains, end with a clear handoff: what's done, what's left, and the next step. Don't claim unfinished work is complete.`, shortDuration(budget))
+	if !readOnly {
+		text += "\n\nOnce your turn ends, nothing wakes you up unless a follow-up checkback is scheduled. Never say you will monitor CI, builds, deploys, or follow up later unless you actually schedule a checkback before ending your turn."
+	}
+	return text
 }
 
 // shortDuration formats d without trailing zero units: 20m, 1h, 1m30s.
@@ -704,13 +728,16 @@ func (r *Router) typing(ctx context.Context, m Message) (stop func()) {
 	return func() { once.Do(func() { cancel(); <-done }) }
 }
 
-func (r *Router) userError(ctx context.Context, err error) string {
+func (r *Router) userError(ctx context.Context, pinned string, err error) string {
 	switch {
 	case errors.Is(context.Cause(ctx), errStopped):
 		return "Stopped."
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return fmt.Sprintf("That took longer than %s and was stopped.", r.cfg.TurnTimeout)
 	case errors.Is(err, provider.ErrUnavailable):
+		if pinned != "" {
+			return fmt.Sprintf("Provider %s is unavailable right now. %s", pinned, truncate(err.Error(), 400))
+		}
 		return "All models are unavailable right now. " + truncate(err.Error(), 400)
 	default:
 		return "Something went wrong: " + truncate(err.Error(), 400)

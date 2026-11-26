@@ -118,11 +118,19 @@ func mcpServers(cfg *config.Config) ([]config.MCPServer, error) {
 	if err != nil {
 		return nil, err
 	}
+	// ToolTimeoutSec is forwarded to Codex's MCP client (Claude and Antigravity
+	// use their own client timeouts) so long ask_agent/cross_review calls don't
+	// time out at Codex's 60s default.
+	timeoutSec := int(cfg.TurnTimeout.Duration.Seconds())
+	if timeoutSec <= 0 {
+		timeoutSec = 2100
+	}
 	return append(servers, config.MCPServer{
-		Name:    "ganclaw",
-		Command: exe,
-		Args:    []string{"mcp"},
-		Env:     map[string]string{"GANCLAW_SOCKET": cfg.APISocket},
+		Name:           "ganclaw",
+		Command:        exe,
+		Args:           []string{"mcp"},
+		Env:            map[string]string{"GANCLAW_SOCKET": cfg.APISocket},
+		ToolTimeoutSec: timeoutSec,
 	}), nil
 }
 
@@ -144,7 +152,7 @@ func toolsAppendix(cfg *config.Config) string {
 		}
 	}
 	if !cfg.DisableAgentTools {
-		lines = append(lines, "- ganclaw: message a person (send_message), ask another agent and get its answer (ask_agent), hand a task to another agent whose reply goes to a person (hand_off), list agents and contacts (list_agents), and schedule/list/cancel delayed follow-up checkbacks (schedule_followup, list_followups, cancel_followup).")
+		lines = append(lines, "- ganclaw: message a person (send_message), ask another agent and get its answer (ask_agent), run a read-only cross-model code review on a pinned provider (cross_review), hand a task to another agent whose reply goes to a person (hand_off), list agents and contacts (list_agents), and schedule/list/cancel delayed follow-up checkbacks (schedule_followup, list_followups, cancel_followup).")
 	}
 	if len(lines) == 0 {
 		return ""

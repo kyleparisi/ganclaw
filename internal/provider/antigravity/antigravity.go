@@ -173,6 +173,18 @@ func (c *client) call(id int, method string, params any) (json.RawMessage, error
 		}
 	}
 }
+
+// turnLifecycleInstructions overrides Antigravity's built-in async messaging
+// guidance because ganclaw runs one ACP subprocess per turn and shuts it down
+// as soon as the turn returns.
+const turnLifecycleInstructions = `# Turn lifecycle (ganclaw ACP)
+
+Ending your turn (responding without calling a tool) shuts down this ACP process and immediately stops any running background commands, subagents, or built-in timers. Nothing will wake you up when a background command finishes.
+
+Wait for backgrounded commands inside the current turn before giving your final reply.`
+
+const turnLifecycleMCPAppendix = ` Use ganclaw's cross_review MCP tool for cross-model code reviews instead of shelling out to another CLI, and use ganclaw's schedule_followup MCP tool when you need a wakeup in a future turn.`
+
 func (p *Provider) Run(ctx context.Context, req provider.Request) (provider.Result, error) {
 	cwd, err := filepath.Abs(req.Cwd)
 	if err != nil {
@@ -184,7 +196,14 @@ func (p *Provider) Run(ctx context.Context, req provider.Request) (provider.Resu
 	if sandbox == "" {
 		sandbox = p.cfg.Sandbox
 	}
-	if sandbox == "read-only" || sandbox == "workspace-write" || p.cfg.Mode == "auto" || req.Settings.AntigravityMode == "auto" {
+	mode := p.cfg.Mode
+	if req.Settings.AntigravityMode != "" {
+		mode = req.Settings.AntigravityMode
+	}
+	if sandbox == "read-only" || req.Settings.PermissionMode == "plan" {
+		mode = "plan"
+	}
+	if sandbox == "read-only" || sandbox == "workspace-write" || mode == "auto" || p.cfg.Mode == "auto" {
 		args = append(args, "--sandbox")
 	}
 	proc, err := p.cfg.Exec.Start(ctx, procexec.Cmd{Bin: bin, Args: args, Env: env, Dir: cwd, Stderr: io.Discard})
@@ -209,16 +228,23 @@ func (p *Provider) Run(ctx context.Context, req provider.Request) (provider.Resu
 	}()
 	// Give each configured server an unpredictable session-specific name so a
 	// workspace or global server cannot impersonate one when requesting approval.
-	sessionServers := make([]MCPServer, len(p.cfg.MCPServers))
-	for i, server := range p.cfg.MCPServers {
-		var nonce [8]byte
-		if _, err := rand.Read(nonce[:]); err != nil {
-			return provider.Result{}, err
+	var sessionServers []MCPServer
+	hasGanclawMCP := false
+	if !req.Settings.NoMCP {
+		sessionServers = make([]MCPServer, len(p.cfg.MCPServers))
+		for i, server := range p.cfg.MCPServers {
+			if server.Name == "ganclaw" {
+				hasGanclawMCP = true
+			}
+			var nonce [8]byte
+			if _, err := rand.Read(nonce[:]); err != nil {
+				return provider.Result{}, err
+			}
+			sessionServers[i] = server
+			sessionServers[i].Name = "gc_" + hex.EncodeToString(nonce[:])
 		}
-		sessionServers[i] = server
-		sessionServers[i].Name = "gc_" + hex.EncodeToString(nonce[:])
 	}
-	allowAll := sandbox == "danger-full-access" || p.cfg.Mode == "auto" || req.Settings.AntigravityMode == "auto"
+	allowAll := !req.Settings.NoMCP && mode != "plan" && sandbox != "read-only" && (sandbox == "danger-full-access" || mode == "auto")
 	c := &client{enc: json.NewEncoder(proc.Stdin), dec: json.NewDecoder(proc.Stdout), req: req, servers: sessionServers, allowAll: allowAll}
 	fail := func(err error) (provider.Result, error) {
 		if ctx.Err() != nil {
@@ -245,7 +271,16 @@ func (p *Provider) Run(ctx context.Context, req provider.Request) (provider.Resu
 		servers = []any{}
 	}
 	params := map[string]any{"cwd": cwd, "mcpServers": servers}
+	lifecycle := turnLifecycleInstructions
+	if hasGanclawMCP {
+		lifecycle += turnLifecycleMCPAppendix
+	}
 	instructions := req.Instructions
+	if instructions != "" {
+		instructions += "\n\n" + lifecycle
+	} else {
+		instructions = lifecycle
+	}
 	if len(sessionServers) > 0 {
 		instructions += "\n\nMCP server names for this session:\n"
 		for i, s := range sessionServers {
@@ -287,13 +322,6 @@ func (p *Provider) Run(ctx context.Context, req provider.Request) (provider.Resu
 		return fail(errors.New("missing session ID"))
 	}
 	res := provider.Result{Session: session.SessionID}
-	mode := p.cfg.Mode
-	if req.Settings.AntigravityMode != "" {
-		mode = req.Settings.AntigravityMode
-	}
-	if sandbox == "read-only" || req.Settings.PermissionMode == "plan" {
-		mode = "plan"
-	}
 	if mode != "" {
 		if _, err = c.call(3, "session/set_config_option", map[string]any{"sessionId": session.SessionID, "configId": "mode", "value": mode}); err != nil {
 			return res, turnError(err)
