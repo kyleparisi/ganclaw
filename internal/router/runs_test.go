@@ -248,3 +248,65 @@ func TestActiveRuns(t *testing.T) {
 		close(release)
 	})
 }
+
+func TestPinnedReadOnlyTurns(t *testing.T) {
+	subject := (*Router).Submit
+
+	t.Run("Applies read-only settings, pinned provider, and custom instructions", func(t *testing.T) {
+		var got provider.Request
+		done := make(chan TurnResult, 1)
+		r := newRouter(t, Config{
+			Agents: testAgents(),
+			Store:  store.NewTestStore(t),
+			Run: func(ctx context.Context, _ provider.Sessions, req provider.Request) (string, provider.Result, error) {
+				got = req
+				return "claude", provider.Result{Text: "LGTM"}, nil
+			},
+		})
+		require.True(t, subject(r, Message{
+			ChatKey:      "job:assistant:review:pr-1",
+			Agent:        "assistant",
+			RunKind:      "review",
+			RunLabel:     "claude: pr-1",
+			Provider:     "claude",
+			ReadOnly:     true,
+			Instructions: "Independent reviewer only.",
+			Text:         "Review commit abc",
+			Reply:        func(context.Context, string) error { return nil },
+			OnDone:       func(res TurnResult) { done <- res },
+		}))
+		res := <-done
+		require.NoError(t, res.Err)
+		assert.Equal(t, "claude", res.Provider)
+		assert.Equal(t, "LGTM", res.Text)
+		assert.Equal(t, "claude", got.Provider)
+		assert.Equal(t, "Independent reviewer only.", got.Instructions)
+		assert.Equal(t, "read-only", got.Settings.CodexSandbox)
+		assert.Equal(t, "plan", got.Settings.PermissionMode)
+		assert.Equal(t, "plan", got.Settings.AntigravityMode)
+		assert.True(t, got.Settings.NoMCP)
+	})
+
+	t.Run("Reports pinned provider unavailability accurately", func(t *testing.T) {
+		done := make(chan TurnResult, 1)
+		r := newRouter(t, Config{
+			Agents: testAgents(),
+			Store:  store.NewTestStore(t),
+			Run: func(ctx context.Context, _ provider.Sessions, req provider.Request) (string, provider.Result, error) {
+				return "", provider.Result{}, provider.ErrUnavailable
+			},
+		})
+		require.True(t, subject(r, Message{
+			ChatKey:  "job:assistant:review:pr-2",
+			Agent:    "assistant",
+			Provider: "claude",
+			ReadOnly: true,
+			Text:     "Review commit def",
+			Reply:    func(context.Context, string) error { return nil },
+			OnDone:   func(res TurnResult) { done <- res },
+		}))
+		res := <-done
+		require.ErrorIs(t, res.Err, provider.ErrUnavailable)
+		assert.Contains(t, res.Text, "Provider claude is unavailable right now.")
+	})
+}

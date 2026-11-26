@@ -111,17 +111,19 @@ final class AppStateTests: XCTestCase {
           {"id":"run-followup-thread","agent":"infra","kind":"followup","app_thread":true,"state":"running","progress":"Starting","started_at":"2026-11-25T04:00:02Z","updated_at":"2026-11-25T04:00:02Z"},
           {"id":"run-job","agent":"infra","kind":"job","label":"nightly","state":"running","progress":"Tool activity observed","started_at":"2026-11-25T04:00:02Z","updated_at":"2026-11-25T04:00:03Z"},
           {"id":"run-ask","agent":"research","kind":"ask","label":"code-review","state":"running","progress":"Tool activity observed","started_at":"2026-11-25T04:00:02Z","updated_at":"2026-11-25T04:00:03Z"},
+          {"id":"run-review","agent":"infra","kind":"review","label":"claude: pr-59","state":"running","progress":"Tool activity observed","started_at":"2026-11-25T04:00:03Z","updated_at":"2026-11-25T04:00:04Z"},
           {"id":"task-9","agent":"infra","kind":"handoff","label":"ci-check","task_id":"task-9","state":"queued","progress":"Waiting in router queue","started_at":"2026-11-25T04:00:04Z","updated_at":"2026-11-25T04:00:04Z"}
         ]}
         """
         let event = try JSON.decoder.decode(ServerEvent.self, from: Data(json.utf8))
         state.apply(.event(event))
-        XCTAssertEqual(state.activeRuns.count, 6)
-        XCTAssertEqual(state.backgroundRuns.map(\.id), ["run-app-idle", "run-job", "run-ask", "task-9"], "in-thread runs for working agents are not duplicated, while separate-session jobs and idle queued runs stay visible")
+        XCTAssertEqual(state.activeRuns.count, 7)
+        XCTAssertEqual(state.backgroundRuns.map(\.id), ["run-app-idle", "run-job", "run-ask", "run-review", "task-9"], "in-thread runs for working agents are not duplicated, while separate-session jobs and idle queued runs stay visible")
         XCTAssertEqual(state.backgroundRuns[1].kindTitle, "Scheduled job")
         XCTAssertEqual(state.backgroundRuns[2].kindTitle, "Agent request")
-        XCTAssertEqual(state.backgroundRuns[3].kindTitle, "Background task")
-        XCTAssertEqual(state.runningCount, 5)
+        XCTAssertEqual(state.backgroundRuns[3].kindTitle, "Code review")
+        XCTAssertEqual(state.backgroundRuns[4].kindTitle, "Background task")
+        XCTAssertEqual(state.runningCount, 6)
 
         let clear = try JSON.decoder.decode(ServerEvent.self, from: Data(#"{"type":"runs","runs":[]}"#.utf8))
         state.apply(.event(clear))
@@ -130,7 +132,7 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(state.runningCount, 1)
 
         state.apply(.activeRunsLoaded(event.runs ?? []))
-        XCTAssertEqual(state.activeRuns.count, 6)
+        XCTAssertEqual(state.activeRuns.count, 7)
         state.apply(.connection(.disconnected))
         XCTAssertTrue(state.activeRuns.isEmpty, "disconnect clears stale active runs until reconnect")
     }

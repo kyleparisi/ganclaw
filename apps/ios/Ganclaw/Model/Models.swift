@@ -116,7 +116,7 @@ struct ServerEvent: Codable, Equatable {
 struct ActiveRun: Codable, Hashable, Identifiable {
     var id: String
     var agent: String
-    var kind: String // app | telegram | handoff | ask | followup | job | run
+    var kind: String // app | telegram | handoff | ask | followup | job | review | run
     var label: String?
     var taskId: String?
     var appThread: Bool?
@@ -135,6 +135,7 @@ struct ActiveRun: Codable, Hashable, Identifiable {
         case "ask": "Agent request"
         case "followup": "Follow-up"
         case "job": "Scheduled job"
+        case "review": "Code review"
         default: "Background run"
         }
     }

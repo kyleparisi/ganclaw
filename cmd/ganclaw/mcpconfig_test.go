@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -79,7 +80,7 @@ func TestToolsAppendix(t *testing.T) {
 			{Name: "quiet"},
 		}})
 
-		assert.Equal(t, "# Tool servers (provided by ganclaw)\n\n- browser: headless, logged out\n- ganclaw: message a person (send_message), ask another agent and get its answer (ask_agent), hand a task to another agent whose reply goes to a person (hand_off), list agents and contacts (list_agents), and schedule/list/cancel delayed follow-up checkbacks (schedule_followup, list_followups, cancel_followup).", got)
+		assert.Equal(t, "# Tool servers (provided by ganclaw)\n\n- browser: headless, logged out\n- ganclaw: message a person (send_message), ask another agent and get its answer (ask_agent), run a read-only cross-model code review on a pinned provider (cross_review), hand a task to another agent whose reply goes to a person (hand_off), list agents and contacts (list_agents), and schedule/list/cancel delayed follow-up checkbacks (schedule_followup, list_followups, cancel_followup).", got)
 	})
 
 	t.Run("Nothing to describe", func(t *testing.T) {
@@ -90,14 +91,24 @@ func TestToolsAppendix(t *testing.T) {
 func TestMCPServers(t *testing.T) {
 	subject := mcpServers
 
-	t.Run("Adds ganclaw's agent tools with the socket", func(t *testing.T) {
-		got, err := subject(&config.Config{APISocket: "/state/ganclaw.sock", MCPServers: []config.MCPServer{browserServer}})
+	t.Run("Adds ganclaw's agent tools with the socket and turn timeout", func(t *testing.T) {
+		got, err := subject(&config.Config{
+			APISocket:   "/state/ganclaw.sock",
+			TurnTimeout: config.Duration{Duration: 25 * time.Minute},
+			MCPServers:  []config.MCPServer{browserServer},
+		})
 
 		require.NoError(t, err)
 		require.Len(t, got, 2)
 		assert.Equal(t, "ganclaw", got[1].Name)
 		assert.Equal(t, []string{"mcp"}, got[1].Args)
 		assert.Equal(t, map[string]string{"GANCLAW_SOCKET": "/state/ganclaw.sock"}, got[1].Env)
+		assert.Equal(t, 1500, got[1].ToolTimeoutSec)
+
+		fallback, err := subject(&config.Config{APISocket: "/state/ganclaw.sock"})
+		require.NoError(t, err)
+		require.Len(t, fallback, 1)
+		assert.Equal(t, 2100, fallback[0].ToolTimeoutSec)
 	})
 
 	t.Run("Can be disabled, and the name is reserved", func(t *testing.T) {

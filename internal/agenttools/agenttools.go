@@ -7,6 +7,7 @@ package agenttools
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -49,6 +50,20 @@ type AskOut struct {
 	Agent    string `json:"agent"`
 	Provider string `json:"provider"`
 	Answer   string `json:"answer"`
+}
+
+type CrossReviewIn struct {
+	Agent    string `json:"agent" jsonschema:"agent whose workspace holds the code to review; see list_agents"`
+	Provider string `json:"provider" jsonschema:"reviewer provider to run with no fallback, e.g. claude, codex, or antigravity"`
+	Prompt   string `json:"prompt" jsonschema:"what to review: repo path or branch, diff/commit range, context, and focus areas"`
+	Label    string `json:"label,omitempty" jsonschema:"optional short label shown in the Running tab, e.g. pr-42 or auth-refactor"`
+	Session  string `json:"session,omitempty" jsonschema:"optional review session name to continue a multi-round review with the same reviewer"`
+}
+
+type CrossReviewOut struct {
+	Agent    string `json:"agent"`
+	Provider string `json:"provider"`
+	Review   string `json:"review"`
 }
 
 // BackgroundJob is the app job name for work handed off to its own session.
@@ -99,6 +114,41 @@ func NewServer(d Deps, version string) *mcp.Server {
 		}
 		resp, err := d.Run(ctx, api.RunRequest{Agent: in.Agent, Prompt: in.Prompt, Session: in.Session, Source: "ask"})
 		return nil, AskOut{Agent: in.Agent, Provider: resp.Provider, Answer: resp.Text}, err
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "cross_review",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		Description: "Run a synchronous, read-only cross-model code review in an agent's workspace using a pinned provider (claude, codex, or antigravity) with no fallback. Waits inside your turn and returns the review directly while showing live progress in the Running tab. Fails instead of substituting another provider if the requested provider is unavailable.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in CrossReviewIn) (*mcp.CallToolResult, CrossReviewOut, error) {
+		if d.Run == nil {
+			return nil, CrossReviewOut{}, errors.New("agent runs unavailable")
+		}
+		agentName := strings.TrimSpace(in.Agent)
+		prov := strings.TrimSpace(in.Provider)
+		prompt := strings.TrimSpace(in.Prompt)
+		label := strings.TrimSpace(in.Label)
+		session := strings.TrimSpace(in.Session)
+		if agentName == "" || prov == "" || prompt == "" {
+			return nil, CrossReviewOut{}, errors.New("agent, provider, and prompt are required")
+		}
+		runLabel := prov
+		if label != "" {
+			runLabel = prov + ": " + label
+		}
+		resp, err := d.Run(ctx, api.RunRequest{
+			Agent:    agentName,
+			Prompt:   prompt,
+			Session:  session,
+			Provider: prov,
+			ReadOnly: true,
+			Source:   "review",
+			Label:    runLabel,
+		})
+		if err != nil {
+			return nil, CrossReviewOut{}, err
+		}
+		return nil, CrossReviewOut{Agent: agentName, Provider: resp.Provider, Review: resp.Text}, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

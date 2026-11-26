@@ -34,6 +34,8 @@ type Request struct {
 	OnReset func()
 	// Settings are the agent's per-provider options.
 	Settings Settings
+	// Provider, if non-empty, pins this turn to that configured provider with no fallback.
+	Provider string
 }
 
 // Settings are per-agent provider options. Zero values mean the provider's
@@ -45,6 +47,8 @@ type Settings struct {
 	AntigravityMode  string
 	ClaudeModel      string
 	PermissionMode   string // claude --permission-mode
+	// NoMCP disables MCP servers for this turn where supported (e.g. read-only reviews).
+	NoMCP bool
 }
 
 // Attachment kinds.

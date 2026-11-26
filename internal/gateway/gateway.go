@@ -176,6 +176,12 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 		req.Prompt = WithHeartbeat(req.Prompt, a.Workspace)
 	}
 
+	session := req.Session
+	if req.Source == "review" && session != "" {
+		// Keep read-only review sessions isolated from writable job sessions of the same name.
+		session = "review:" + session
+	}
+
 	var m router.Message
 	if t != nil && t.Channel == "app" {
 		// The reply lands in the target agent's thread, tagged with the
@@ -192,8 +198,8 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 		if req.Agent != t.Bot {
 			m.ChatKey += ":" + req.Agent
 		}
-		if req.Session != "" {
-			m.ChatKey = JobKey(req.Agent, req.Session)
+		if session != "" {
+			m.ChatKey = JobKey(req.Agent, session)
 		}
 		if m.ChatKey != appchannel.ChatKey(t.Bot) || (job != "" && job != store.BackgroundJob) {
 			// Separate-session jobs and follow-ups don't occupy the agent's
@@ -203,13 +209,13 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 	} else if t != nil {
 		b := g.Bots[t.Bot]
 		m = b.Message(t.Chat, req.Agent, req.Prompt)
-		if req.Session != "" {
+		if session != "" {
 			// Deliver to the chat but keep the work in its own conversation.
-			m.ChatKey = JobKey(req.Agent, req.Session)
+			m.ChatKey = JobKey(req.Agent, session)
 		}
 	} else {
 		m = router.Message{
-			ChatKey: JobKey(req.Agent, req.Session),
+			ChatKey: JobKey(req.Agent, session),
 			Agent:   req.Agent,
 			Text:    req.Prompt,
 			Reply:   func(context.Context, string) error { return nil }, // returned to the caller instead
@@ -229,6 +235,12 @@ func (g *Gateway) Run(ctx context.Context, req api.RunRequest, t *api.Target) (r
 	}
 	m.RunKind = runKind(req, t)
 	m.RunLabel = runLabel(req)
+	m.Provider = strings.TrimSpace(req.Provider)
+	m.ReadOnly = req.ReadOnly
+	if req.Source == "review" {
+		m.ReadOnly = true
+		m.Instructions = reviewInstructions
+	}
 	log := logx.OrDiscard(g.Logger).With("agent", req.Agent, "chat", m.ChatKey)
 	if req.Async {
 		task, err := g.Router.CreateTask(ctx, req.Agent)
@@ -358,10 +370,19 @@ func chain(first, next func(router.TurnResult)) func(router.TurnResult) {
 	}
 }
 
+const reviewInstructions = `# Code review
+
+You are performing an independent, read-only code review in this workspace.
+
+- Inspect the requested git diff, commits, or files directly using read-only commands and file reads.
+- Do not modify files, commit, push, or run destructive commands.
+- Report concrete findings ranked by severity (High, Medium, Low) with file paths and line references, plus any missing tests or edge cases.
+- End with a clear verdict on whether the change is ready to push or needs revisions first.`
+
 // runKind classifies an API run for live activity views.
 func runKind(req api.RunRequest, t *api.Target) string {
 	switch req.Source {
-	case "ask", "handoff", "followup":
+	case "ask", "handoff", "followup", "review":
 		return req.Source
 	}
 	if req.Async {
@@ -377,6 +398,9 @@ func runKind(req api.RunRequest, t *api.Target) string {
 }
 
 func runLabel(req api.RunRequest) string {
+	if req.Label != "" {
+		return req.Label
+	}
 	if req.Job != "" && req.Job != store.BackgroundJob {
 		return req.Job
 	}

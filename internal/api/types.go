@@ -61,8 +61,15 @@ type RunRequest struct {
 	Heartbeat bool `json:"heartbeat,omitempty"`
 	// Async queues the run and returns immediately with queued=true.
 	Async bool `json:"async,omitempty"`
-	// Source classifies the caller for live run visibility (e.g. "ask", "handoff", "followup").
+	// Source classifies the caller for live run visibility (e.g. "ask", "handoff", "followup", "review").
 	Source string `json:"source,omitempty"`
+	// Provider pins the turn to one configured provider (e.g. "claude", "codex",
+	// "antigravity") with no fallback.
+	Provider string `json:"provider,omitempty"`
+	// ReadOnly forces read-only / plan mode and disables MCP servers where supported.
+	ReadOnly bool `json:"read_only,omitempty"`
+	// Label is an optional safe label shown in live run activity views.
+	Label string `json:"label,omitempty"`
 }
 
 type RunResponse struct {

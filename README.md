@@ -33,7 +33,8 @@ every agent. Idle, it uses about 20 MB.
   chats to their session IDs). Messages in a chat run one at a time.
 - **Agent tools via MCP.** Any stdio MCP server (for example a Playwright
   browser) is given to every agent, and ganclaw adds its own tools so agents
-  can message people (`send_message`), ask another agent (`ask_agent`), hand
+  can message people (`send_message`), ask another agent (`ask_agent`), run a
+  read-only cross-model code review on a pinned provider (`cross_review`), hand
   work to one (`hand_off`), see who's available (`list_agents`), and schedule
   persisted one-shot checkbacks (`schedule_followup`, `list_followups`,
   `cancel_followup`) when waiting on CI, builds, or external work.
@@ -259,7 +260,7 @@ service user and root are refused (checked with `SO_PEERCRED`).
 | Endpoint | Purpose |
 |---|---|
 | `POST /v1/send` | `{to, via?, text, idempotency_key?}` |
-| `POST /v1/run` | `{agent, prompt, to?, via?, session?, timeout_seconds?, quiet?, heartbeat?, async?, source?, idempotency_key?}` |
+| `POST /v1/run` | `{agent, prompt, to?, via?, session?, timeout_seconds?, quiet?, heartbeat?, async?, source?, provider?, read_only?, label?, idempotency_key?}` |
 | `GET /v1/tasks/{id}` | persisted background task status |
 | `GET /v1/tasks?agent=support` | latest 50 tasks, optional agent filter |
 | `POST /v1/followups` | `{agent, to, via?, session?, prompt, delay_seconds, quiet?, idempotency_key?}` → schedule a one-shot delayed checkback |

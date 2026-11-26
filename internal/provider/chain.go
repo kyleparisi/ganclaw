@@ -70,20 +70,36 @@ func (c *Chain) Run(ctx context.Context, sessions Sessions, req Request) (string
 		return "", Result{}, errors.New("no providers configured")
 	}
 
-	// Providers still cooling down go to the back of the line: they are
-	// only tried if everything else fails too.
-	var ready, cooling []Provider
-	for _, p := range c.Providers {
-		if c.coolingDown(ctx, p) {
-			cooling = append(cooling, p)
-		} else {
-			ready = append(ready, p)
+	var order []Provider
+	var readyCount int
+	if req.Provider != "" {
+		for _, p := range c.Providers {
+			if p.Name() == req.Provider {
+				order = []Provider{p}
+				break
+			}
 		}
+		if len(order) == 0 {
+			return "", Result{}, fmt.Errorf("provider %q is not configured", req.Provider)
+		}
+		readyCount = 1
+	} else {
+		// Providers still cooling down go to the back of the line: they are
+		// only tried if everything else fails too.
+		var ready, cooling []Provider
+		for _, p := range c.Providers {
+			if c.coolingDown(ctx, p) {
+				cooling = append(cooling, p)
+			} else {
+				ready = append(ready, p)
+			}
+		}
+		if len(cooling) > 0 && len(ready) > 0 {
+			log.Debug("skipping providers in cooldown", "skipped", names(cooling))
+		}
+		readyCount = len(ready)
+		order = append(ready, cooling...)
 	}
-	if len(cooling) > 0 && len(ready) > 0 {
-		log.Debug("skipping providers in cooldown", "skipped", names(cooling))
-	}
-	order := append(ready, cooling...)
 
 	var attempts []Attempt
 	for i, p := range order {
@@ -117,8 +133,8 @@ func (c *Chain) Run(ctx context.Context, sessions Sessions, req Request) (string
 			log.Warn("provider unavailable", "provider", p.Name(), "skip_until", until, "err", err)
 		}
 		// Only fall through to cooling providers if nothing ready is left.
-		if i+1 == len(ready) && len(ready) < len(order) {
-			log.Info("all ready providers failed, trying providers in cooldown", "providers", names(cooling))
+		if i+1 == readyCount && readyCount < len(order) {
+			log.Info("all ready providers failed, trying providers in cooldown", "providers", names(order[readyCount:]))
 		}
 	}
 	return "", Result{}, &ChainError{Attempts: attempts}

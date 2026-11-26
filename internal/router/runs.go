@@ -13,7 +13,7 @@ import (
 type ActiveRun struct {
 	ID        string    `json:"id"`
 	Agent     string    `json:"agent"`
-	Kind      string    `json:"kind"`                 // app | telegram | handoff | ask | followup | job | run
+	Kind      string    `json:"kind"`                 // app | telegram | handoff | ask | followup | job | review | run
 	Label     string    `json:"label,omitempty"`      // optional safe label (e.g. job or session name)
 	TaskID    string    `json:"task_id,omitempty"`    // linked worker_tasks ID if backed by a persisted task
 	AppThread bool      `json:"app_thread,omitempty"` // true when this turn also drives the agent's app-thread working state

@@ -150,11 +150,20 @@ func (p *Provider) args(req provider.Request) []string {
 	if m := firstNonEmpty(req.Settings.ClaudeModel, p.cfg.Model); m != "" {
 		args = append(args, "--model", m)
 	}
-	if p.cfg.MCPConfig != "" {
+	if req.Settings.NoMCP {
+		args = append(args, "--strict-mcp-config")
+	} else if p.cfg.MCPConfig != "" {
 		args = append(args, "--mcp-config", p.cfg.MCPConfig, "--strict-mcp-config")
 	}
-	if len(p.cfg.AllowedTools) > 0 {
-		args = append(args, "--allowedTools", strings.Join(p.cfg.AllowedTools, ","))
+	var allowed []string
+	for _, t := range p.cfg.AllowedTools {
+		if req.Settings.NoMCP && strings.HasPrefix(t, "mcp__") {
+			continue
+		}
+		allowed = append(allowed, t)
+	}
+	if len(allowed) > 0 {
+		args = append(args, "--allowedTools", strings.Join(allowed, ","))
 	}
 	if req.Session != "" {
 		args = append(args, "--resume", req.Session)
