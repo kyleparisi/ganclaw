@@ -140,12 +140,14 @@ func (p *Provider) Run(ctx context.Context, req provider.Request) (provider.Resu
 }
 
 func (p *Provider) args(req provider.Request) []string {
+	perm := firstNonEmpty(req.Settings.PermissionMode, p.cfg.PermissionMode)
+	readOnly := req.Settings.NoMCP || perm == "plan"
 	args := []string{
 		"-p",
 		"--output-format", "stream-json",
 		"--verbose",
 		"--include-partial-messages",
-		"--permission-mode", firstNonEmpty(req.Settings.PermissionMode, p.cfg.PermissionMode),
+		"--permission-mode", perm,
 	}
 	if m := firstNonEmpty(req.Settings.ClaudeModel, p.cfg.Model); m != "" {
 		args = append(args, "--model", m)
@@ -160,10 +162,16 @@ func (p *Provider) args(req provider.Request) []string {
 		if req.Settings.NoMCP && strings.HasPrefix(t, "mcp__") {
 			continue
 		}
+		if readOnly && !isReadOnlyClaudeTool(t) {
+			continue
+		}
 		allowed = append(allowed, t)
 	}
 	if len(allowed) > 0 {
 		args = append(args, "--allowedTools", strings.Join(allowed, ","))
+	}
+	if readOnly {
+		args = append(args, "--disallowedTools", "Edit,Write,NotebookEdit")
 	}
 	if req.Session != "" {
 		args = append(args, "--resume", req.Session)
@@ -173,7 +181,43 @@ func (p *Provider) args(req provider.Request) []string {
 	if req.Instructions != "" {
 		args = append(args, "--append-system-prompt", req.Instructions)
 	}
-	return append(args, p.cfg.ExtraArgs...)
+	extra := p.cfg.ExtraArgs
+	if readOnly {
+		extra = filterReadOnlyExtraArgs(extra)
+	}
+	return append(args, extra...)
+}
+
+func isReadOnlyClaudeTool(tool string) bool {
+	switch tool {
+	case "Read", "Grep", "Glob", "WebSearch", "WebFetch":
+		return true
+	}
+	return false
+}
+
+// filterReadOnlyExtraArgs removes global ExtraArgs that could re-enable MCP
+// servers or loosen permissions during a read-only / NoMCP turn.
+func filterReadOnlyExtraArgs(extra []string) []string {
+	var out []string
+	for i := 0; i < len(extra); i++ {
+		arg := extra[i]
+		name, hasEq := arg, false
+		if k, _, ok := strings.Cut(arg, "="); ok {
+			name, hasEq = k, true
+		}
+		switch name {
+		case "--mcp-config", "--permission-mode", "--allowedTools", "--allowed-tools", "--disallowedTools", "--disallowed-tools":
+			if !hasEq && i+1 < len(extra) {
+				i++
+			}
+			continue
+		case "--dangerously-skip-permissions":
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
 }
 
 // env returns the base environment with API-key credentials removed, so the

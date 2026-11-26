@@ -94,11 +94,12 @@ func TestRun(t *testing.T) {
 		require.ErrorIs(t, err, provider.ErrUnavailable)
 	})
 
-	t.Run("Appends turn lifecycle guidance and honors NoMCP in read-only mode", func(t *testing.T) {
-		runOnce := func(t *testing.T, settings provider.Settings) (string, []any, string, string) {
+	t.Run("Appends turn lifecycle guidance and honors NoMCP and plan mode", func(t *testing.T) {
+		runOnce := func(t *testing.T, settings provider.Settings) (string, []any, string, string, []string) {
 			t.Helper()
 			var gotPrompt, gotMode, gotDecision string
 			var gotServers []any
+			var gotArgs []string
 			p := subject(Config{
 				Mode: "auto",
 				MCPServers: []MCPServer{
@@ -106,6 +107,7 @@ func TestRun(t *testing.T) {
 				},
 				Environ: func() []string { return []string{"HOME=" + t.TempDir(), "PATH=/usr/bin:/bin"} },
 				Exec: procexec.Exec{Start: func(ctx context.Context, cmd procexec.Cmd) (*procexec.Proc, error) {
+					gotArgs = cmd.Args
 					inReader, inWriter := io.Pipe()
 					outReader, outWriter := io.Pipe()
 					go func() {
@@ -176,24 +178,32 @@ func TestRun(t *testing.T) {
 			})
 			_, err := p.Run(context.Background(), provider.Request{Cwd: t.TempDir(), Instructions: "Base instructions.", Prompt: "check", Settings: settings})
 			require.NoError(t, err)
-			return gotPrompt, gotServers, gotMode, gotDecision
+			return gotPrompt, gotServers, gotMode, gotDecision, gotArgs
 		}
 
-		normalPrompt, normalServers, normalMode, normalDecision := runOnce(t, provider.Settings{})
+		normalPrompt, normalServers, normalMode, normalDecision, normalArgs := runOnce(t, provider.Settings{})
 		assert.Contains(t, normalPrompt, "Base instructions.")
 		assert.Contains(t, normalPrompt, "Ending your turn")
 		assert.Contains(t, normalPrompt, "cross_review")
 		assert.Len(t, normalServers, 1)
 		assert.Equal(t, "auto", normalMode)
 		assert.Equal(t, "yes", normalDecision)
+		assert.Contains(t, normalArgs, "--sandbox")
 
-		roPrompt, roServers, roMode, roDecision := runOnce(t, provider.Settings{CodexSandbox: "read-only", AntigravityMode: "plan", NoMCP: true})
+		roPrompt, roServers, roMode, roDecision, roArgs := runOnce(t, provider.Settings{CodexSandbox: "read-only", AntigravityMode: "plan", NoMCP: true})
 		assert.Contains(t, roPrompt, "Ending your turn")
 		assert.NotContains(t, roPrompt, "cross_review")
 		assert.NotContains(t, roPrompt, "MCP server names for this session:")
 		assert.Empty(t, roServers)
 		assert.Equal(t, "plan", roMode)
 		assert.Equal(t, "no", roDecision)
+		assert.Contains(t, roArgs, "--sandbox")
+
+		// PermissionMode "plan" alone forces plan mode and denies allowAll while keeping --sandbox.
+		_, _, planMode, planDecision, planArgs := runOnce(t, provider.Settings{CodexSandbox: "danger-full-access", PermissionMode: "plan"})
+		assert.Equal(t, "plan", planMode)
+		assert.Equal(t, "no", planDecision)
+		assert.Contains(t, planArgs, "--sandbox")
 	})
 }
 

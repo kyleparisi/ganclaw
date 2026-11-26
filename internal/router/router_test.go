@@ -80,7 +80,7 @@ func TestRouterSubmit(t *testing.T) {
 			Store:  db,
 			Run: func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
 				assert.Equal(t, "/ws/assistant", req.Cwd)
-				assert.Equal(t, "# SOUL.md\n\nBe helpful.\n\n"+turnBudgetInstructions(35*time.Minute), req.Instructions)
+				assert.Equal(t, "# SOUL.md\n\nBe helpful.\n\n"+turnBudgetInstructions(35*time.Minute, false), req.Instructions)
 				assert.Equal(t, "hello", req.Prompt)
 				assert.Empty(t, sessions)
 				sessions["codex"] = "c-1"
@@ -859,10 +859,12 @@ func TestExtractMedia(t *testing.T) {
 func TestTurnBudgetInstructions(t *testing.T) {
 	subject := turnBudgetInstructions
 	t.Run("States the configured budget in short form", func(t *testing.T) {
-		assert.Contains(t, subject(20*time.Minute), "limited to about 20m.")
-		assert.Contains(t, subject(time.Hour), "limited to about 1h.")
-		assert.Contains(t, subject(90*time.Second), "limited to about 1m30s.")
-		assert.Contains(t, subject(20*time.Minute), "follow-up checkback")
+		assert.Contains(t, subject(20*time.Minute, false), "limited to about 20m.")
+		assert.Contains(t, subject(time.Hour, false), "limited to about 1h.")
+		assert.Contains(t, subject(90*time.Second, false), "limited to about 1m30s.")
+		assert.Contains(t, subject(20*time.Minute, false), "follow-up checkback")
+		assert.Contains(t, subject(20*time.Minute, true), "limited to about 20m.")
+		assert.NotContains(t, subject(20*time.Minute, true), "follow-up checkback")
 	})
 }
 

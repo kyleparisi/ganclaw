@@ -141,12 +141,13 @@ func TestProviderRun(t *testing.T) {
 		assert.NotContains(t, args, "claude-opus-5-5")
 	})
 
-	t.Run("NoMCP omits mcp config and mcp allowed tools while keeping strict isolation", func(t *testing.T) {
+	t.Run("NoMCP omits mcp config, unsafe allowed tools, and conflicting extra args", func(t *testing.T) {
 		var cmd procexec.Cmd
 		subject := New(Config{
 			PermissionMode: "acceptEdits",
 			MCPConfig:      "/state/claude-mcp.json",
-			AllowedTools:   []string{"WebSearch", "mcp__browser", "mcp__ganclaw"},
+			AllowedTools:   []string{"Read", "WebSearch", "Bash", "Edit", "Write", "mcp__browser", "mcp__ganclaw"},
+			ExtraArgs:      []string{"--mcp-config", "/override.json", "--permission-mode=bypassPermissions", "--dangerously-skip-permissions", "--allowedTools", "Bash", "--max-turns", "5"},
 			Environ:        func() []string { return nil },
 			Exec:           fakeExec(&cmd, nil, jsonl(lineInit, lineSuccess), "", nil),
 		})
@@ -160,9 +161,14 @@ func TestProviderRun(t *testing.T) {
 		args := strings.Join(cmd.Args, " ")
 		assert.Contains(t, args, "--strict-mcp-config")
 		assert.NotContains(t, args, "--mcp-config")
-		assert.Contains(t, args, "--allowedTools WebSearch")
+		assert.Contains(t, args, "--allowedTools Read,WebSearch")
+		assert.Contains(t, args, "--disallowedTools Edit,Write,NotebookEdit")
 		assert.NotContains(t, args, "mcp__")
+		assert.NotContains(t, args, "Bash")
+		assert.NotContains(t, args, "bypassPermissions")
+		assert.NotContains(t, args, "--dangerously-skip-permissions")
 		assert.Contains(t, args, "--permission-mode plan")
+		assert.Contains(t, args, "--max-turns 5")
 	})
 
 	t.Run("Separates text blocks around tool calls", func(t *testing.T) {

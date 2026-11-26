@@ -60,6 +60,16 @@ func (e *ChainError) Unwrap() []error {
 	return errs
 }
 
+// Has reports whether a provider with the given name is configured in the chain.
+func (c *Chain) Has(name string) bool {
+	for _, p := range c.Providers {
+		if p.Name() == name {
+			return true
+		}
+	}
+	return false
+}
+
 // Run sends req to the first provider that succeeds. req.Session is ignored;
 // each provider's session comes from sessions, which is updated in place
 // with any session a provider returns (even on failure). It returns the name
@@ -73,6 +83,9 @@ func (c *Chain) Run(ctx context.Context, sessions Sessions, req Request) (string
 	var order []Provider
 	var readyCount int
 	if req.Provider != "" {
+		// Pinned requests bypass cooldown skipping so callers get an explicit
+		// attempt on the requested provider (never falling back). Real
+		// unavailability still records the shared cooldown below.
 		for _, p := range c.Providers {
 			if p.Name() == req.Provider {
 				order = []Provider{p}

@@ -118,6 +118,9 @@ func mcpServers(cfg *config.Config) ([]config.MCPServer, error) {
 	if err != nil {
 		return nil, err
 	}
+	// ToolTimeoutSec is forwarded to Codex's MCP client (Claude and Antigravity
+	// use their own client timeouts) so long ask_agent/cross_review calls don't
+	// time out at Codex's 60s default.
 	timeoutSec := int(cfg.TurnTimeout.Duration.Seconds())
 	if timeoutSec <= 0 {
 		timeoutSec = 2100

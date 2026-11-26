@@ -322,4 +322,51 @@ func TestActiveRunMetadata(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "codex-job-1", jobSessions["codex"])
 	})
+
+	t.Run("Validates pinned provider, reserves review prefix, and isolates targeted empty-session reviews", func(t *testing.T) {
+		ctx := context.Background()
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		g, db := newGateway(t, &sentMessages{}, func(ctx context.Context, sessions provider.Sessions, req provider.Request) (string, provider.Result, error) {
+			sessions["claude"] = "claude-targeted-1"
+			close(entered)
+			<-release
+			return "claude", provider.Result{Text: "Looks good."}, nil
+		})
+		g.App = &appchannel.Channel{Agents: g.Agents, Store: db, FilesDir: t.TempDir()}
+		g.HasProvider = func(name string) bool { return name == "claude" }
+
+		_, err := subject(g, ctx, api.RunRequest{Agent: "support", Prompt: "check", Provider: "Claude"}, nil)
+		var apiErr *api.Error
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, api.CodeBadRequest, apiErr.Code)
+
+		_, err = subject(g, ctx, api.RunRequest{Agent: "support", Prompt: "hijack", Session: "review:pr-42", Source: "ask"}, nil)
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, api.CodeBadRequest, apiErr.Code)
+
+		done := make(chan error, 1)
+		go func() {
+			_, runErr := subject(g, ctx, api.RunRequest{
+				Agent:    "support",
+				Prompt:   "Review diff",
+				Provider: "claude",
+				Source:   "review",
+				Label:    "claude: ad-hoc",
+			}, &api.Target{Channel: "app", Bot: "support"})
+			done <- runErr
+		}()
+		<-entered
+		runs := g.Router.ActiveRuns()
+		require.Len(t, runs, 1)
+		assert.Equal(t, "review", runs[0].Kind)
+		assert.Equal(t, "claude: ad-hoc", runs[0].Label)
+		assert.False(t, runs[0].AppThread, "even a targeted review without a session must not join the interactive app thread")
+		close(release)
+		require.NoError(t, <-done)
+
+		appSessions, err := db.Sessions(ctx, appchannel.ChatKey("support"))
+		require.NoError(t, err)
+		assert.Empty(t, appSessions, "targeted review must not store sessions under app:<agent>")
+	})
 }

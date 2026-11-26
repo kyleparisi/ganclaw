@@ -147,6 +147,76 @@ func TestProviderRun(t *testing.T) {
 		assert.Equal(t, []string{"initialize", "thread/start", "turn/start"}, server.Calls())
 	})
 
+	t.Run("NoMCP disables configured and config/read MCP servers on the thread", func(t *testing.T) {
+		var startParams threadParams
+		var resumeParams threadParams
+		server := &fakeAppServer{
+			Handle: func(s *fakeAppServer, method string, params json.RawMessage) (any, *rpcError) {
+				switch method {
+				case "config/read":
+					var p configReadParams
+					assert.NoError(t, json.Unmarshal(params, &p))
+					assert.Equal(t, "/work/agent", p.Cwd)
+					return map[string]any{
+						"config": map[string]any{
+							"mcp_servers": map[string]any{
+								"ganclaw": map[string]any{"command": "/bin/ganclaw"},
+								"custom":  map[string]any{"command": "/bin/custom"},
+							},
+						},
+					}, nil
+				case "thread/start":
+					assert.NoError(t, json.Unmarshal(params, &startParams))
+					return threadResult("thread-ro"), nil
+				case "thread/resume":
+					assert.NoError(t, json.Unmarshal(params, &resumeParams))
+					return threadResult(resumeParams.ThreadID), nil
+				case "turn/start":
+					var p turnStartParams
+					assert.NoError(t, json.Unmarshal(params, &p))
+					s.NotifyAfterReply("item/completed", itemEvent(p.ThreadID, "turn-1", agentItem("m1", "final_answer", "LGTM")))
+					s.NotifyAfterReply("turn/completed", completed(p.ThreadID, "turn-1", "completed", nil))
+					return turnResult("turn-1"), nil
+				}
+				return nil, &rpcError{Code: -32601, Message: method}
+			},
+		}
+		subject, err := New(context.Background(), Config{
+			Bin:       "codex-test",
+			Sandbox:   "workspace-write",
+			Overrides: []string{`web_search="live"`, `mcp_servers.browser.command="node"`, `mcp_servers.ganclaw.command="/bin/ganclaw"`},
+			Exec:      server.Exec(),
+		})
+		require.NoError(t, err)
+		defer subject.Close()
+
+		res, err := subject.Run(context.Background(), provider.Request{
+			Cwd:      "/work/agent",
+			Prompt:   "review diff",
+			Settings: provider.Settings{CodexSandbox: "read-only", NoMCP: true},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "LGTM", res.Text)
+		assert.Equal(t, "read-only", startParams.Sandbox)
+		assert.Equal(t, map[string]any{
+			"mcp_servers.browser.enabled": false,
+			"mcp_servers.ganclaw.enabled": false,
+			"mcp_servers.custom.enabled":  false,
+		}, startParams.Config)
+
+		// Resuming the same thread with different NoMCP/sandbox must re-run thread/resume.
+		_, err = subject.Run(context.Background(), provider.Request{
+			Cwd:      "/work/agent",
+			Session:  res.Session,
+			Prompt:   "follow-up",
+			Settings: provider.Settings{CodexSandbox: "workspace-write", NoMCP: false},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, res.Session, resumeParams.ThreadID)
+		assert.Equal(t, "workspace-write", resumeParams.Sandbox)
+		assert.Empty(t, resumeParams.Config)
+	})
+
 	t.Run("Images are attached as localImage inputs", func(t *testing.T) {
 		server := &fakeAppServer{
 			Handle: func(s *fakeAppServer, method string, params json.RawMessage) (any, *rpcError) {

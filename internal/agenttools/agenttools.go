@@ -119,7 +119,7 @@ func NewServer(d Deps, version string) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "cross_review",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-		Description: "Run a synchronous, read-only cross-model code review in an agent's workspace using a pinned provider (claude, codex, or antigravity) with no fallback. Waits inside your turn and returns the review directly while showing live progress in the Running tab. Fails instead of substituting another provider if the requested provider is unavailable.",
+		Description: "Run a synchronous, read-only cross-model code review in an agent's workspace using a pinned provider (claude, codex, or antigravity) with no fallback and MCP tools disabled. Waits inside your turn (sharing your turn time budget) and returns the review directly while showing live progress in the Running tab. Fails instead of substituting another provider if the requested provider is unavailable.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in CrossReviewIn) (*mcp.CallToolResult, CrossReviewOut, error) {
 		if d.Run == nil {
 			return nil, CrossReviewOut{}, errors.New("agent runs unavailable")

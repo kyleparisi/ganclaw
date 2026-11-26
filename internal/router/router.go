@@ -515,12 +515,10 @@ func (r *Router) process(m Message) {
 	if m.attachmentNotes != nil {
 		m.Text += *m.attachmentNotes
 	}
-	if !m.ReadOnly {
-		if instructions != "" {
-			instructions += "\n\n"
-		}
-		instructions += turnBudgetInstructions(r.cfg.TurnTimeout)
+	if instructions != "" {
+		instructions += "\n\n"
 	}
+	instructions += turnBudgetInstructions(r.cfg.TurnTimeout, m.ReadOnly)
 	settings := a.Settings
 	if m.ReadOnly {
 		settings.CodexSandbox = "read-only"
@@ -591,7 +589,7 @@ func (r *Router) process(m Message) {
 	log.Info("turn answered", "provider", used, "reply_len", len(res.Text), "duration", time.Since(start))
 	text := res.Text
 	var media []string
-	if m.SendFile != nil {
+	if m.SendFile != nil && !m.ReadOnly {
 		text, media = ExtractMedia(text)
 		if strings.TrimSpace(text) == "" && len(media) > 0 {
 			text = "📎"
@@ -609,12 +607,14 @@ func (r *Router) process(m Message) {
 // It depends only on config, never on per-turn state like the deadline, so
 // the instructions stay identical across turns and providers' prompt caches
 // keep hitting on resumed conversations.
-func turnBudgetInstructions(budget time.Duration) string {
-	return fmt.Sprintf(`# Long-running work
+func turnBudgetInstructions(budget time.Duration, readOnly bool) string {
+	text := fmt.Sprintf(`# Long-running work
 
-Each turn is limited to about %s. Break anything that might take a while (builds, test suites, migrations, waiting on CI) into small units of safe, resumable work. Save progress as you go, and if work remains, end with a clear handoff: what's done, what's left, and the next step. Don't claim unfinished work is complete.
-
-Once your turn ends, nothing wakes you up unless a follow-up checkback is scheduled. Never say you will monitor CI, builds, deploys, or follow up later unless you actually schedule a checkback before ending your turn.`, shortDuration(budget))
+Each turn is limited to about %s. Break anything that might take a while (builds, test suites, migrations, waiting on CI) into small units of safe, resumable work. Save progress as you go, and if work remains, end with a clear handoff: what's done, what's left, and the next step. Don't claim unfinished work is complete.`, shortDuration(budget))
+	if !readOnly {
+		text += "\n\nOnce your turn ends, nothing wakes you up unless a follow-up checkback is scheduled. Never say you will monitor CI, builds, deploys, or follow up later unless you actually schedule a checkback before ending your turn."
+	}
+	return text
 }
 
 // shortDuration formats d without trailing zero units: 20m, 1h, 1m30s.

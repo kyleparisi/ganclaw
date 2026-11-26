@@ -183,6 +183,9 @@ func TestChainRun(t *testing.T) {
 		assert.EqualError(t, err, `provider "missing" is not configured`)
 		assert.False(t, errors.Is(err, ErrUnavailable))
 		assert.Equal(t, 0, codexCalls)
+		assert.True(t, subject.Has("claude"))
+		assert.True(t, subject.Has("codex"))
+		assert.False(t, subject.Has("missing"))
 	})
 }
 

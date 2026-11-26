@@ -252,15 +252,16 @@ func TestActiveRuns(t *testing.T) {
 func TestPinnedReadOnlyTurns(t *testing.T) {
 	subject := (*Router).Submit
 
-	t.Run("Applies read-only settings, pinned provider, and custom instructions", func(t *testing.T) {
+	t.Run("Applies read-only settings, pinned provider, custom instructions, and disables file sending", func(t *testing.T) {
 		var got provider.Request
+		var sentFile bool
 		done := make(chan TurnResult, 1)
 		r := newRouter(t, Config{
 			Agents: testAgents(),
 			Store:  store.NewTestStore(t),
 			Run: func(ctx context.Context, _ provider.Sessions, req provider.Request) (string, provider.Result, error) {
 				got = req
-				return "claude", provider.Result{Text: "LGTM"}, nil
+				return "claude", provider.Result{Text: "LGTM\nMEDIA: /etc/passwd"}, nil
 			},
 		})
 		require.True(t, subject(r, Message{
@@ -273,14 +274,18 @@ func TestPinnedReadOnlyTurns(t *testing.T) {
 			Instructions: "Independent reviewer only.",
 			Text:         "Review commit abc",
 			Reply:        func(context.Context, string) error { return nil },
+			SendFile:     func(context.Context, string) error { sentFile = true; return nil },
 			OnDone:       func(res TurnResult) { done <- res },
 		}))
 		res := <-done
 		require.NoError(t, res.Err)
 		assert.Equal(t, "claude", res.Provider)
-		assert.Equal(t, "LGTM", res.Text)
+		assert.Equal(t, "LGTM\nMEDIA: /etc/passwd", res.Text)
+		assert.False(t, sentFile, "read-only turns must not upload files via MEDIA: lines")
 		assert.Equal(t, "claude", got.Provider)
-		assert.Equal(t, "Independent reviewer only.", got.Instructions)
+		assert.Contains(t, got.Instructions, "Independent reviewer only.")
+		assert.Contains(t, got.Instructions, "Each turn is limited to about")
+		assert.NotContains(t, got.Instructions, "follow-up checkback")
 		assert.Equal(t, "read-only", got.Settings.CodexSandbox)
 		assert.Equal(t, "plan", got.Settings.PermissionMode)
 		assert.Equal(t, "plan", got.Settings.AntigravityMode)

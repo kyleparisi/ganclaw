@@ -203,7 +203,7 @@ func (p *Provider) Run(ctx context.Context, req provider.Request) (provider.Resu
 	if sandbox == "read-only" || req.Settings.PermissionMode == "plan" {
 		mode = "plan"
 	}
-	if sandbox == "read-only" || sandbox == "workspace-write" || mode == "auto" {
+	if sandbox == "read-only" || sandbox == "workspace-write" || mode == "auto" || p.cfg.Mode == "auto" {
 		args = append(args, "--sandbox")
 	}
 	proc, err := p.cfg.Exec.Start(ctx, procexec.Cmd{Bin: bin, Args: args, Env: env, Dir: cwd, Stderr: io.Discard})

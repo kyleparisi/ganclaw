@@ -47,7 +47,7 @@ type Settings struct {
 	AntigravityMode  string
 	ClaudeModel      string
 	PermissionMode   string // claude --permission-mode
-	// NoMCP disables MCP servers for this turn where supported (e.g. read-only reviews).
+	// NoMCP disables MCP servers for this turn (e.g. read-only reviews).
 	NoMCP bool
 }
 

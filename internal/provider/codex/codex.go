@@ -78,10 +78,15 @@ type Provider struct {
 type server struct {
 	proc    *procexec.Proc
 	rpc     *conn
-	done    chan struct{}   // closed when the process exits
-	loaded  map[string]bool // threads loaded in this process
+	done    chan struct{}           // closed when the process exits
+	loaded  map[string]loadedThread // threads loaded in this process
 	exit    error
 	stopped bool // stop was called; exit is expected
+}
+
+type loadedThread struct {
+	sandbox string
+	noMCP   bool
 }
 
 func (s *server) exited() bool {
@@ -157,7 +162,7 @@ func (p *Provider) start(ctx context.Context) (*server, error) {
 	srv := &server{
 		proc:   proc,
 		done:   make(chan struct{}),
-		loaded: map[string]bool{},
+		loaded: map[string]loadedThread{},
 	}
 	srv.rpc = newConn(proc.Stdin, p.handleNotification, p.handleRequest)
 	go func() {
@@ -294,6 +299,13 @@ func (p *Provider) ensureThread(ctx context.Context, srv *server, req provider.R
 		Sandbox:               firstNonEmpty(req.Settings.CodexSandbox, p.cfg.Sandbox),
 		DeveloperInstructions: req.Instructions,
 	}
+	if req.Settings.NoMCP {
+		cfg, err := p.noMCPConfig(ctx, srv, req.Cwd)
+		if err != nil {
+			return "", err
+		}
+		params.Config = cfg
+	}
 	var resp threadResponse
 	if req.Session == "" {
 		params.ServiceName = "ganclaw"
@@ -303,9 +315,9 @@ func (p *Provider) ensureThread(ctx context.Context, srv *server, req provider.R
 		p.log.Info("thread started", "thread", resp.Thread.ID, "model", resp.Model, "cwd", req.Cwd)
 	} else {
 		p.mu.Lock()
-		loaded := srv.loaded[req.Session]
+		prev, loaded := srv.loaded[req.Session]
 		p.mu.Unlock()
-		if loaded {
+		if loaded && prev.sandbox == params.Sandbox && prev.noMCP == req.Settings.NoMCP {
 			return req.Session, nil
 		}
 		params.ThreadID = req.Session
@@ -316,9 +328,58 @@ func (p *Provider) ensureThread(ctx context.Context, srv *server, req provider.R
 		p.log.Info("thread resumed", "thread", resp.Thread.ID, "model", resp.Model)
 	}
 	p.mu.Lock()
-	srv.loaded[resp.Thread.ID] = true
+	srv.loaded[resp.Thread.ID] = loadedThread{sandbox: params.Sandbox, noMCP: req.Settings.NoMCP}
 	p.mu.Unlock()
 	return resp.Thread.ID, nil
+}
+
+// noMCPConfig returns per-thread config overrides that disable every MCP server
+// configured via CLI overrides or Codex config files for cwd.
+func (p *Provider) noMCPConfig(ctx context.Context, srv *server, cwd string) (map[string]any, error) {
+	names := map[string]bool{}
+	for _, name := range mcpServerNames(p.cfg.Overrides) {
+		names[name] = true
+	}
+	var cfgResp configReadResponse
+	if err := srv.rpc.call(ctx, "config/read", configReadParams{Cwd: cwd}, &cfgResp); err == nil {
+		for name := range cfgResp.Config.MCPServers {
+			if name != "" {
+				names[name] = true
+			}
+		}
+	} else {
+		var re *rpcError
+		if !errors.As(err, &re) {
+			return nil, p.wrapCallErr("config/read", err)
+		}
+		p.log.Debug("codex config/read unsupported, disabling override MCP servers only", "err", err)
+	}
+	if len(names) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]any, len(names))
+	for name := range names {
+		out["mcp_servers."+name+".enabled"] = false
+	}
+	return out, nil
+}
+
+func mcpServerNames(overrides []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, o := range overrides {
+		rest, ok := strings.CutPrefix(o, "mcp_servers.")
+		if !ok {
+			continue
+		}
+		name, _, ok := strings.Cut(rest, ".")
+		if !ok || name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
 }
 
 func (p *Provider) handleNotification(method string, params json.RawMessage) {
@@ -471,7 +532,7 @@ func (p *Provider) restart(reason string) {
 	if err != nil {
 		// Keep a dead server so turns fail over; the next Run retries.
 		p.log.Warn("codex app-server restart failed", "err", err)
-		srv = &server{done: make(chan struct{}), loaded: map[string]bool{}, exit: err}
+		srv = &server{done: make(chan struct{}), loaded: map[string]loadedThread{}, exit: err}
 		close(srv.done)
 	}
 
